@@ -1,10 +1,10 @@
 import unittest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 from langgraph.checkpoint.memory import MemorySaver
 
 from src.agent.multi_agent.base import BaseSubAgent
-from src.agent.multi_agent.registry import AgentRegistry, register_agent
-from src.agent.multi_agent.state import MultiAgentState, AgentResponse
+from src.agent.multi_agent.registry import AgentRegistry
+from src.agent.multi_agent.state import AgentResponse
 from src.agent.multi_agent.supervisor import SupervisorAgent
 from src.agent.multi_agent.orchestrator_graph import MultiAgentOrchestrator
 
@@ -18,11 +18,14 @@ class MockSubAgent(BaseSubAgent):
         return {
             "final_answer": "Mock ajan yanıtı",
             "sources": [{"source": "test.txt", "content": "test chunk"}],
-            "agent_trace": list(state.get("agent_trace", [])) + [{
-                "agent": self.name,
-                "action": "mock_execution",
-                "status": "success",
-            }],
+            "agent_trace": list(state.get("agent_trace", []))
+            + [
+                {
+                    "agent": self.name,
+                    "action": "mock_execution",
+                    "status": "success",
+                }
+            ],
         }
 
 
@@ -56,7 +59,9 @@ class TestMultiAgentCore(unittest.TestCase):
         class BadAgent(BaseSubAgent):
             name = ""
             description = "bad"
-            def execute(self, state): pass
+
+            def execute(self, state):
+                pass
 
         with self.assertRaises(ValueError):
             self.registry.register(BadAgent)

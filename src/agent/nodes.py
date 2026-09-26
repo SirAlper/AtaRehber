@@ -1,14 +1,26 @@
+import re
 from typing import Literal
-from langchain_huggingface import ChatHuggingFace
 from src.rag.rag_engine import RAGEngine
 from src.agent.prompts import (
-    build_rag_messages, build_grader_messages, build_refine_messages,
+    build_rag_messages,
+    build_grader_messages,
+    build_refine_messages,
     build_rewrite_messages,
-    NO_CONTEXT_RESPONSE, FALLBACK_RESPONSE
+    NO_CONTEXT_RESPONSE,
+    FALLBACK_RESPONSE,
 )
 from src.core.logger import get_logger
 
 logger = get_logger("AgentNodes")
+
+# Grade recorded when the grader itself fails; treated as "not verified" (fail closed)
+GRADE_UNAVAILABLE = "no (grader unavailable)"
+
+
+def is_grade_passed(grade) -> bool:
+    """Interpret a grader verdict: only an answer whose first word is 'yes'/'evet' counts as grounded."""
+    words = re.findall(r"\w+", str(grade or "").lower())
+    return bool(words) and words[0] in ("yes", "evet")
 
 
 class AgentNodes:
@@ -62,10 +74,7 @@ class AgentNodes:
 
         # Enrich search query with context from previous question if search_query wasn't rewritten
         if chat_history and search_query == question:
-            recent_context = " ".join([
-                turn.get("question", "") for turn in chat_history[-2:]
-                if turn.get("question")
-            ])
+            recent_context = " ".join([turn.get("question", "") for turn in chat_history[-2:] if turn.get("question")])
             search_query = f"{question} {recent_context}".strip()
 
         logger.info(f"[retrieve] Searching documents for: '{question}' (query: '{search_query}')...")
@@ -123,10 +132,10 @@ class AgentNodes:
             return {"hallucination_grade": grade}
         except (ConnectionError, TimeoutError) as e:
             logger.error(f"[grade] LLM connection error during grading: {e}")
-            return {"hallucination_grade": "yes"}
+            return {"hallucination_grade": GRADE_UNAVAILABLE}
         except Exception as e:
-            logger.error(f"[grade] Grading error, defaulting to pass: {e}")
-            return {"hallucination_grade": "yes"}
+            logger.error(f"[grade] Grading error, treating answer as unverified: {e}")
+            return {"hallucination_grade": GRADE_UNAVAILABLE}
 
     def refine(self, state: dict) -> dict:
         """Prune and re-evaluate draft answers that contain unverified or speculative statements."""
@@ -138,7 +147,11 @@ class AgentNodes:
 
         if not context:
             chat_history.append({"question": question, "answer": NO_CONTEXT_RESPONSE})
-            return {"answer": NO_CONTEXT_RESPONSE, "is_refined": False, "chat_history": chat_history}
+            return {
+                "answer": NO_CONTEXT_RESPONSE,
+                "is_refined": False,
+                "chat_history": chat_history,
+            }
 
         try:
             messages = build_refine_messages(context, question, draft_answer)
@@ -179,9 +192,7 @@ class AgentNodes:
 
     @staticmethod
     def decide_hallucinate(state: dict) -> Literal["end", "refine", "fallback"]:
-        grade = str(state.get("hallucination_grade", "")).strip().lower()
-        is_passed = "yes" in grade or "evet" in grade
-        if is_passed:
+        if is_grade_passed(state.get("hallucination_grade", "")):
             return "end"
 
         # If not refined previously (retry_count < 1), route to refine node

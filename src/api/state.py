@@ -7,11 +7,13 @@ from typing import Optional, Any
 from src.rag.document_loader import DocumentLoader
 from src.rag.rag_engine import RAGEngine
 from src.agent.agent_graph import EnterpriseRAGAgent
+from src.agent.llm import create_chat_model
 from src.connectors.db_connector import DatabaseConnector, create_sample_sqlite_db
 from src.connectors.db_loader import DatabaseTableLoader
 from src.core.config import (
     DOCS_PATH,
     DATABASE_URL,
+    DEFAULT_SQLITE_URL,
     SAMPLE_DB_PATH,
     ALLOWED_UPLOAD_EXTENSIONS,
     LLM_BACKEND,
@@ -23,6 +25,7 @@ from src.core.logger import get_logger
 logger = get_logger("API.State")
 
 # Lazy initialized singletons
+chat_model: Optional[Any] = None
 rag_engine: Optional[RAGEngine] = None
 agent: Optional[EnterpriseRAGAgent] = None
 multi_agent_orchestrator: Optional[Any] = None
@@ -39,6 +42,7 @@ class QueryConcurrencyManager:
     - Ollama: allows up to OLLAMA_NUM_PARALLEL parallel requests.
     - HuggingFace: serializes to 1 active inference to protect GPU/RAM.
     """
+
     async def __aenter__(self):
         if LLM_BACKEND == "ollama":
             await ollama_semaphore.acquire()
@@ -63,19 +67,28 @@ def get_rag_engine() -> RAGEngine:
     return rag_engine
 
 
+def get_chat_model():
+    """Shared chat model so the LLM weights are loaded into memory only once."""
+    global chat_model
+    if chat_model is None:
+        chat_model = create_chat_model()
+    return chat_model
+
+
 def get_agent() -> EnterpriseRAGAgent:
+    """Legacy single-agent Self-RAG workflow (not used by the API query endpoints)."""
     global agent
     if agent is None:
-        agent = EnterpriseRAGAgent(get_rag_engine())
+        agent = EnterpriseRAGAgent(get_rag_engine(), chat_model=get_chat_model())
     return agent
 
 
 def get_multi_agent_orchestrator():
-    global multi_agent_orchestrator, agent
+    global multi_agent_orchestrator
     if multi_agent_orchestrator is None:
         from src.agent.multi_agent.orchestrator_graph import MultiAgentOrchestrator
-        shared_model = agent.chat_model if agent is not None else None
-        multi_agent_orchestrator = MultiAgentOrchestrator(chat_model=shared_model)
+
+        multi_agent_orchestrator = MultiAgentOrchestrator(chat_model=get_chat_model())
     return multi_agent_orchestrator
 
 
@@ -89,7 +102,10 @@ def get_document_loader() -> DocumentLoader:
 def get_db_connector() -> DatabaseConnector:
     global db_connector
     if db_connector is None:
-        db_connector = DatabaseConnector()
+        # Resolved here rather than at import time: on a fresh install the sample database is
+        # only created by init_services(), after config was loaded.
+        database_url = DATABASE_URL or (DEFAULT_SQLITE_URL if os.path.exists(SAMPLE_DB_PATH) else "")
+        db_connector = DatabaseConnector(database_url=database_url)
     return db_connector
 
 
@@ -112,7 +128,8 @@ def auto_index_on_startup():
     indexed_files = set(db_stats.get("document_chunks", {}).keys())
 
     data_files = [
-        f for f in os.listdir(DOCS_PATH)
+        f
+        for f in os.listdir(DOCS_PATH)
         if os.path.isfile(os.path.join(DOCS_PATH, f)) and os.path.splitext(f)[1].lower() in ALLOWED_UPLOAD_EXTENSIONS
     ]
 
@@ -137,8 +154,9 @@ def auto_index_on_startup():
 
 def init_services():
     """Initialize all backend services and sample database on application startup."""
-    global rag_engine, agent, document_loader, db_connector, db_loader
     logger.info("Initializing Enterprise RAG services...")
+
+    apply_pending_restore()
 
     if not DATABASE_URL and not os.path.exists(SAMPLE_DB_PATH):
         try:
@@ -147,11 +165,11 @@ def init_services():
         except Exception as e:
             logger.warning(f"Could not create sample database: {e}")
 
-    rag_engine = get_rag_engine()
-    agent = get_agent()
-    document_loader = get_document_loader()
-    db_connector = get_db_connector()
-    db_loader = get_db_loader()
+    get_rag_engine()
+    get_document_loader()
+    get_db_connector()
+    get_db_loader()
+    get_multi_agent_orchestrator()
 
     auto_index_on_startup()
     logger.info("Enterprise RAG services initialized successfully.")
@@ -185,63 +203,50 @@ def cleanup_services():
 
 # ──────────────────────────── SESSION MANAGEMENT ────────────────────────────
 
+
 def cleanup_expired_sessions(max_age_days: int = 30) -> int:
-    """Remove conversation sessions older than max_age_days from SQLite checkpointer.
+    """Remove multi-agent conversation threads inactive for more than max_age_days.
 
-    Returns the number of deleted session records.
+    Returns the number of deleted threads.
     """
-    import sqlite3
+    from src.agent.multi_agent.sessions import cleanup_expired_sessions as _cleanup
 
-    db_path = os.path.join(DOCS_PATH, "conversations.db")
-    if not os.path.exists(db_path):
-        return 0
-
-    deleted = 0
-    try:
-        conn = sqlite3.connect(db_path, timeout=10.0)
-        cursor = conn.cursor()
-
-        # Get all tables that LangGraph checkpointer creates
-        cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
-        tables = [row[0] for row in cursor.fetchall()]
-
-        # LangGraph checkpointer typically uses 'checkpoints' and 'checkpoint_writes' tables
-        for table in tables:
-            if table in ("checkpoints", "checkpoint_writes"):
-                try:
-                    cursor.execute(f"SELECT COUNT(*) FROM {table}")
-                    before = cursor.fetchone()[0]
-                    # Delete old records — checkpointer stores thread_id, we clean all old data
-                    cursor.execute(f"DELETE FROM {table}")
-                    deleted += before
-                except Exception as e:
-                    logger.warning(f"Error cleaning table '{table}': {e}")
-
-        conn.commit()
-        conn.close()
-        logger.info(f"[Session Cleanup] Removed {deleted} expired session records.")
-    except Exception as e:
-        logger.error(f"[Session Cleanup] Error: {e}")
-
-    return deleted
+    return _cleanup(max_age_days=max_age_days)
 
 
 # ──────────────────────────── VECTOR DB BACKUP/RESTORE ────────────────────────────
 
+BACKUP_DIR = os.path.join(os.path.dirname(VECTOR_DB_PATH), "backups")
+BACKUP_PREFIX = "vector_db_backup_"
+# Kept inside the backups directory so a staged restore survives container re-creation
+PENDING_RESTORE_PATH = os.path.join(BACKUP_DIR, ".restore_pending")
+
+
+def is_valid_backup_name(name: str) -> bool:
+    """Backup names must be plain directory names created by backup_vector_db."""
+    return bool(name) and name == os.path.basename(name) and name.startswith(BACKUP_PREFIX) and ".." not in name
+
+
 def backup_vector_db(backup_dir: Optional[str] = None) -> str:
     """Create a timestamped backup of the ChromaDB vector database.
 
+    Index writes are paused while copying so the snapshot is consistent.
     Returns the path to the backup directory.
     """
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
     if backup_dir is None:
-        backup_dir = os.path.join(os.path.dirname(VECTOR_DB_PATH), "backups")
+        backup_dir = BACKUP_DIR
 
     os.makedirs(backup_dir, exist_ok=True)
-    backup_path = os.path.join(backup_dir, f"vector_db_backup_{timestamp}")
+    backup_path = os.path.join(backup_dir, f"{BACKUP_PREFIX}{timestamp}")
 
     try:
-        shutil.copytree(VECTOR_DB_PATH, backup_path)
+        write_lock = rag_engine.write_lock if rag_engine is not None else None
+        if write_lock is not None:
+            with write_lock:
+                shutil.copytree(VECTOR_DB_PATH, backup_path)
+        else:
+            shutil.copytree(VECTOR_DB_PATH, backup_path)
         logger.info(f"[Backup] Vector database backed up to: {backup_path}")
         return backup_path
     except FileNotFoundError:
@@ -253,31 +258,63 @@ def backup_vector_db(backup_dir: Optional[str] = None) -> str:
 
 
 def restore_vector_db(backup_path: str) -> bool:
-    """Restore ChromaDB vector database from a backup directory.
+    """Stage a backup to replace the vector database on the next server start.
 
-    WARNING: This replaces the current vector database entirely.
+    The live ChromaDB directory is never modified while the server has it open;
+    apply_pending_restore() swaps it in during startup before the index is loaded.
     """
-    if not os.path.exists(backup_path):
+    if not os.path.isdir(backup_path):
         logger.error(f"[Restore] Backup path does not exist: {backup_path}")
         return False
 
     try:
-        # Remove current vector DB
-        if os.path.exists(VECTOR_DB_PATH):
-            shutil.rmtree(VECTOR_DB_PATH)
-
-        shutil.copytree(backup_path, VECTOR_DB_PATH)
-        logger.info(f"[Restore] Vector database restored from: {backup_path}")
+        if os.path.exists(PENDING_RESTORE_PATH):
+            shutil.rmtree(PENDING_RESTORE_PATH)
+        shutil.copytree(backup_path, PENDING_RESTORE_PATH)
+        logger.info(f"[Restore] Staged restore from '{backup_path}'. It will be applied on next restart.")
         return True
     except Exception as e:
-        logger.error(f"[Restore] Failed to restore vector database: {e}")
+        logger.error(f"[Restore] Failed to stage restore: {e}")
+        return False
+
+
+def _move_directory_contents(src_dir: str, dst_dir: str) -> None:
+    """Move every entry of src_dir into dst_dir (which is created if needed)."""
+    os.makedirs(dst_dir, exist_ok=True)
+    for name in os.listdir(src_dir):
+        shutil.move(os.path.join(src_dir, name), os.path.join(dst_dir, name))
+
+
+def apply_pending_restore() -> bool:
+    """Swap a staged restore into place. Must run before the RAG engine opens the vector store.
+
+    Only the directory *contents* are moved, never the vector_db directory itself, because in
+    Docker it is a bind-mount point that cannot be renamed. The replaced database is kept as a
+    'pre_restore_' directory in the backups folder.
+    """
+    if not os.path.isdir(PENDING_RESTORE_PATH):
+        return False
+    if rag_engine is not None:
+        logger.error("[Restore] Vector store already open; pending restore will be applied on next restart.")
+        return False
+
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    try:
+        if os.path.isdir(VECTOR_DB_PATH) and os.listdir(VECTOR_DB_PATH):
+            _move_directory_contents(VECTOR_DB_PATH, os.path.join(BACKUP_DIR, f"pre_restore_{timestamp}"))
+        _move_directory_contents(PENDING_RESTORE_PATH, VECTOR_DB_PATH)
+        os.rmdir(PENDING_RESTORE_PATH)
+        logger.info("[Restore] Pending vector database restore applied.")
+        return True
+    except Exception as e:
+        logger.error(f"[Restore] Failed to apply pending restore: {e}")
         return False
 
 
 def list_backups(backup_dir: Optional[str] = None) -> list:
     """List available vector database backups."""
     if backup_dir is None:
-        backup_dir = os.path.join(os.path.dirname(VECTOR_DB_PATH), "backups")
+        backup_dir = BACKUP_DIR
 
     if not os.path.exists(backup_dir):
         return []
@@ -285,12 +322,14 @@ def list_backups(backup_dir: Optional[str] = None) -> list:
     backups = []
     for name in sorted(os.listdir(backup_dir), reverse=True):
         path = os.path.join(backup_dir, name)
-        if os.path.isdir(path) and name.startswith("vector_db_backup_"):
+        if os.path.isdir(path) and name.startswith(BACKUP_PREFIX):
             stat = os.stat(path)
-            backups.append({
-                "name": name,
-                "path": path,
-                "created_at": datetime.fromtimestamp(stat.st_ctime, tz=timezone.utc).isoformat(),
-            })
+            backups.append(
+                {
+                    "name": name,
+                    "path": path,
+                    "created_at": datetime.fromtimestamp(stat.st_ctime, tz=timezone.utc).isoformat(),
+                }
+            )
 
     return backups

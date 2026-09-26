@@ -3,12 +3,14 @@
 Encapsulates SQL execution guards, schema retrieval, table synchronization,
 and vector indexing with non-blocking audit logging.
 """
+
 import time
 import asyncio
 from typing import Dict, Any, List, Optional
 from fastapi import HTTPException
 
 from src.api.state import get_db_connector, get_db_loader, get_rag_engine
+from src.connectors.db_loader import table_source_name
 from src.core.audit import audit_logger
 from src.core.logger import get_logger
 
@@ -121,8 +123,8 @@ class DatabaseService:
                 "chunk_count": 0,
             }
 
-        doc_name = f"db_table_{table_name}"
-        await asyncio.to_thread(engine.delete_document, doc_name)
+        # Remove all previously synced rows first so rows deleted from the table do not linger in the index
+        await asyncio.to_thread(engine.delete_document, table_source_name(table_name))
         await asyncio.to_thread(engine.add_documents, chunks, ids, metadatas)
 
         await audit_logger.alog(

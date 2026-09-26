@@ -1,8 +1,13 @@
+import time
+from collections import defaultdict, deque
 from contextlib import asynccontextmanager
+from typing import Deque, Dict
+
 from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
+from src.auth.jwt_handler import decode_access_token
 from src.core.config import CORS_ORIGINS, RATE_LIMIT_PER_MINUTE
 from src.core.logger import get_logger
 from src.api.state import (
@@ -10,6 +15,7 @@ from src.api.state import (
     cleanup_services,
     get_rag_engine,
     get_agent,
+    get_chat_model,
     get_multi_agent_orchestrator,
     get_document_loader,
     get_db_connector,
@@ -36,11 +42,13 @@ async def lifespan(app: FastAPI):
     cleanup_services()
 
 
+API_VERSION = "2.1.1"
+
 app = FastAPI(
     title="OpenLocalRagAgents API",
     description="Privacy-first, on-premise RAG and Agentic AI gateway with zero cloud dependencies.",
-    version="2.0.0",
-    lifespan=lifespan
+    version=API_VERSION,
+    lifespan=lifespan,
 )
 
 # CORS configuration (reads allowed origins from config/env)
@@ -54,30 +62,55 @@ app.add_middleware(
 
 # ──────────────────────────── RATE LIMITING MIDDLEWARE ────────────────────────────
 
-import time
-from collections import defaultdict
-
-_rate_limit_store: dict = defaultdict(list)
 _RATE_WINDOW = 60  # seconds
+_RATE_LIMIT_EXEMPT_PATHS = {"/health", "/docs", "/openapi.json", "/redoc"}
+_rate_limit_store: Dict[str, Deque[float]] = defaultdict(deque)
+_last_sweep = 0.0
+
+
+def _rate_limit_key(request: Request) -> str:
+    """Identify the caller: authenticated users are limited per account, anonymous callers per IP.
+
+    Keying by account matters when many users reach the API through one gateway
+    (e.g. the Streamlit frontend container), which would otherwise share a single IP budget.
+    """
+    auth_header = request.headers.get("authorization", "")
+    if auth_header.lower().startswith("bearer "):
+        token_data = decode_access_token(auth_header[7:].strip())
+        if token_data is not None:
+            return f"user:{token_data.username}"
+    client_ip = request.client.host if request.client else "unknown"
+    return f"ip:{client_ip}"
+
+
+def _sweep_rate_limit_store(now: float) -> None:
+    """Drop callers with no requests in the current window so the store cannot grow unbounded."""
+    global _last_sweep
+    if now - _last_sweep < _RATE_WINDOW:
+        return
+    _last_sweep = now
+    for key in list(_rate_limit_store.keys()):
+        timestamps = _rate_limit_store[key]
+        if not timestamps or now - timestamps[-1] >= _RATE_WINDOW:
+            del _rate_limit_store[key]
 
 
 @app.middleware("http")
 async def rate_limit_middleware(request: Request, call_next):
-    """Per-IP rate limiting middleware to prevent API abuse."""
-    # Skip rate limiting for docs and health endpoints
-    if request.url.path in ("/docs", "/openapi.json", "/redoc"):
+    """Sliding-window rate limiting to prevent API abuse."""
+    if request.url.path in _RATE_LIMIT_EXEMPT_PATHS:
         return await call_next(request)
 
-    client_ip = request.client.host if request.client else "unknown"
+    key = _rate_limit_key(request)
     now = time.time()
+    _sweep_rate_limit_store(now)
 
-    # Clean old entries
-    _rate_limit_store[client_ip] = [
-        ts for ts in _rate_limit_store[client_ip] if now - ts < _RATE_WINDOW
-    ]
+    timestamps = _rate_limit_store[key]
+    while timestamps and now - timestamps[0] >= _RATE_WINDOW:
+        timestamps.popleft()
 
-    if len(_rate_limit_store[client_ip]) >= RATE_LIMIT_PER_MINUTE:
-        logger.warning(f"Rate limit exceeded for IP: {client_ip}")
+    if len(timestamps) >= RATE_LIMIT_PER_MINUTE:
+        logger.warning(f"Rate limit exceeded for {key}")
         return JSONResponse(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             content={
@@ -87,8 +120,14 @@ async def rate_limit_middleware(request: Request, call_next):
             headers={"Retry-After": str(_RATE_WINDOW)},
         )
 
-    _rate_limit_store[client_ip].append(now)
+    timestamps.append(now)
     return await call_next(request)
+
+
+@app.get("/health", tags=["System"], summary="Liveness Probe")
+async def health():
+    """Unauthenticated liveness probe for container orchestration healthchecks."""
+    return {"status": "ok", "version": API_VERSION}
 
 
 # Include modular API routers
@@ -102,6 +141,7 @@ __all__ = [
     "app",
     "get_rag_engine",
     "get_agent",
+    "get_chat_model",
     "get_multi_agent_orchestrator",
     "get_document_loader",
     "get_db_connector",
@@ -112,5 +152,6 @@ __all__ = [
 
 if __name__ == "__main__":
     import uvicorn
+
     # Use reload=False to prevent reloading model weights on disk modifications
     uvicorn.run("src.api.main:app", host="0.0.0.0", port=8000, reload=False)

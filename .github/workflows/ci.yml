@@ -2,9 +2,9 @@ name: CI Pipeline
 
 on:
   push:
-    branches: [ main, develop ]
+    branches: [ master, develop ]
   pull_request:
-    branches: [ main ]
+    branches: [ master ]
 
 jobs:
   lint:
@@ -19,7 +19,7 @@ jobs:
           python-version: "3.11"
 
       - name: Install linting tools
-        run: pip install ruff mypy
+        run: pip install "ruff>=0.5.0,<0.6"
 
       - name: Run Ruff linter
         run: ruff check src/ tests/ --output-format=github
@@ -46,15 +46,16 @@ jobs:
         run: pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
 
       - name: Install project dependencies
-        run: pip install -r requirements.txt
+        run: pip install -r requirements-dev.txt
 
       - name: Run test suite with coverage
-        run: |
-          pip install pytest-cov
-          pytest tests/ -v --cov=src --cov-report=xml --cov-report=term-missing
+        run: pytest tests/ -v --cov=src --cov-report=xml --cov-report=term-missing
         env:
           LLM_BACKEND: huggingface
           ALLOW_ONLINE_HF: "0"
+          # Never download multi-GB model weights in CI; model-dependent tests skip or stub instead
+          HF_HUB_OFFLINE: "1"
+          TRANSFORMERS_OFFLINE: "1"
 
       - name: Upload coverage report
         if: matrix.python-version == '3.11'
@@ -73,7 +74,7 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Build Docker image
+      - name: Build backend image
         uses: docker/build-push-action@v5
         with:
           context: .
@@ -81,3 +82,11 @@ jobs:
           tags: openlocalragagents:ci
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      - name: Build frontend image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: Dockerfile.frontend
+          push: false
+          tags: openlocalragagents-ui:ci

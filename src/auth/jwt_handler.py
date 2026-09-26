@@ -39,7 +39,9 @@ def get_jwt_secret() -> str:
     new_secret = secrets.token_urlsafe(32)
     try:
         os.makedirs(os.path.dirname(os.path.abspath(JWT_SECRET_FILE_PATH)), exist_ok=True)
-        with open(JWT_SECRET_FILE_PATH, "w", encoding="utf-8") as f:
+        # Create with owner-only permissions (0600) on POSIX; the mode is ignored on Windows
+        fd = os.open(JWT_SECRET_FILE_PATH, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
             f.write(new_secret)
         logger.info(f"Generated new persistent JWT secret at {JWT_SECRET_FILE_PATH}")
     except (IOError, PermissionError, OSError) as e:
@@ -51,7 +53,12 @@ def get_jwt_secret() -> str:
 _SECRET = get_jwt_secret()
 
 
-def create_access_token(username: str, role: str, expires_delta: Optional[timedelta] = None) -> tuple[str, int]:
+def create_access_token(
+    username: str,
+    role: str,
+    expires_delta: Optional[timedelta] = None,
+    token_version: int = 0,
+) -> tuple[str, int]:
     """
     Generate signed JWT access token.
     Returns (token_str, expires_in_seconds).
@@ -67,6 +74,7 @@ def create_access_token(username: str, role: str, expires_delta: Optional[timede
         "sub": username,
         "role": role,
         "type": "access",
+        "ver": token_version,
         "iat": int(datetime.now(timezone.utc).timestamp()),
         "exp": int(expire.timestamp()),
     }
@@ -74,7 +82,7 @@ def create_access_token(username: str, role: str, expires_delta: Optional[timede
     return encoded_jwt, expires_in
 
 
-def create_refresh_token(username: str, role: str) -> tuple[str, int]:
+def create_refresh_token(username: str, role: str, token_version: int = 0) -> tuple[str, int]:
     """
     Generate signed JWT refresh token with longer expiry.
     Returns (token_str, expires_in_seconds).
@@ -86,6 +94,7 @@ def create_refresh_token(username: str, role: str) -> tuple[str, int]:
         "sub": username,
         "role": role,
         "type": "refresh",
+        "ver": token_version,
         "iat": int(datetime.now(timezone.utc).timestamp()),
         "exp": int(expire.timestamp()),
     }
@@ -93,25 +102,41 @@ def create_refresh_token(username: str, role: str) -> tuple[str, int]:
     return encoded_jwt, expires_in
 
 
-def decode_access_token(token: str) -> Optional[TokenData]:
-    """
-    Verify and decode JWT token. Returns TokenData or None if invalid/expired.
-    """
+def _decode_token(token: str, expected_type: str) -> Optional[TokenData]:
+    """Verify signature/expiry and require the token's 'type' claim to match expected_type."""
     try:
         payload = jwt.decode(token, _SECRET, algorithms=[JWT_ALGORITHM])
-        username: str = payload.get("sub")
-        role: str = payload.get("role")
-        exp: int = payload.get("exp")
-        token_type: str = payload.get("type", "access")
-        if not username or not role:
-            return None
-        return TokenData(username=username, role=role, exp=exp, token_type=token_type)
     except jwt.ExpiredSignatureError:
-        logger.debug("Token has expired")
+        logger.debug(f"{expected_type.capitalize()} token has expired")
         return None
     except jwt.PyJWTError as e:
-        logger.debug(f"Invalid JWT token: {e}")
+        logger.debug(f"Invalid {expected_type} token: {e}")
         return None
+
+    username = payload.get("sub")
+    role = payload.get("role")
+    token_type = payload.get("type")
+    if not username or not role or token_type != expected_type:
+        return None
+    try:
+        token_version = int(payload.get("ver", 0))
+    except (TypeError, ValueError):
+        return None
+    return TokenData(
+        username=username,
+        role=role,
+        exp=payload.get("exp"),
+        token_type=token_type,
+        token_version=token_version,
+    )
+
+
+def decode_access_token(token: str) -> Optional[TokenData]:
+    """
+    Verify and decode JWT access token. Returns TokenData or None if invalid/expired.
+    Refresh tokens are rejected so they cannot be used as bearer credentials.
+    """
+    return _decode_token(token, "access")
 
 
 def decode_refresh_token(token: str) -> Optional[TokenData]:
@@ -119,17 +144,4 @@ def decode_refresh_token(token: str) -> Optional[TokenData]:
     Verify and decode JWT refresh token. Returns TokenData or None if invalid/expired.
     Only accepts tokens with type='refresh'.
     """
-    try:
-        payload = jwt.decode(token, _SECRET, algorithms=[JWT_ALGORITHM])
-        username: str = payload.get("sub")
-        role: str = payload.get("role")
-        token_type: str = payload.get("type")
-        if not username or not role or token_type != "refresh":
-            return None
-        return TokenData(username=username, role=role, exp=payload.get("exp"), token_type="refresh")
-    except jwt.ExpiredSignatureError:
-        logger.debug("Refresh token has expired")
-        return None
-    except jwt.PyJWTError as e:
-        logger.debug(f"Invalid refresh token: {e}")
-        return None
+    return _decode_token(token, "refresh")

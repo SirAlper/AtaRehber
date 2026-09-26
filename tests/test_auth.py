@@ -7,7 +7,6 @@ from fastapi.testclient import TestClient
 
 from src.api.main import app
 from src.auth.jwt_handler import create_access_token, decode_access_token
-from src.auth.models import User
 from src.auth.user_store import UserStore, hash_password, verify_password
 
 
@@ -96,9 +95,7 @@ class TestEnterpriseAuth(unittest.TestCase):
 
     def test_jwt_token_expiration(self):
         """Verify that expired JWT token is rejected."""
-        expired_token, _ = create_access_token(
-            "old_user", "viewer", expires_delta=timedelta(seconds=-10)
-        )
+        expired_token, _ = create_access_token("old_user", "viewer", expires_delta=timedelta(seconds=-10))
         data = decode_access_token(expired_token)
         self.assertIsNone(data)
 
@@ -115,11 +112,11 @@ class TestAuthAPIEndpoints(unittest.TestCase):
 
         # Create test editor
         if not user_store.get_user("test_editor"):
-            user_store.create_user("test_editor", "editorpass123", "editor")
+            user_store.create_user("test_editor", "EditorPass123", "editor")
 
         # Create test viewer
         if not user_store.get_user("test_viewer"):
-            user_store.create_user("test_viewer", "viewerpass123", "viewer")
+            user_store.create_user("test_viewer", "ViewerPass123", "viewer")
 
     def _get_token(self, username, password):
         resp = self.client.post(
@@ -162,7 +159,7 @@ class TestAuthAPIEndpoints(unittest.TestCase):
 
     def test_get_current_user_profile(self):
         """Verify /api/v1/auth/me returns current user data."""
-        token = self._get_token("test_viewer", "viewerpass123")
+        token = self._get_token("test_viewer", "ViewerPass123")
         headers = {"Authorization": f"Bearer {token}"}
         resp = self.client.get("/api/v1/auth/me", headers=headers)
         self.assertEqual(resp.status_code, 200)
@@ -180,14 +177,18 @@ class TestAuthAPIEndpoints(unittest.TestCase):
             user_store.delete_user(test_username)
 
         admin_token = self._get_token("admin", "admin123")
-        viewer_token = self._get_token("test_viewer", "viewerpass123")
+        viewer_token = self._get_token("test_viewer", "ViewerPass123")
 
         try:
             # Viewer attempt -> 403 Forbidden
             viewer_resp = self.client.post(
                 "/api/v1/auth/register",
                 headers={"Authorization": f"Bearer {viewer_token}"},
-                json={"username": test_username, "password": "Password123!", "role": "viewer"},
+                json={
+                    "username": test_username,
+                    "password": "Password123!",
+                    "role": "viewer",
+                },
             )
             self.assertEqual(viewer_resp.status_code, 403)
 
@@ -195,7 +196,11 @@ class TestAuthAPIEndpoints(unittest.TestCase):
             admin_resp = self.client.post(
                 "/api/v1/auth/register",
                 headers={"Authorization": f"Bearer {admin_token}"},
-                json={"username": test_username, "password": "Password123!", "role": "viewer"},
+                json={
+                    "username": test_username,
+                    "password": "Password123!",
+                    "role": "viewer",
+                },
             )
             self.assertEqual(admin_resp.status_code, 201)
             self.assertEqual(admin_resp.json()["username"], test_username)
@@ -205,7 +210,7 @@ class TestAuthAPIEndpoints(unittest.TestCase):
 
     def test_rbac_document_deletion_permissions(self):
         """Verify viewers cannot delete documents while editors and admins can."""
-        viewer_token = self._get_token("test_viewer", "viewerpass123")
+        viewer_token = self._get_token("test_viewer", "ViewerPass123")
 
         # Viewer attempt -> 403 Forbidden
         resp = self.client.delete(

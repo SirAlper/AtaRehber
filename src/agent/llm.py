@@ -1,6 +1,11 @@
 import os
 import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig, pipeline
+from transformers import (
+    AutoModelForCausalLM,
+    AutoTokenizer,
+    BitsAndBytesConfig,
+    pipeline,
+)
 from langchain_huggingface import ChatHuggingFace, HuggingFacePipeline
 from src.core.config import (
     LLM_BACKEND,
@@ -25,9 +30,7 @@ def create_chat_model():
     if LLM_BACKEND == "ollama":
         from langchain_ollama import ChatOllama
 
-        logger.info(
-            f"Connecting to Ollama server at {OLLAMA_BASE_URL} with model '{OLLAMA_MODEL}'..."
-        )
+        logger.info(f"Connecting to Ollama server at {OLLAMA_BASE_URL} with model '{OLLAMA_MODEL}'...")
         chat_model = ChatOllama(
             base_url=OLLAMA_BASE_URL,
             model=OLLAMA_MODEL,
@@ -54,7 +57,7 @@ def create_chat_model():
             load_in_4bit=True,
             bnb_4bit_quant_type="nf4",
             bnb_4bit_use_double_quant=True,
-            bnb_4bit_compute_dtype=torch.bfloat16
+            bnb_4bit_compute_dtype=torch.bfloat16,
         )
 
     model_kwargs = {

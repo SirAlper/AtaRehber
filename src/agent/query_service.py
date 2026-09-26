@@ -1,7 +1,7 @@
 from typing import Generator, Optional
 from langchain_core.language_models.chat_models import BaseChatModel
 from src.agent.nodes import AgentNodes
-from src.agent.prompts import build_rag_messages, NO_CONTEXT_RESPONSE
+from src.agent.prompts import NO_CONTEXT_RESPONSE
 
 
 class QueryService:
@@ -33,7 +33,7 @@ class QueryService:
             "sources": result.get("sources", []),
             "hallucination_grade": result.get("hallucination_grade", ""),
             "is_refined": result.get("is_refined", False),
-            "chat_history": result.get("chat_history", [])
+            "chat_history": result.get("chat_history", []),
         }
 
     def stream_events(self, question: str, thread_id: Optional[str] = None) -> Generator[dict, None, None]:
@@ -55,16 +55,24 @@ class QueryService:
             "hallucination_grade": "",
             "retry_count": 0,
             "is_refined": False,
-            "chat_history": prior_history
+            "chat_history": prior_history,
         }
 
         # 1. REWRITE (Dynamic Query Optimization)
-        yield {"type": "status", "message": "🔄 Optimizing search query...", "node": "rewrite"}
+        yield {
+            "type": "status",
+            "message": "🔄 Optimizing search query...",
+            "node": "rewrite",
+        }
         rewrite_out = self.nodes.rewrite_query(state)
         state["search_query"] = rewrite_out.get("search_query", state["question"])
 
         # 2. RETRIEVE
-        yield {"type": "status", "message": "🔍 Searching relevant enterprise documents...", "node": "retrieve"}
+        yield {
+            "type": "status",
+            "message": "🔍 Searching relevant enterprise documents...",
+            "node": "retrieve",
+        }
         retrieve_out = self.nodes.retrieve(state)
         state["context"] = retrieve_out["context"]
         state["sources"] = retrieve_out["sources"]
@@ -72,18 +80,31 @@ class QueryService:
 
         context = state["context"].strip()
         if not context:
-            yield {"type": "done", "answer": NO_CONTEXT_RESPONSE, "sources": [], "is_refined": False}
+            yield {
+                "type": "done",
+                "answer": NO_CONTEXT_RESPONSE,
+                "sources": [],
+                "is_refined": False,
+            }
             return
 
         # 3. GENERATE
-        yield {"type": "status", "message": "✍️ Preparing response...", "node": "generate"}
+        yield {
+            "type": "status",
+            "message": "✍️ Preparing response...",
+            "node": "generate",
+        }
         generate_out = self.nodes.generate(state)
         state["answer"] = generate_out["answer"]
         state["chat_history"] = generate_out.get("chat_history", state["chat_history"])
 
         # 4. GRADE & REFINE LOOP
         while True:
-            yield {"type": "status", "message": "🛡️ Verifying factual accuracy...", "node": "grade"}
+            yield {
+                "type": "status",
+                "message": "🛡️ Verifying factual accuracy...",
+                "node": "grade",
+            }
             grade_out = self.nodes.grade_hallucination(state)
             state["hallucination_grade"] = grade_out["hallucination_grade"]
 
@@ -92,7 +113,7 @@ class QueryService:
                 yield {
                     "type": "status",
                     "message": "✍️ Re-evaluating and refining response to match documents...",
-                    "node": "refine"
+                    "node": "refine",
                 }
                 refine_out = self.nodes.refine(state)
                 state["answer"] = refine_out["answer"]
@@ -103,7 +124,7 @@ class QueryService:
                 yield {
                     "type": "warning",
                     "message": "⚠️ Generated response could not be fully verified against company documents.",
-                    "node": "fallback"
+                    "node": "fallback",
                 }
                 fallback_out = self.nodes.fallback(state)
                 state["answer"] = fallback_out["answer"]
@@ -111,7 +132,7 @@ class QueryService:
                     "type": "grade",
                     "grade": state["hallucination_grade"],
                     "passed": False,
-                    "is_refined": state.get("is_refined", False)
+                    "is_refined": state.get("is_refined", False),
                 }
                 break
             else:
@@ -119,7 +140,7 @@ class QueryService:
                     "type": "grade",
                     "grade": state["hallucination_grade"],
                     "passed": True,
-                    "is_refined": state.get("is_refined", False)
+                    "is_refined": state.get("is_refined", False),
                 }
                 break
 
@@ -127,7 +148,7 @@ class QueryService:
             "type": "done",
             "answer": state["answer"],
             "sources": state["sources"],
-            "is_refined": state.get("is_refined", False)
+            "is_refined": state.get("is_refined", False),
         }
 
     def stream_query(self, question: str, thread_id: Optional[str] = None) -> Generator[str, None, None]:

@@ -3,6 +3,7 @@
 Exposes endpoints for file uploads, vector index maintenance, and system telemetry.
 Delegates business logic to DocumentService.
 """
+
 from fastapi import APIRouter, Depends, UploadFile, File
 
 from src.auth.dependencies import require_role

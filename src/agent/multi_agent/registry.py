@@ -11,6 +11,13 @@ class AgentRegistry:
 
     def __init__(self):
         self._agents: Dict[str, BaseSubAgent] = {}
+        # Incremented on every change so compiled workflows can detect that they are stale
+        self._version = 0
+
+    @property
+    def version(self) -> int:
+        """Monotonic counter of registry changes (register / unregister / clear)."""
+        return self._version
 
     def register(self, agent: Union[BaseSubAgent, Type[BaseSubAgent]]) -> BaseSubAgent:
         """Register a sub-agent instance or class in the registry.
@@ -39,6 +46,7 @@ class AgentRegistry:
             logger.info(f"Overwriting existing agent registration for '{instance.name}'")
 
         self._agents[instance.name] = instance
+        self._version += 1
         logger.info(f"Successfully registered sub-agent: '{instance.name}' ({instance.display_name or instance.name})")
         return instance
 
@@ -46,6 +54,7 @@ class AgentRegistry:
         """Remove a registered agent by name."""
         if name in self._agents:
             del self._agents[name]
+            self._version += 1
             logger.info(f"Unregistered agent: '{name}'")
             return True
         return False
@@ -83,6 +92,7 @@ class AgentRegistry:
     def clear(self):
         """Clear all registered agents (primarily for test teardown)."""
         self._agents.clear()
+        self._version += 1
 
 
 # Global Singleton Registry Instance

@@ -1,4 +1,4 @@
-from typing import Optional, List
+from typing import Literal, Optional, List
 from pydantic import BaseModel, Field
 
 
@@ -37,3 +37,9 @@ class SyncTableRequest(BaseModel):
 
 class TestQueryRequest(BaseModel):
     query: str
+
+
+class FeedbackRequest(BaseModel):
+    question: str = Field("", max_length=4000)
+    feedback: Literal["positive", "negative"]
+    comment: str = Field("", max_length=2000)

@@ -10,6 +10,7 @@ from src.core.config import (
     USERS_FILE_PATH,
     ADMIN_DEFAULT_USERNAME,
     ADMIN_DEFAULT_PASSWORD,
+    INSECURE_DEFAULT_PASSWORD,
 )
 from src.core.logger import get_logger
 
@@ -59,20 +60,17 @@ class UserStore:
                     hashed_password=hash_password(ADMIN_DEFAULT_PASSWORD),
                     disabled=False,
                     created_at=datetime.now(timezone.utc).isoformat(),
+                    must_change_password=ADMIN_DEFAULT_PASSWORD == INSECURE_DEFAULT_PASSWORD,
                 )
-                initial_data: Dict[str, dict] = {
-                    admin_user.username: admin_user.model_dump()
-                }
+                initial_data: Dict[str, dict] = {admin_user.username: admin_user.model_dump()}
                 with open(self.file_path, "w", encoding="utf-8") as f:
                     json.dump(initial_data, f, indent=2)
-                logger.info(
-                    f"Initialized user store at {self.file_path} with default admin '{ADMIN_DEFAULT_USERNAME}'"
-                )
+                logger.info(f"Initialized user store at {self.file_path} with default admin '{ADMIN_DEFAULT_USERNAME}'")
 
-            if ADMIN_DEFAULT_PASSWORD == "admin123":
+            if ADMIN_DEFAULT_PASSWORD == INSECURE_DEFAULT_PASSWORD:
                 logger.warning(
                     "SECURITY WARNING: Default admin password 'admin123' is configured! "
-                    "For production deployment, set ADMIN_DEFAULT_PASSWORD in your .env or change it immediately."
+                    "The admin must change it on first login; set ADMIN_DEFAULT_PASSWORD in your .env for production."
                 )
 
     def _load_data(self) -> Dict[str, dict]:
@@ -120,6 +118,7 @@ class UserStore:
                         role=u["role"],
                         disabled=u.get("disabled", False),
                         created_at=u.get("created_at"),
+                        must_change_password=u.get("must_change_password", False),
                     )
                 )
             return users
@@ -155,20 +154,40 @@ class UserStore:
         password: Optional[str] = None,
         role: Optional[UserRole] = None,
         disabled: Optional[bool] = None,
+        must_change_password: Optional[bool] = None,
     ) -> Optional[User]:
-        """Update existing user properties."""
+        """Update existing user properties.
+
+        Password changes are validated against the password policy and revoke all
+        previously issued tokens (as does disabling the account).
+        """
+        from src.auth.password_policy import password_policy
+
+        if password is not None:
+            violations = password_policy.validate(password)
+            if violations:
+                raise ValueError(f"Password does not meet policy requirements: {'; '.join(violations)}")
+
         with self._lock:
             data = self._load_data()
             if username not in data:
                 return None
 
             user_data = data[username]
+            revoke_tokens = False
             if password is not None:
                 user_data["hashed_password"] = hash_password(password)
+                revoke_tokens = True
             if role is not None:
                 user_data["role"] = role
             if disabled is not None:
+                if disabled and not user_data.get("disabled", False):
+                    revoke_tokens = True
                 user_data["disabled"] = disabled
+            if must_change_password is not None:
+                user_data["must_change_password"] = must_change_password
+            if revoke_tokens:
+                user_data["token_version"] = int(user_data.get("token_version", 0)) + 1
 
             data[username] = user_data
             self._save_data(data)

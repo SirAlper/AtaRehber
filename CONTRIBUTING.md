@@ -22,7 +22,7 @@ git checkout -b feature/your-feature-name
 python -m venv .venv
 .venv\Scripts\activate  # Linux/macOS: source .venv/bin/activate
 pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
-pip install -r requirements.txt
+pip install -r requirements-dev.txt
 ```
 
 ### 4. Make Your Changes
@@ -39,13 +39,14 @@ pytest tests/ -v
 # Check test coverage:
 pytest --cov=src --cov-report=term-missing
 
-# Check code style and linting:
-ruff check .
+# Check linting and formatting (same commands as CI; settings in ruff.toml):
+ruff check src/ tests/
+ruff format --check src/ tests/
 ```
-Ensure all 52 tests and linting checks pass before submitting.
+Ensure all tests and lint/format checks pass before submitting. Run `ruff format src/ tests/` to fix formatting automatically.
 
 ### 6. Submit a Pull Request
-- Push your branch and open a PR against `main`
+- Push your branch and open a PR against `master`
 - Provide a clear description of what your changes do
 - Reference any related issues
 
@@ -55,6 +56,8 @@ Ensure all 52 tests and linting checks pass before submitting.
 
 - Unit tests go in `tests/` with the naming convention `test_<module>.py`
 - Use `unittest.mock` for mocking external dependencies (LLM, database, etc.)
+- `tests/conftest.py` points `DATA_DIR` at a temporary directory, so tests never read or modify your real `data/` folder. Do not rely on pre-existing users or documents.
+- For workflow changes, add an end-to-end test that runs the real LangGraph graph with a stubbed chat model (see `tests/test_orchestrator_e2e.py`). Mocking the whole orchestrator hides bugs such as state keys that LangGraph silently drops.
 - Aim for meaningful test coverage, not just line coverage
 
 ---

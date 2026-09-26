@@ -2,6 +2,11 @@
 .git
 .gitignore
 
+# Secrets & local configuration
+.env
+.env.*
+!.env.example
+
 # Virtual environments
 .venv
 venv
@@ -18,6 +23,7 @@ __pycache__
 # Heavy data & persistent volumes (mounted dynamically)
 models/
 vector_db/
+backups/
 data/
 !data/.gitkeep
 

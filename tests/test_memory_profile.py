@@ -1,9 +1,13 @@
 import os
-import psutil
-import pytest
-import time
 
-from src.core.config import MODELS_DIR, BASE_DIR
+import pytest
+
+from src.core.config import ALL_LOCAL_MODELS_EXIST, BASE_DIR
+
+psutil = pytest.importorskip("psutil")
+
+# Profiles the real BGE-M3 + reranker models; skipped where they have not been downloaded (e.g. CI)
+pytestmark = pytest.mark.skipif(not ALL_LOCAL_MODELS_EXIST, reason="Local model weights not available")
 
 
 def get_current_process_ram_mb() -> float:
@@ -14,7 +18,7 @@ def get_current_process_ram_mb() -> float:
 
 def get_drive_free_gb() -> float:
     """Return free disk space on project drive in gigabytes."""
-    return psutil.disk_usage(BASE_DIR).free / (1024 ** 3)
+    return psutil.disk_usage(BASE_DIR).free / (1024**3)
 
 
 class TestMemoryAndResourceProfile:
@@ -27,7 +31,8 @@ class TestMemoryAndResourceProfile:
         """Verify RAG Engine (BGE-M3 + Reranker) loads within reasonable enterprise RAM budget (< 2.5 GB)."""
         ram_before = get_current_process_ram_mb()
         from src.rag.rag_engine import RAGEngine
-        engine = RAGEngine()
+
+        _engine = RAGEngine()  # keep loaded while measuring
         ram_after = get_current_process_ram_mb()
         delta_mb = ram_after - ram_before
 
@@ -38,6 +43,7 @@ class TestMemoryAndResourceProfile:
     def test_search_and_reranking_memory_stability(self):
         """Verify vector search + cross-encoder reranking does not leak memory across repeated queries."""
         from src.rag.rag_engine import RAGEngine
+
         engine = RAGEngine()
 
         # Warmup query
@@ -67,7 +73,7 @@ class TestMemoryAndResourceProfile:
                 role="admin",
                 action="query",
                 detail=f"Automated test query {i}",
-                status="success"
+                status="success",
             )
 
         disk_after = get_drive_free_gb()

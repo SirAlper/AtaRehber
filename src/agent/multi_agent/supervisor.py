@@ -11,6 +11,38 @@ from src.core.logger import get_logger
 
 logger = get_logger("MultiAgent.Supervisor")
 
+# Tokens that make up conversational greetings (Turkish + English)
+GREETING_TOKENS = frozenset(
+    {
+        "merhaba",
+        "selam",
+        "selamlar",
+        "günaydın",
+        "gunaydin",
+        "iyi",
+        "günler",
+        "gunler",
+        "akşamlar",
+        "aksamlar",
+        "nasılsın",
+        "nasilsin",
+        "naber",
+        "hello",
+        "hi",
+        "hey",
+        "good",
+        "morning",
+        "afternoon",
+        "evening",
+        "how",
+        "are",
+        "you",
+        "greetings",
+        "there",
+        "everyone",
+    }
+)
+
 SUPERVISOR_SYSTEM_PROMPT = """You are an Enterprise AI Supervisor Orchestrator.
 Your task is to analyze the user's inquiry and route it to the most qualified specialist sub-agent, or answer directly if the inquiry is a general greeting or meta-question.
 
@@ -61,21 +93,10 @@ class SupervisorAgent:
             logger.info(f"[Supervisor] Forced routing to agent: '{forced_agent}'")
             return {"next_agent": forced_agent}
 
-        # 2. Check for trivial greetings to bypass LLM routing latency
-        lower_q = question.lower().strip()
-        clean_q = re.sub(r"[^\w\s]", "", lower_q).strip()
-        greeting_words = {
-            "merhaba", "selam", "selamlar", "günaydın", "gunaydin",
-            "iyi günler", "iyi gunler", "iyi akşamlar", "iyi aksamlar",
-            "nasılsın", "nasilsin", "hello", "hi", "hey", "good morning",
-            "good afternoon", "how are you", "greetings"
-        }
-        words = clean_q.split()
-        is_greeting = (clean_q in greeting_words) or (
-            len(words) <= 5
-            and any(w in greeting_words for w in words)
-            and not any(kw in clean_q for kw in ("sql", "select", "table", "tablo", "document", "doküman", "belge", "report", "compliance", "policy", "kvkk", "gdpr"))
-        )
+        # 2. Pure greetings (every word is a greeting token) bypass LLM routing latency.
+        # Any other content, e.g. "hi, list sales", goes through normal routing.
+        words = re.sub(r"[^\w\s]", " ", question.lower()).split()
+        is_greeting = bool(words) and len(words) <= 6 and all(w in GREETING_TOKENS for w in words)
         if is_greeting:
             duration_ms = int((time.time() - start_time) * 1000)
             direct_reply = (
@@ -87,25 +108,38 @@ class SupervisorAgent:
                 "next_agent": "finish",
                 "final_answer": direct_reply,
                 "sources": [],
-                "agent_trace": list(state.get("agent_trace", [])) + [{
-                    "agent": "supervisor",
-                    "display_name": "Supervisor Orchestrator",
-                    "action": "direct_greeting",
-                    "duration_ms": duration_ms,
-                    "status": "success",
-                    "timestamp": datetime.now(timezone.utc).isoformat(),
-                }],
+                "agent_trace": list(state.get("agent_trace", []))
+                + [
+                    {
+                        "agent": "supervisor",
+                        "display_name": "Supervisor Orchestrator",
+                        "action": "direct_greeting",
+                        "duration_ms": duration_ms,
+                        "status": "success",
+                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                    }
+                ],
             }
 
-        # 3. Dynamic prompt with registered agents
+        # 3. Dynamic prompt with registered agents; recent turns let follow-ups ("and last month?") route correctly
         agent_descriptions = self.registry.get_supervisor_prompt()
         prompt = SUPERVISOR_SYSTEM_PROMPT.format(agent_descriptions=agent_descriptions)
+        history_lines = [
+            f"User: {turn.get('question', '')}\n(Handled by: {turn.get('agent', 'unknown')})"
+            for turn in state.get("chat_history", [])[-3:]
+            if turn.get("question")
+        ]
+        human_content = question
+        if history_lines:
+            human_content = "Recent conversation:\n" + "\n".join(history_lines) + f"\n\nCurrent question: {question}"
 
         try:
-            response = self.chat_model.invoke([
-                SystemMessage(content=prompt),
-                HumanMessage(content=question),
-            ])
+            response = self.chat_model.invoke(
+                [
+                    SystemMessage(content=prompt),
+                    HumanMessage(content=human_content),
+                ]
+            )
             content = response.content.strip()
 
             # Clean json fences
@@ -145,6 +179,14 @@ class SupervisorAgent:
 
         # Validate chosen agent exists in registry; fallback to doc_agent if unknown
         if not self.registry.get(chosen_agent):
+            if not self.registry.get("doc_agent"):
+                logger.warning(f"[Supervisor] Agent '{chosen_agent}' not found and no 'doc_agent' fallback registered.")
+                return {
+                    "next_agent": "finish",
+                    "final_answer": direct_response or "No suitable specialist agent is available for this request.",
+                    "sources": [],
+                    "agent_trace": list(state.get("agent_trace", [])) + [trace_entry],
+                }
             logger.warning(f"[Supervisor] Agent '{chosen_agent}' not found in registry. Defaulting to 'doc_agent'.")
             chosen_agent = "doc_agent"
 
@@ -158,12 +200,52 @@ class SupervisorAgent:
         q = question.lower()
 
         # Database keywords
-        if any(w in q for w in ("tablo", "table", "sql", "satış", "sales", "ürün", "product", "stock", "stok", "price", "fiyat", "order", "sipariş", "count", "record")):
+        if any(
+            w in q
+            for w in (
+                "tablo",
+                "table",
+                "sql",
+                "satış",
+                "sales",
+                "ürün",
+                "product",
+                "stock",
+                "stok",
+                "price",
+                "fiyat",
+                "order",
+                "sipariş",
+                "count",
+                "record",
+            )
+        ):
             return "db_agent", "Database and tabular query keywords detected.", ""
 
         # Compliance keywords
-        if any(w in q for w in ("uygun mu", "compliant", "allowed", "prohibited", "yasak mı", "permission", "izin", "violation", "ihlal", "kvkk", "gdpr", "penalty", "policy")):
-            return "compliance_agent", "Compliance, policy, and audit keywords detected.", ""
+        if any(
+            w in q
+            for w in (
+                "uygun mu",
+                "compliant",
+                "allowed",
+                "prohibited",
+                "yasak mı",
+                "permission",
+                "izin",
+                "violation",
+                "ihlal",
+                "kvkk",
+                "gdpr",
+                "penalty",
+                "policy",
+            )
+        ):
+            return (
+                "compliance_agent",
+                "Compliance, policy, and audit keywords detected.",
+                "",
+            )
 
         # Default document RAG
         return "doc_agent", "Default enterprise document retrieval selected.", ""

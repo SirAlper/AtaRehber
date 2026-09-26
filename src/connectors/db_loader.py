@@ -5,6 +5,11 @@ from src.core.logger import get_logger
 logger = get_logger("DatabaseTableLoader")
 
 
+def table_source_name(table_name: str) -> str:
+    """Vector-store 'source' metadata value used for chunks synced from a database table."""
+    return f"db_{table_name}"
+
+
 class DatabaseTableLoader:
     """ETL loader that reads relational database tables and transforms records into ChromaDB vector chunks."""
 
@@ -16,7 +21,7 @@ class DatabaseTableLoader:
         table_name: str,
         text_columns: Optional[List[str]] = None,
         title_column: Optional[str] = None,
-        id_column: Optional[str] = None
+        id_column: Optional[str] = None,
     ) -> Tuple[List[str], List[str], List[Dict[str, Any]]]:
         """Read rows from specified table, enrich with contextual headers, and convert to vector chunks."""
         chunks = []
@@ -80,12 +85,14 @@ class DatabaseTableLoader:
 
             chunks.append(full_chunk_text)
             ids.append(chunk_id)
-            metadatas.append({
-                "source": f"db_{table_name}",
-                "chunk_index": idx,
-                "document_title": header,
-                "table_name": table_name,
-                "record_id": str(row_id_val)
-            })
+            metadatas.append(
+                {
+                    "source": table_source_name(table_name),
+                    "chunk_index": idx,
+                    "document_title": header,
+                    "table_name": table_name,
+                    "record_id": str(row_id_val),
+                }
+            )
 
         return chunks, ids, metadatas

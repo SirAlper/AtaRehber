@@ -49,6 +49,7 @@ SYSTEM_PROMPT_REWRITE = (
 
 # ──────────────────────────── MESSAGE BUILDERS ────────────────────────────
 
+
 def build_rag_messages(context: str, question: str, chat_history: list = None) -> list:
     """Build LangChain message list for enterprise RAG response generation."""
     history_str = ""
@@ -56,14 +57,14 @@ def build_rag_messages(context: str, question: str, chat_history: list = None) -
         history_lines = [
             f"User: {turn.get('question', '')}\nAssistant: {turn.get('answer', '')}"
             for turn in chat_history[-3:]
-            if turn.get('question') and turn.get('answer')
+            if turn.get("question") and turn.get("answer")
         ]
         if history_lines:
             history_str = "Recent Conversation History:\n" + "\n".join(history_lines) + "\n\n"
 
     return [
         SystemMessage(content=SYSTEM_PROMPT_RAG),
-        HumanMessage(content=f"{history_str}Context:\n{context}\n\nQuestion: {question}")
+        HumanMessage(content=f"{history_str}Context:\n{context}\n\nQuestion: {question}"),
     ]
 
 
@@ -71,7 +72,7 @@ def build_grader_messages(context: str, question: str, answer: str) -> list:
     """Build LangChain message list for hallucination auditing."""
     return [
         SystemMessage(content=SYSTEM_PROMPT_GRADER),
-        HumanMessage(content=f"Context:\n{context}\n\nQuestion: {question}\n\nAnswer:\n{answer}")
+        HumanMessage(content=f"Context:\n{context}\n\nQuestion: {question}\n\nAnswer:\n{answer}"),
     ]
 
 
@@ -79,7 +80,7 @@ def build_refine_messages(context: str, question: str, draft_answer: str) -> lis
     """Build LangChain message list to prune and refine ungrounded answers."""
     return [
         SystemMessage(content=SYSTEM_PROMPT_REFINE),
-        HumanMessage(content=f"Context:\n{context}\n\nQuestion: {question}\n\nDraft Answer:\n{draft_answer}")
+        HumanMessage(content=f"Context:\n{context}\n\nQuestion: {question}\n\nDraft Answer:\n{draft_answer}"),
     ]
 
 
@@ -88,11 +89,11 @@ def build_rewrite_messages(question: str, chat_history: list) -> list:
     history_lines = [
         f"User: {turn.get('question', '')}\nAssistant: {turn.get('answer', '')}"
         for turn in chat_history[-3:]
-        if turn.get('question') and turn.get('answer')
+        if turn.get("question") and turn.get("answer")
     ]
     history_str = "\n".join(history_lines) if history_lines else "No prior conversation."
 
     return [
         SystemMessage(content=SYSTEM_PROMPT_REWRITE),
-        HumanMessage(content=f"Conversation History:\n{history_str}\n\nCurrent Question: {question}")
+        HumanMessage(content=f"Conversation History:\n{history_str}\n\nCurrent Question: {question}"),
     ]

@@ -18,7 +18,7 @@ class DocumentLoader:
         self.text_splitter = RecursiveCharacterTextSplitter(
             chunk_size=CHUNK_SIZE,
             chunk_overlap=CHUNK_OVERLAP,
-            separators=["\n\n", "\n", ". ", " ", ""]
+            separators=["\n\n", "\n", ". ", " ", ""],
         )
 
     @staticmethod
@@ -124,11 +124,7 @@ class DocumentLoader:
             chunk_id = f"{filename}_chunk_{idx}"
             chunks.append(contextualized_chunk)
             ids.append(chunk_id)
-            metadatas.append({
-                "source": filename,
-                "chunk_index": idx,
-                "document_title": doc_header
-            })
+            metadatas.append({"source": filename, "chunk_index": idx, "document_title": doc_header})
 
         return chunks, ids, metadatas
 

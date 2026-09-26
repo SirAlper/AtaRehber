@@ -1,6 +1,6 @@
 import asyncio
 import unittest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 from fastapi.testclient import TestClient
 
 from src.api.main import app
@@ -17,7 +17,22 @@ class TestLLMBackendAndConcurrency(unittest.TestCase):
 
     def test_stats_reports_llm_backend(self):
         """Verify /api/v1/stats reports active llm_backend and model."""
-        resp = self.client.get("/api/v1/stats", headers=self.auth_headers)
+        mock_engine = MagicMock()
+        mock_engine.get_stats.return_value = {
+            "total_chunks": 0,
+            "total_documents": 0,
+            "document_chunks": {},
+        }
+        mock_connector = MagicMock()
+        mock_connector.test_connection.return_value = {"status": "not_configured"}
+        with (
+            patch("src.services.document_service.get_rag_engine", return_value=mock_engine),
+            patch(
+                "src.services.document_service.get_db_connector",
+                return_value=mock_connector,
+            ),
+        ):
+            resp = self.client.get("/api/v1/stats", headers=self.auth_headers)
         self.assertEqual(resp.status_code, 200)
         data = resp.json()
         self.assertIn("llm_backend", data)
@@ -38,6 +53,7 @@ class TestLLMBackendAndConcurrency(unittest.TestCase):
 
     def test_query_concurrency_gate_parallelism(self):
         """Verify QueryConcurrencyManager permits parallel entry in ollama mode."""
+
         async def run_concurrency_test():
             active_count = 0
             max_simultaneous = 0

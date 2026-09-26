@@ -52,7 +52,7 @@ class TestAgentTools(unittest.TestCase):
         mock_db.execute_query.return_value = {
             "status": "success",
             "rows": [{"id": 1, "name": "Alper"}],
-            "count": 1
+            "count": 1,
         }
         res = sql_db_query.invoke({"query": "SELECT * FROM users"})
         parsed = json.loads(res)
@@ -65,7 +65,7 @@ class TestAgentTools(unittest.TestCase):
         mock_db.execute_query.return_value = {
             "status": "success",
             "rows": [],
-            "count": 0
+            "count": 0,
         }
         res = sql_db_query.invoke({"query": "SELECT * FROM users WHERE id = 999"})
         self.assertIn("no matching rows", res.lower())
