@@ -31,7 +31,7 @@ def distance_to_similarity(distance: float, space: str) -> float:
 class RAGEngine:
     """Two-Stage Retrieval Engine combining Bi-Encoder vector search with Cross-Encoder reranking."""
 
-    def __init__(self):
+    def __init__(self, vector_db_path: Optional[str] = None):
         device = RAG_DEVICE
         logger.info(f"Running Embedding and Reranker on '{device}'...")
 
@@ -51,7 +51,8 @@ class RAGEngine:
         )
 
         logger.info("Initializing local vector store (ChromaDB)...")
-        self.client = chromadb.PersistentClient(path=VECTOR_DB_PATH)
+        # vector_db_path lets tools such as the evaluation harness use an isolated store
+        self.client = chromadb.PersistentClient(path=vector_db_path or VECTOR_DB_PATH)
         # New collections use cosine distance; existing collections keep the metric they were created with
         self.collection = self.client.get_or_create_collection(
             name="enterprise_docs",
@@ -124,14 +125,20 @@ class RAGEngine:
                 "document_chunks": dict(self._stats_cache["document_chunks"]),
             }
 
-    def search(self, query: str, n_results: int = 10, min_similarity: Optional[float] = None) -> dict:
+    def search(
+        self,
+        query: str,
+        n_results: int = 10,
+        min_similarity: Optional[float] = None,
+        top_n: Optional[int] = None,
+    ) -> dict:
         """Retrieve most relevant document chunks and rerank them with Cross-Encoder.
 
         Retrieval Workflow:
         1. Query ChromaDB for candidate pool (n_results=10).
         2. Filter out candidates below min_similarity (cosine, independent of the collection's metric).
         3. Score remaining candidates with Cross-Encoder [Query, Chunk] pairs.
-        4. Return top RERANKER_TOP_N chunks as verified context.
+        4. Return top `top_n` (default RERANKER_TOP_N) chunks as verified context.
         """
         if self.collection.count() == 0:
             return {"context": "", "sources": []}
@@ -177,9 +184,9 @@ class RAGEngine:
         for candidate, score in zip(candidates, reranker_scores):
             candidate["reranker_score"] = round(float(score), 4)
 
-        # 3. Sort by reranker score and pick top RERANKER_TOP_N
+        # 3. Sort by reranker score and pick the top chunks
         candidates.sort(key=lambda x: x["reranker_score"], reverse=True)
-        top_candidates = candidates[:RERANKER_TOP_N]
+        top_candidates = candidates[: RERANKER_TOP_N if top_n is None else top_n]
 
         filtered_docs = []
         sources = []

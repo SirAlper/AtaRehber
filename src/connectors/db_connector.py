@@ -467,7 +467,8 @@ class DatabaseConnector:
             conn.exec_driver_sql("SET TRANSACTION READ ONLY")
             conn.exec_driver_sql(f"SET LOCAL statement_timeout = {int(timeout_ms)}")
         elif dialect in ("mysql", "mariadb"):
-            conn.exec_driver_sql("SET TRANSACTION READ ONLY")
+            # Session scope: DDL implicitly commits, which would end a transaction-scoped read-only mode
+            conn.exec_driver_sql("SET SESSION TRANSACTION READ ONLY")
             try:
                 if dialect == "mysql":
                     conn.exec_driver_sql(f"SET SESSION MAX_EXECUTION_TIME = {int(timeout_ms)}")

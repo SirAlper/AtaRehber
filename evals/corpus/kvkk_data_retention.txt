@@ -1,0 +1,18 @@
+DOKÜMAN: Kişisel Verilerin Saklanması ve İmhası Prosedürü (KVKK)
+KOD: LEG-KVKK-03
+
+1. Saklama Süreleri:
+- Müşteri sözleşmelerine ait kişisel veriler, sözleşmenin sona ermesinden itibaren 10 yıl süreyle saklanır.
+- Sistem erişim ve işlem logları 2 yıl süreyle saklanır.
+- İş başvurusu sırasında alınan özgeçmişler (CV) başvuru tarihinden itibaren 6 ay sonra silinir.
+
+2. Veri İhlali Bildirimi:
+- Kişisel veri ihlali fark edildiğinde Veri Koruma Sorumlusu (DPO) en geç 24 saat içinde bilgilendirilmelidir.
+- İhlal, tespit edildiği andan itibaren en geç 72 saat içinde Kişisel Verileri Koruma Kurulu'na bildirilir.
+
+3. Periyodik İmha:
+- Saklama süresi dolan kişisel veriler 6 ayda bir yapılan periyodik imha işlemiyle silinir, yok edilir veya anonim hale getirilir.
+- Her imha işlemi için imha tutanağı düzenlenir ve 3 yıl süreyle saklanır.
+
+4. Test ve Geliştirme Ortamları:
+- Gerçek müşteri verileri test veya geliştirme ortamlarında maskelenmeden ya da anonimleştirilmeden kullanılamaz.

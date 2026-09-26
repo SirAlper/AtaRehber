@@ -33,7 +33,7 @@ The containerized deployment supports up to three decoupled services communicati
 ```
 
 * **Separate images:**
-  * [`Dockerfile`](../Dockerfile) builds the **backend** in two stages. A builder stage compiles dependencies, and a `python:3.11-slim` runtime stage copies only the installed packages and the `src/` code. PyTorch is installed from the CPU wheel index by default; the GPU override builds with CUDA 12.1 wheels (`TORCH_INDEX_URL` build argument).
+  * [`Dockerfile`](../Dockerfile) builds the **backend** in two stages. A builder stage compiles dependencies, and a `python:3.12-slim` runtime stage copies only the installed packages and the `src/` code. PyTorch is installed from the CPU wheel index by default; the GPU override builds with CUDA 12.1 wheels (`TORCH_INDEX_URL` build argument).
   * [`Dockerfile.frontend`](../Dockerfile.frontend) builds a lightweight **Streamlit** image with only `streamlit` and `requests`, since the UI talks to the backend over HTTP and needs no ML stack.
 * **Non-root containers:** Both images run as user `app` (uid/gid `1000`).
 * **Zero-Bloat Image:** Model weights, vector indexes, documents and databases are mounted as host volumes, never baked into the image. `.env` files are excluded from the build context, so secrets never end up in image layers.

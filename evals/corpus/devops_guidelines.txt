@@ -1,0 +1,12 @@
+DOKÜMAN: Mühendislik ve DevOps Dağıtım Yönergeleri
+KOD: ENG-DEV-2026
+
+1. Git İş Akışı ve Branch Standartları:
+- Doğrudan `main` veya `staging` branch'lerine push yapılamaz; korumalı branch kuralı geçerlidir.
+- Tüm geliştirmeler `feature/<gorev-id>-kisa-aciklama` formatında açılan branch'ler üzerinde yapılır.
+- Bir Pull Request'in (PR) birleştirilebilmesi için en az 2 kıdemli mühendis onayı ve tüm CI testlerinin yeşil olması şarttır.
+
+2. Canlı Dağıtım (Production Deployment):
+- Canlı ortama sürümler yalnızca Salı ve Perşembe günleri 10:00 - 14:00 saatleri arasında çıkarılabilir.
+- Cuma günleri ve resmi tatil arifelerinde acil durum hotfix'leri hariç kesinlikle canlı dağıtım yapılamaz.
+- Canlı dağıtımlar öncesinde rollback planı dokümante edilmeli ve ilgili mikroservis için yedek imaj hazır bulundurulmalıdır.

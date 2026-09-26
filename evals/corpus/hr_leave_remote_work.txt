@@ -1,0 +1,16 @@
+DOKÜMAN: NovaTech İzin, Uzaktan Çalışma ve Fazla Mesai Politikası
+KOD: HR-POL-07
+
+1. Yıllık Ücretli İzin:
+- Kıdemi 1 ile 5 yıl arasında olan çalışanlar yılda 14 iş günü, 5 ile 15 yıl arasında olanlar 20 iş günü, 15 yılın üzerinde olanlar 26 iş günü yıllık izin hakkına sahiptir.
+- İzin talepleri en az 10 iş günü önceden İK portalı üzerinden oluşturulmalı ve doğrudan yönetici tarafından onaylanmalıdır.
+- Kullanılmayan yıllık izinlerin en fazla 5 günü bir sonraki yıla devredilebilir.
+
+2. Uzaktan ve Hibrit Çalışma:
+- Çalışanlar haftada en fazla 3 gün uzaktan çalışabilir; Salı günleri tüm ekipler için ortak ofis günüdür.
+- Yurt dışından uzaktan çalışma yılda toplam 30 günü aşamaz ve İK ile Bilgi Güvenliği ekibinin önceden yazılı onayını gerektirir.
+- Uzaktan çalışırken şirket kaynaklarına yalnızca kurumsal VPN üzerinden erişilebilir.
+
+3. Fazla Mesai:
+- Fazla mesai ayda 20 saati aşamaz ve önceden doğrudan yönetici onayı alınmalıdır.
+- Hafta sonu yapılan planlı bakım çalışmaları için ertesi hafta içinde telafi izni kullandırılır.

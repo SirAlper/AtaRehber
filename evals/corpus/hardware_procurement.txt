@@ -1,0 +1,11 @@
+DOKÜMAN: Donanım Zimmet ve Satın Alma Talepleri Rehberi
+KOD: OPS-PROC-02
+
+1. Donanım Standartları:
+- Yeni başlayan yazılım mühendislerine minimum 32 GB RAM ve harici NVIDIA GPU destekli dizüstü bilgisayar zimmetlenir.
+- Monitör talepleri en fazla 2 adet 27 inç 2K ekranla sınırlandırılmıştır.
+- Monitör, klavye veya harici donanım arızalarında IT Destek Masası'na (IT-Desk) talep açılmalıdır; ortalama çözüm süresi 48 saattir.
+
+2. Eğitim ve Kitap Bütçesi:
+- Her tam zamanlı mühendise yıllık 15.000 TL teknik eğitim, sertifikasyon veya kitap bütçesi tahsis edilir.
+- Bütçe harcaması yapılmadan önce takım lideri ve departman direktöründen yazılı e-posta onayı alınmalıdır.

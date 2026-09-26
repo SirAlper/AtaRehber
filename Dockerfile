@@ -1,12 +1,12 @@
 # ==============================================================================
 # OpenLocalRagAgents — Backend Production Dockerfile
-# Multi-stage build for Python 3.11. PyTorch wheel variant is selected at build time:
+# Multi-stage build for Python 3.12. PyTorch wheel variant is selected at build time:
 #   CPU (default):  docker build .
 #   CUDA 12.1:      docker build --build-arg TORCH_INDEX_URL=https://download.pytorch.org/whl/cu121 .
 # ==============================================================================
 
 # ────────────── Stage 1: Builder ──────────────
-FROM python:3.11-slim AS builder
+FROM python:3.12-slim AS builder
 
 ARG TORCH_INDEX_URL=https://download.pytorch.org/whl/cpu
 
@@ -29,7 +29,7 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # ────────────── Stage 2: Runtime ──────────────
-FROM python:3.11-slim AS runtime
+FROM python:3.12-slim AS runtime
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
@@ -49,7 +49,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN groupadd --gid 1000 app && useradd --uid 1000 --gid app --create-home app
 
 # Copy installed Python packages from builder stage
-COPY --from=builder /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
+COPY --from=builder /usr/local/lib/python3.12/site-packages /usr/local/lib/python3.12/site-packages
 COPY --from=builder /usr/local/bin /usr/local/bin
 
 # Create necessary persistent volume mount directories
