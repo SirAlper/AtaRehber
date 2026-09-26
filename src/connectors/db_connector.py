@@ -1,11 +1,233 @@
-import re
 import os
 import sqlite3
-from typing import Optional, Dict, Any, List
-from src.core.config import DATABASE_URL, DB_ALLOWED_TABLES, DB_MAX_ROWS, SAMPLE_DB_PATH
+from typing import Optional, Dict, Any, List, Set, Tuple
+
+import sqlparse
+from sqlparse import tokens as T
+
+from src.core.config import (
+    DATABASE_URL,
+    DB_ALLOWED_TABLES,
+    DB_MAX_ROWS,
+    DB_QUERY_TIMEOUT_SECONDS,
+    SAMPLE_DB_PATH,
+)
 from src.core.logger import get_logger
 
 logger = get_logger("DatabaseConnector")
+
+# Statement keywords that can modify data, schema, session state, or the filesystem.
+FORBIDDEN_KEYWORDS = frozenset(
+    {
+        "INSERT",
+        "UPDATE",
+        "DELETE",
+        "DROP",
+        "ALTER",
+        "TRUNCATE",
+        "EXEC",
+        "EXECUTE",
+        "CREATE",
+        "GRANT",
+        "REVOKE",
+        "MERGE",
+        "UPSERT",
+        "INTO",
+        "ATTACH",
+        "DETACH",
+        "PRAGMA",
+        "CALL",
+        "COPY",
+        "VACUUM",
+        "LOCK",
+        "SET",
+        "DECLARE",
+        "LOAD",
+        "HANDLER",
+        "SHUTDOWN",
+        "KILL",
+        "RENAME",
+        "REINDEX",
+        "OUTFILE",
+        "DUMPFILE",
+        "BEGIN",
+        "COMMIT",
+        "ROLLBACK",
+        "SAVEPOINT",
+        "USE",
+    }
+)
+
+# Functions that read/write files, reach the network, stall the server, or alter server state.
+FORBIDDEN_FUNCTIONS = frozenset(
+    {
+        "pg_read_file",
+        "pg_read_binary_file",
+        "pg_ls_dir",
+        "pg_stat_file",
+        "pg_sleep",
+        "pg_sleep_for",
+        "pg_sleep_until",
+        "pg_terminate_backend",
+        "pg_cancel_backend",
+        "pg_reload_conf",
+        "pg_rotate_logfile",
+        "set_config",
+        "lo_import",
+        "lo_export",
+        "lo_get",
+        "lo_put",
+        "lo_from_bytea",
+        "dblink",
+        "dblink_exec",
+        "dblink_connect",
+        "load_extension",
+        "load_file",
+        "sleep",
+        "benchmark",
+        "xp_cmdshell",
+        "xp_dirtree",
+        "openrowset",
+        "opendatasource",
+        "openquery",
+        "readfile",
+        "writefile",
+        "fts3_tokenizer",
+    }
+)
+FORBIDDEN_FUNCTION_PREFIXES = ("dbms_", "utl_", "sys_exec", "sys_eval")
+
+# Keywords ending a FROM-list (after which commas no longer separate tables)
+_FROM_LIST_TERMINATORS = frozenset(
+    {
+        "WHERE",
+        "GROUP BY",
+        "ORDER BY",
+        "HAVING",
+        "LIMIT",
+        "OFFSET",
+        "FETCH",
+        "UNION",
+        "UNION ALL",
+        "INTERSECT",
+        "EXCEPT",
+        "WINDOW",
+        "SELECT",
+        "QUALIFY",
+    }
+)
+# Join conditions end the current table reference but a following comma still adds tables
+_JOIN_CONDITION_KEYWORDS = frozenset({"ON", "USING"})
+_TABLE_PREFIX_KEYWORDS = frozenset({"LATERAL", "ONLY"})
+
+
+def _significant_tokens(statement) -> List[Any]:
+    """Flatten a parsed statement, dropping whitespace and comments."""
+    return [tok for tok in statement.flatten() if not tok.is_whitespace and tok.ttype not in T.Comment]
+
+
+def _normalize_identifier(value: str) -> str:
+    return value.strip().strip('"`[]').lower()
+
+
+def extract_table_references(query: str) -> Tuple[Set[str], Set[str]]:
+    """Return (referenced_tables, cte_names) for a SELECT statement using sqlparse tokens.
+
+    Handles comma-separated FROM lists, JOIN variants, schema-qualified and quoted names,
+    and nested subqueries. Table names are lower-cased and unquoted; for schema-qualified
+    references the last component (the table) is returned.
+    """
+    tables: Set[str] = set()
+    cte_names: Set[str] = set()
+    for statement in sqlparse.parse(query):
+        toks = _significant_tokens(statement)
+        depth = 0
+        from_depths: List[int] = []  # paren depths at which a FROM-list is currently open
+        expecting_table = False
+        i = 0
+        while i < len(toks):
+            tok = toks[i]
+            val = tok.normalized.upper() if tok.ttype in T.Keyword else tok.value
+
+            # CTE definition: <name> AS (
+            if (
+                i + 2 < len(toks)
+                and (tok.ttype in T.Name or tok.ttype in T.Literal.String.Symbol)
+                and toks[i + 1].ttype in T.Keyword
+                and toks[i + 1].normalized == "AS"
+                and toks[i + 2].value == "("
+            ):
+                cte_names.add(_normalize_identifier(tok.value))
+
+            if tok.ttype in T.Punctuation and tok.value == "(":
+                depth += 1
+                expecting_table = False
+                i += 1
+                continue
+            if tok.ttype in T.Punctuation and tok.value == ")":
+                depth -= 1
+                while from_depths and from_depths[-1] > depth:
+                    from_depths.pop()
+                i += 1
+                continue
+
+            if tok.ttype in T.Keyword:
+                if val == "FROM" or val.endswith("JOIN"):
+                    expecting_table = True
+                    while from_depths and from_depths[-1] >= depth:
+                        from_depths.pop()
+                    from_depths.append(depth)
+                    i += 1
+                    continue
+                if val in _JOIN_CONDITION_KEYWORDS:
+                    expecting_table = False
+                    i += 1
+                    continue
+                if val in _FROM_LIST_TERMINATORS:
+                    while from_depths and from_depths[-1] >= depth:
+                        from_depths.pop()
+                    expecting_table = False
+                    i += 1
+                    continue
+                if expecting_table and val in _TABLE_PREFIX_KEYWORDS:
+                    i += 1
+                    continue
+            if tok.ttype in T.DML and val.upper() == "SELECT":
+                while from_depths and from_depths[-1] >= depth:
+                    from_depths.pop()
+                expecting_table = False
+
+            if tok.ttype in T.Punctuation and tok.value == ",":
+                if from_depths and from_depths[-1] == depth:
+                    expecting_table = True
+                i += 1
+                continue
+
+            if expecting_table:
+                if tok.ttype in T.Name or tok.ttype in T.Literal.String.Symbol or tok.ttype in T.Keyword:
+                    # Collect dotted name: schema.table or db.schema.table
+                    name = tok.value
+                    j = i + 1
+                    while (
+                        j + 1 < len(toks)
+                        and toks[j].value == "."
+                        and (
+                            toks[j + 1].ttype in T.Name
+                            or toks[j + 1].ttype in T.Literal.String.Symbol
+                            or toks[j + 1].ttype in T.Keyword
+                        )
+                    ):
+                        name = toks[j + 1].value
+                        j += 2
+                    # A name followed by "(" is a table-valued function, not a table
+                    if not (j < len(toks) and toks[j].value == "("):
+                        tables.add(_normalize_identifier(name))
+                    expecting_table = False
+                    i = j
+                    continue
+                expecting_table = False
+            i += 1
+    return tables, cte_names
 
 
 class DatabaseConnector:
@@ -19,7 +241,7 @@ class DatabaseConnector:
         self,
         database_url: Optional[str] = None,
         allowed_tables: Optional[List[str]] = None,
-        max_rows: int = DB_MAX_ROWS
+        max_rows: int = DB_MAX_ROWS,
     ):
         self.database_url = database_url if database_url is not None else DATABASE_URL
         self.allowed_tables = allowed_tables if allowed_tables is not None else DB_ALLOWED_TABLES
@@ -41,21 +263,33 @@ class DatabaseConnector:
         return "unknown"
 
     def _init_engine(self):
-        """Initialize the SQLAlchemy engine."""
+        """Initialize the SQLAlchemy engine with database-level read-only protections."""
         try:
-            from sqlalchemy import create_engine
+            from sqlalchemy import create_engine, event
+
             # SQLite thread safety and path handling
             connect_args = {}
             if self.database_url.startswith("sqlite"):
                 connect_args = {"check_same_thread": False}
 
-            self.engine = create_engine(
-                self.database_url,
-                pool_pre_ping=True,
-                connect_args=connect_args
-            )
+            self.engine = create_engine(self.database_url, pool_pre_ping=True, connect_args=connect_args)
+
+            if self.engine.dialect.name == "sqlite":
+
+                @event.listens_for(self.engine, "connect")
+                def _sqlite_read_only(dbapi_connection, _record):
+                    # Rejects any write, ATTACH-ed database writes included, at the SQLite engine level
+                    cursor = dbapi_connection.cursor()
+                    cursor.execute("PRAGMA query_only = ON")
+                    cursor.close()
+            elif self.engine.dialect.name not in ("postgresql", "mysql", "mariadb"):
+                logger.warning(
+                    f"No session-level read-only enforcement for dialect '{self.engine.dialect.name}'. "
+                    "Connect with a database account that only has SELECT privileges."
+                )
+
             # Test connection
-            with self.engine.connect() as conn:
+            with self.engine.connect():
                 pass
             self.is_connected = True
             self._last_error = None
@@ -72,7 +306,7 @@ class DatabaseConnector:
                 "status": "not_configured",
                 "message": "Database URL (DATABASE_URL) is not configured.",
                 "dialect": None,
-                "tables": []
+                "tables": [],
             }
 
         if not self.is_connected or not self.engine:
@@ -83,7 +317,7 @@ class DatabaseConnector:
                 "status": "error",
                 "message": f"Connection error: {self._last_error}",
                 "dialect": None,
-                "tables": []
+                "tables": [],
             }
 
         try:
@@ -94,14 +328,14 @@ class DatabaseConnector:
                 "message": f"Successfully connected ({dialect_name.upper()}).",
                 "dialect": dialect_name,
                 "tables": tables,
-                "table_count": len(tables)
+                "table_count": len(tables),
             }
         except Exception as e:
             return {
                 "status": "error",
                 "message": f"Error querying tables: {e}",
                 "dialect": self.engine.dialect.name if self.engine else None,
-                "tables": []
+                "tables": [],
             }
 
     def get_tables(self) -> List[str]:
@@ -110,6 +344,7 @@ class DatabaseConnector:
             return []
 
         from sqlalchemy import inspect
+
         inspector = inspect(self.engine)
         all_tables = inspector.get_table_names()
 
@@ -129,6 +364,7 @@ class DatabaseConnector:
 
         try:
             from sqlalchemy import inspect
+
             inspector = inspect(self.engine)
             tables = self.get_tables()
 
@@ -157,72 +393,106 @@ class DatabaseConnector:
             return f"Error extracting schema: {e}"
 
     def _validate_sql_safety(self, query: str) -> tuple[bool, str]:
-        """Validate SQL query safety using both regex and AST-based parsing.
+        """Validate that a query is a single, read-only SELECT using sqlparse token analysis.
 
+        This is defense in depth on top of the database-level read-only session applied in
+        execute_query; production deployments should additionally use a SELECT-only account.
         Returns (is_safe, error_message). If is_safe is True, error_message is empty.
         """
         clean_query = query.strip().rstrip(";").strip()
+        if not clean_query:
+            return False, "Invalid Query: Empty query."
 
-        # 1. Strict Read-Only Guard against data modification keywords
-        forbidden_pattern = r"\b(INSERT|UPDATE|DELETE|DROP|ALTER|TRUNCATE|EXEC|EXECUTE|CREATE|GRANT|REVOKE|REPLACE)\b"
-        if re.search(forbidden_pattern, clean_query, re.IGNORECASE):
-            return False, "Security Guard: Only read-only (SELECT) queries are allowed."
+        # 1. Exactly one statement
+        statements = [stmt for stmt in sqlparse.split(clean_query) if stmt.strip().rstrip(";").strip()]
+        if len(statements) != 1:
+            return False, "Security Guard: Only a single SQL statement is allowed."
 
-        # 2. Must start with SELECT or WITH
-        if not re.match(r"^(SELECT|WITH)\b", clean_query, re.IGNORECASE):
+        parsed = sqlparse.parse(clean_query)
+        if not parsed:
+            return False, "Invalid Query: Could not parse SQL statement."
+        statement = parsed[0]
+        tokens = _significant_tokens(statement)
+        if not tokens:
+            return False, "Invalid Query: Could not parse SQL statement."
+
+        # 2. Forbidden keywords and functions (string literals are ignored, so values like 'Deleted' are fine)
+        for idx, tok in enumerate(tokens):
+            if tok.ttype in T.Literal.String and tok.ttype not in T.Literal.String.Symbol:
+                continue
+            upper = tok.normalized.upper() if tok.ttype in T.Keyword else tok.value.upper()
+            for word in upper.split():
+                if word in FORBIDDEN_KEYWORDS and (tok.ttype in T.Keyword or tok.ttype in T.Name):
+                    return (
+                        False,
+                        f"Security Guard: Forbidden keyword '{word}' detected. Only read-only (SELECT) queries are allowed.",
+                    )
+            is_call = idx + 1 < len(tokens) and tokens[idx + 1].value == "("
+            if is_call:
+                func = _normalize_identifier(tok.value)
+                if func in FORBIDDEN_FUNCTIONS or func.startswith(FORBIDDEN_FUNCTION_PREFIXES):
+                    return False, f"Security Guard: Function '{func}' is not permitted."
+
+        # 3. Must start with SELECT or WITH
+        first = tokens[0]
+        if first.normalized.upper() not in ("SELECT", "WITH"):
             return False, "Invalid Query: Query must start with 'SELECT' or 'WITH'."
 
-        # 3. AST-based validation using sqlparse (defense against comment-based bypass)
-        try:
-            import sqlparse
-            parsed = sqlparse.parse(clean_query)
-            if not parsed:
-                return False, "Invalid Query: Could not parse SQL statement."
-
-            for statement in parsed:
-                stmt_type = statement.get_type()
-                if stmt_type and stmt_type.upper() not in ("SELECT", "UNKNOWN"):
-                    return False, f"Security Guard: Statement type '{stmt_type}' is not permitted. Only SELECT is allowed."
-
-                # Check for dangerous tokens within parsed statement
-                flat_tokens = list(statement.flatten())
-                for token in flat_tokens:
-                    token_upper = str(token).upper().strip()
-                    if token_upper in ("INSERT", "UPDATE", "DELETE", "DROP", "ALTER",
-                                       "TRUNCATE", "EXEC", "EXECUTE", "CREATE",
-                                       "GRANT", "REVOKE", "REPLACE"):
-                        return False, f"Security Guard: Forbidden keyword '{token_upper}' detected in parsed query."
-        except ImportError:
-            # sqlparse not installed, fall back to regex-only validation
-            logger.warning("sqlparse not installed, using regex-only SQL validation.")
-        except Exception as e:
-            logger.warning(f"SQL parsing error, falling back to regex validation: {e}")
+        stmt_type = statement.get_type()
+        if stmt_type and stmt_type.upper() not in ("SELECT", "UNKNOWN"):
+            return (
+                False,
+                f"Security Guard: Statement type '{stmt_type}' is not permitted. Only SELECT is allowed.",
+            )
 
         # 4. Table Access Restriction (if allowed_tables is specified)
         if self.allowed_tables:
-            referenced_tables = re.findall(r"\b(?:FROM|JOIN)\s+([a-zA-Z0-9_]+)", clean_query, re.IGNORECASE)
-            for tbl in referenced_tables:
-                if tbl not in self.allowed_tables:
+            allowed = {_normalize_identifier(t) for t in self.allowed_tables}
+            referenced_tables, cte_names = extract_table_references(clean_query)
+            for tbl in sorted(referenced_tables):
+                if tbl not in allowed and tbl not in cte_names:
                     logger.warning(f"Unauthorized table access attempt: '{tbl}' in query: '{clean_query}'")
-                    return False, f"Security Guard: Access to table '{tbl}' is not permitted."
+                    return (
+                        False,
+                        f"Security Guard: Access to table '{tbl}' is not permitted.",
+                    )
 
         return True, ""
+
+    def _apply_read_only_session(self, conn) -> None:
+        """Force the current transaction to be read-only and bounded in time where the dialect supports it."""
+        dialect = self.engine.dialect.name
+        timeout_ms = max(1, DB_QUERY_TIMEOUT_SECONDS) * 1000
+        if dialect == "postgresql":
+            conn.exec_driver_sql("SET TRANSACTION READ ONLY")
+            conn.exec_driver_sql(f"SET LOCAL statement_timeout = {int(timeout_ms)}")
+        elif dialect in ("mysql", "mariadb"):
+            conn.exec_driver_sql("SET TRANSACTION READ ONLY")
+            try:
+                if dialect == "mysql":
+                    conn.exec_driver_sql(f"SET SESSION MAX_EXECUTION_TIME = {int(timeout_ms)}")
+                else:
+                    conn.exec_driver_sql(f"SET SESSION max_statement_time = {int(timeout_ms / 1000)}")
+            except Exception as e:
+                logger.debug(f"Could not apply query timeout: {e}")
 
     def execute_query(self, query: str) -> Dict[str, Any]:
         """Execute SQL query subject to strict read-only security guards.
 
         Security Rules:
-        1. Only 'SELECT' or 'WITH ... SELECT' queries are permitted.
-        2. 'INSERT', 'UPDATE', 'DELETE', 'DROP', 'ALTER', 'TRUNCATE', 'EXEC' are strictly blocked.
-        3. AST-based SQL parsing validates query structure beyond simple regex.
-        4. Result rows are capped at max_rows.
+        1. Only a single 'SELECT' or 'WITH ... SELECT' statement is permitted.
+        2. Data/schema modifying keywords and dangerous server functions are blocked (token-level analysis).
+        3. Table references are checked against allowed_tables (FROM lists, JOINs, subqueries).
+        4. The query runs inside a database-enforced read-only transaction (SQLite query_only,
+           PostgreSQL/MySQL read-only transactions) with a statement timeout.
+        5. Result rows are capped at max_rows.
         """
         if not self.is_connected or not self.engine:
             return {
                 "status": "error",
                 "message": "Database connection is not active.",
                 "columns": [],
-                "rows": []
+                "rows": [],
             }
 
         clean_query = query.strip().rstrip(";").strip()
@@ -230,19 +500,17 @@ class DatabaseConnector:
         # Validate SQL safety
         is_safe, error_msg = self._validate_sql_safety(clean_query)
         if not is_safe:
-            return {
-                "status": "error",
-                "message": error_msg,
-                "columns": [],
-                "rows": []
-            }
+            return {"status": "error", "message": error_msg, "columns": [], "rows": []}
 
         try:
             from sqlalchemy import text
+
             with self.engine.connect() as conn:
+                self._apply_read_only_session(conn)
                 result = conn.execute(text(clean_query))
                 columns = list(result.keys()) if result.returns_rows else []
                 raw_rows = result.fetchmany(self.max_rows) if result.returns_rows else []
+                conn.rollback()
 
                 # Convert to JSON serializable dictionaries
                 formatted_rows = []
@@ -262,14 +530,15 @@ class DatabaseConnector:
                     "columns": columns,
                     "rows": formatted_rows,
                     "row_count": len(formatted_rows),
-                    "query": clean_query
+                    "query": clean_query,
                 }
         except Exception as e:
+            logger.warning(f"Query execution failed: {e}")
             return {
                 "status": "error",
-                "message": f"Error executing query: {e}",
+                "message": f"Error executing query: {type(e).__name__}",
                 "columns": [],
-                "rows": []
+                "rows": [],
             }
 
 
@@ -324,33 +593,109 @@ def create_sample_sqlite_db(db_path: Optional[str] = None) -> str:
     # Populate initial sample records if empty
     cursor.execute("SELECT COUNT(*) FROM urunler;")
     if cursor.fetchone()[0] == 0:
-        cursor.executemany("""
+        cursor.executemany(
+            """
         INSERT INTO urunler (sku, urun_adi, kategori, birim_fiyat, stok_adedi) VALUES (?, ?, ?, ?, ?);
-        """, [
-            ("NT-SRV-01", "NovaTech Enterprise Server X1", "Hardware", 85000.0, 14),
-            ("NT-LPT-02", "NovaTech ProBook 15 G3", "Computer", 38500.0, 45),
-            ("NT-SEC-03", "NovaShield Enterprise Firewall", "Security", 62000.0, 8),
-            ("NT-SFT-04", "NovaERP Cloud License (Annual)", "Software", 120000.0, 100),
-            ("NT-MON-05", "NovaView 27-inch 4K Monitor", "Accessory", 9400.0, 60),
-        ])
+        """,
+            [
+                ("NT-SRV-01", "NovaTech Enterprise Server X1", "Hardware", 85000.0, 14),
+                ("NT-LPT-02", "NovaTech ProBook 15 G3", "Computer", 38500.0, 45),
+                ("NT-SEC-03", "NovaShield Enterprise Firewall", "Security", 62000.0, 8),
+                (
+                    "NT-SFT-04",
+                    "NovaERP Cloud License (Annual)",
+                    "Software",
+                    120000.0,
+                    100,
+                ),
+                ("NT-MON-05", "NovaView 27-inch 4K Monitor", "Accessory", 9400.0, 60),
+            ],
+        )
 
-        cursor.executemany("""
+        cursor.executemany(
+            """
         INSERT INTO satislar (siparis_no, musteri_adi, urun_id, adet, toplam_tutar, bolge, tarih) VALUES (?, ?, ?, ?, ?, ?, ?);
-        """, [
-            ("ORD-2026-001", "Anadolu Logistics Corp.", 1, 2, 170000.0, "Marmara", "2026-01-15"),
-            ("ORD-2026-002", "Capital Health Group", 2, 5, 192500.0, "Central", "2026-01-18"),
-            ("ORD-2026-003", "Aegean IT Systems", 3, 1, 62000.0, "Aegean", "2026-02-02"),
-            ("ORD-2026-004", "Mediterranean Retail Ltd.", 4, 1, 120000.0, "Mediterranean", "2026-02-14"),
-            ("ORD-2026-005", "Anadolu Logistics Corp.", 5, 4, 37600.0, "Marmara", "2026-03-01"),
-        ])
+        """,
+            [
+                (
+                    "ORD-2026-001",
+                    "Anadolu Logistics Corp.",
+                    1,
+                    2,
+                    170000.0,
+                    "Marmara",
+                    "2026-01-15",
+                ),
+                (
+                    "ORD-2026-002",
+                    "Capital Health Group",
+                    2,
+                    5,
+                    192500.0,
+                    "Central",
+                    "2026-01-18",
+                ),
+                (
+                    "ORD-2026-003",
+                    "Aegean IT Systems",
+                    3,
+                    1,
+                    62000.0,
+                    "Aegean",
+                    "2026-02-02",
+                ),
+                (
+                    "ORD-2026-004",
+                    "Mediterranean Retail Ltd.",
+                    4,
+                    1,
+                    120000.0,
+                    "Mediterranean",
+                    "2026-02-14",
+                ),
+                (
+                    "ORD-2026-005",
+                    "Anadolu Logistics Corp.",
+                    5,
+                    4,
+                    37600.0,
+                    "Marmara",
+                    "2026-03-01",
+                ),
+            ],
+        )
 
-        cursor.executemany("""
+        cursor.executemany(
+            """
         INSERT INTO destek_talepleri (talep_kodu, musteri_adi, konu, detay, cozum, durum) VALUES (?, ?, ?, ?, ?, ?);
-        """, [
-            ("SR-2026-101", "Anadolu Logistics Corp.", "Server BIOS Update", "IPMI disconnected after Enterprise Server X1 reboot.", "Applied IPMI firmware 2.14 patch and reset static IP.", "Resolved"),
-            ("SR-2026-102", "Capital Health Group", "ERP License Activation Error", "Users receiving 'License Limit Exceeded' warning.", "Terminated stale sessions on license server and cleaned connection pool.", "Resolved"),
-            ("SR-2026-103", "Aegean IT Systems", "Firewall VPN Setup", "IKEv2 key mismatch when establishing IPsec tunnel.", "Synchronized Phase-1 and Phase-2 encryption algorithms to AES-256.", "Resolved"),
-        ])
+        """,
+            [
+                (
+                    "SR-2026-101",
+                    "Anadolu Logistics Corp.",
+                    "Server BIOS Update",
+                    "IPMI disconnected after Enterprise Server X1 reboot.",
+                    "Applied IPMI firmware 2.14 patch and reset static IP.",
+                    "Resolved",
+                ),
+                (
+                    "SR-2026-102",
+                    "Capital Health Group",
+                    "ERP License Activation Error",
+                    "Users receiving 'License Limit Exceeded' warning.",
+                    "Terminated stale sessions on license server and cleaned connection pool.",
+                    "Resolved",
+                ),
+                (
+                    "SR-2026-103",
+                    "Aegean IT Systems",
+                    "Firewall VPN Setup",
+                    "IKEv2 key mismatch when establishing IPsec tunnel.",
+                    "Synchronized Phase-1 and Phase-2 encryption algorithms to AES-256.",
+                    "Resolved",
+                ),
+            ],
+        )
 
     conn.commit()
     conn.close()

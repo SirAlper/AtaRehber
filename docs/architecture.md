@@ -1,6 +1,6 @@
 # 🏗️ System Architecture & Engineering Principles
 
-`OpenLocalRagAgents` is built upon **Two-Stage Retrieval**, **Stateful Agentic AI (LangGraph)**, **Role-Based Access Control (RBAC)**, and **Tamper-Evident Audit Logging** workflows designed to execute 100% locally on private enterprise hardware without sending proprietary data to third-party cloud APIs.
+`OpenLocalRagAgents` is built upon **Two-Stage Retrieval**, a **LangGraph Multi-Agent Supervisor workflow**, **Role-Based Access Control (RBAC)**, and **Hash-Chained Audit Logging**, designed to execute 100% locally on private enterprise hardware without sending proprietary data to third-party cloud APIs.
 
 ---
 
@@ -16,8 +16,8 @@
 ┌──────────────────────────────────────────────────────────────────────────────────┐
 │                             FastAPI Gateway (Port 8000)                          │
 │  ┌─────────────────────────┐  ┌────────────────────────┐  ┌───────────────────┐  │
-│  │  CORS & Rate Protection │  │ JWT & RBAC Middleware  │  │ Structured Logger │  │
-│  │  (Allowed Origins)      │  │ (admin/editor/viewer)  │  │ (src.core.logger) │  │
+│  │  CORS & Rate Limiting   │  │ JWT & RBAC Dependencies│  │ Structured Logger │  │
+│  │  (per account / per IP) │  │ (admin/editor/viewer)  │  │ (src.core.logger) │  │
 │  └─────────────────────────┘  └────────────────────────┘  └───────────────────┘  │
 │  ┌────────────────────────────────────────────────────────────────────────────┐  │
 │  │                    Query Concurrency Manager (State)                       │  │
@@ -28,33 +28,27 @@
       Workflow Dispatch │                Audit & ETL Event │
                         ▼                                  ▼
 ┌────────────────────────────────────────────────────────┐  ┌──────────────────────────────────────┐
-│       LangGraph Workflow Engine                        │  │     Data & Governance Layer          │
-│                                                        │  │                                      │
-│  ┌──────────────┐   ┌───────────────┐   ┌────────────┐ │  │  ┌────────────────────────────────┐  │
-│  │ Rewrite Node │──>│ Retrieve Node │──>│Generate Node││  │  │ Audit Logger (data/audit.db)   │  │
-│  └──────────────┘   └───────┬───────┘   └──────┬─────┘ │  │  │ (Tamper-evident query/auth log)│  │
-│                             │                  │       │  │  └────────────────────────────────┘  │
-│                             │                  ▼       │  │  ┌────────────────────────────────┐  │
-│                             │           ┌────────────┐ │  │  │ Checkpointer (conversations.db)│  │
-│                             │     ┌────>│ Grade Node │ │  │  │ (Session multi-turn memory)    │  │
-│                             │     │     └──────┬─────┘ │  │  └────────────────────────────────┘  │
-│                             │     │            │       │  │  ┌────────────────────────────────┐  │
-│                             │     │     Passed │       │  │  │ User Store (data/users.json)   │  │
-│                             │     │            ▼       │  │  │ (Bcrypt salted password hashes)│  │
-│                             │     │     ┌────────────┐ │  │  └────────────────────────────────┘  │
-│                             │  Refine   │ Refine Node│ │  │  ┌────────────────────────────────┐  │
-│                             │   Loop    │(Self-Corr.)│ │  │  │ Universal DB Connector         │  │
-│                             │     │     └──────┬─────┘ │  │  │ (Postgres/MSSQL/MySQL/Oracle/  │  │
-│                             │     └────────────┘       │  │  │  SQLite Read-Only Guards)      │  │
-│                             │            Max retries   │  │  └────────────────────────────────┘  │
-│                             │                  ▼       │  └──────────────────────────────────────┘
-│                             │           ┌────────────┐ │
-│                             │           │FallbackNode│─┼──> [END]
-│                             │           └────────────┘ │
-│                             │                  ▲       │
-│                             │      Grounded    │       │
-│                             └──────────────────┴───────┴──> [END]
-└──────────────────────┬─────────────────────────────────┘
+│  LangGraph Multi-Agent Workflow                        │  │  Data & Governance Layer             │
+│                                                        │  │  ┌────────────────────────────────┐  │
+│               ┌───────────────────────┐                │  │  │ Audit Logger (data/audit.db)   │  │
+│               │ 👑 supervisor         │                │  │  │ SHA-256 hash-chained entries   │  │
+│               │ intent routing,       │                │  │  └────────────────────────────────┘  │
+│               │ forced_agent,         │                │  │  ┌────────────────────────────────┐  │
+│               │ greeting fast path    │                │  │  │ Checkpointer                   │  │
+│               └──┬────────┬────────┬──┘                │  │  │ multi_agent_conversations.db   │  │
+│        ┌─────────┘        │        └──────────┐        │  │  └────────────────────────────────┘  │
+│        ▼                  ▼                   ▼        │  │  ┌────────────────────────────────┐  │
+│ ┌────────────┐   ┌─────────────┐   ┌──────────────────┐│  │  │ User Store (data/users.json)   │  │
+│ │ doc_agent  │   │  db_agent   │   │ compliance_agent ││  │  │ bcrypt hashes, token versions  │  │
+│ │ (Self-RAG) │   │(Text-to-SQL)│   │ (policy audit)   ││  │  └────────────────────────────────┘  │
+│ └─────┬──────┘   └──────┬──────┘   └────────┬─────────┘│  │  ┌────────────────────────────────┐  │
+│       └─────────────────┼───────────────────┘          │  │  │ Universal DB Connector         │  │
+│                         ▼   direct answer ◄─ supervisor│  │  │ Postgres/MSSQL/MySQL/Oracle/   │  │
+│                 ┌───────────────┐                      │  │  │ SQLite, read-only sessions     │  │
+│                 │  record_turn  │──> [END]             │  │  └────────────────────────────────┘  │
+│                 │(chat_history) │                      │  │                                      │
+│                 └───────────────┘                      │  │                                      │
+└──────────────────────┬─────────────────────────────────┘  └──────────────────────────────────────┘
                        │
        Context Scoring │ Generation Call
                        ▼
@@ -73,140 +67,158 @@
 └────────────────────────────────────────┘
 ```
 
+A single LLM instance is loaded once (`get_chat_model()` in `src/api/state.py`) and shared by the supervisor and every sub-agent.
+
 ---
 
 ## 🔍 Two-Stage Retrieval & Cross-Encoder Reranking
 
-Traditional naive RAG implementations rely solely on vector cosine similarity, which frequently retrieves semantically adjacent but factually unhelpful text passages. Our architecture addresses this with a high-accuracy two-stage pipeline:
+Traditional naive RAG implementations rely solely on vector similarity, which frequently retrieves semantically adjacent but factually unhelpful text passages. Our architecture addresses this with a two-stage pipeline (`src/rag/rag_engine.py`):
 
 ### Stage 1: Fast Bi-Encoder Vector Search (`BAAI/bge-m3`)
-* **Model:** `BAAI/bge-m3` (1024-dimensional dense vectors).
-* **Operation:** User query is vectorized and matched against ChromaDB within milliseconds to retrieve a broad candidate pool (`n_results=10`).
-* **Distance Thresholding:** Distant or irrelevant chunks exceeding `max_distance = 1.35` are discarded immediately.
+* **Model:** `BAAI/bge-m3` (1024-dimensional, L2-normalized dense vectors).
+* **Operation:** The query is vectorized and matched against ChromaDB to retrieve a broad candidate pool (`n_results=10`).
+* **Similarity Thresholding:** Candidates below `RAG_MIN_SIMILARITY` (cosine similarity, default `0.325`) are discarded. New collections use cosine distance; collections created by older versions keep their L2 metric, and distances are converted so the same threshold applies to both.
 
 ### Stage 2: Full-Attention Cross-Encoder Reranking (`BAAI/bge-reranker-v2-m3`)
 * **Model:** `BAAI/bge-reranker-v2-m3`.
-* **Operation:** Remaining candidates are paired with the user query (`[Query, Document Chunk]`) and scored simultaneously across cross-attention layers.
-* **Output:** Deep cross-attention scores determine genuine relevance. The top `RERANKER_TOP_N = 3` highest-scoring passages are selected and concatenated into the prompt context for the LLM.
+* **Operation:** Remaining candidates are paired with the query (`[Query, Document Chunk]`) and scored jointly by the cross-encoder.
+* **Output:** The top `RERANKER_TOP_N` (default `3`) passages are concatenated into the LLM context.
+
+Index writes are serialized with a write lock (also used by backups), and per-document chunk statistics are cached and recomputed only after the index changes.
 
 ---
 
 ## 📑 Contextual Chunking
 
-Standard text splitters segment documents at fixed character or token boundaries. This often separates vital section clauses from their document titles or regulatory codes, eroding semantic retrieval accuracy.
+Standard text splitters segment documents at fixed character boundaries. This often separates clauses from their document titles or regulatory codes, eroding retrieval accuracy.
 
 The `src/rag/document_loader.py` module applies **Contextual Chunking**:
-1. Scans the initial lines of the document to extract document titles and regulatory codes:
+1. Scans the first lines of the document for `DOCUMENT:` / `DOKÜMAN:` and `CODE:` / `KOD:` markers to build a header:
    - Example: `[Document: NovaTech Information Security Policy | CODE: SEC-POL-04]`
-2. Automatically injects this contextual header **at the beginning of every chunk produced from that document**:
+2. Injects this header **at the beginning of every chunk produced from that document**:
    ```text
    [Document: NovaTech Information Security Policy | CODE: SEC-POL-04]
    Clause 4.1: USB drive usage on corporate computers requires prior IT authorization...
    ```
-3. The embedding model retains the parent document identity and regulatory scope for every individual passage during similarity search.
+3. The embedding model therefore retains the parent document identity for every passage. Chunk size and overlap are configurable (`CHUNK_SIZE`, `CHUNK_OVERLAP`).
+
+---
+
+## 🤖 Multi-Agent Workflow (`src/agent/multi_agent/`)
+
+All queries (`/api/v1/query` and `/api/v1/query-stream`) run through the same compiled LangGraph `StateGraph` built by `MultiAgentOrchestrator`:
+
+```text
+supervisor ──► doc_agent | db_agent | compliance_agent | <custom agents> ──► record_turn ──► END
+     └──────────────────── direct answer (greeting / meta question) ─────────┘
+```
+
+1. **`supervisor` (`SupervisorAgent.route`):**
+   - If the request names an agent (`forced_agent`, from the API `agent` field), routes there without calling the LLM.
+   - Messages consisting only of greeting words (e.g. "Merhaba", "hi there") are answered directly via a fast path. Mixed messages such as "hi, list sales" go through normal routing.
+   - Otherwise the LLM receives the registered agents' descriptions plus the last turns of the conversation and returns a JSON routing decision. If the JSON cannot be parsed, keyword heuristics pick the agent; unknown agent names fall back to `doc_agent`.
+2. **Specialist sub-agent** (see [Custom Agents Guide](custom_agents_guide.md) for the contract).
+3. **`record_turn`:** appends `{question, answer, agent}` to `chat_history` (trimmed to `CHAT_HISTORY_MAX_TURNS`, default 20) and sets `active_agent`.
+
+`MultiAgentState` declares every key the graph carries. LangGraph drops keys that are not declared, so new state fields must be added there.
+
+### Built-in Specialists
+
+| Agent | Workflow |
+| :--- | :--- |
+| **`doc_agent`** | Query rewrite (for follow-ups) → two-stage retrieval → grounded generation → **Self-RAG guard** (below). |
+| **`db_agent`** | Schema inspection → SQL generation (with recent conversation for follow-ups) → first statement extracted with `sqlparse` → guarded read-only execution → LLM summary of the rows. |
+| **`compliance_agent`** | Policy retrieval → structured audit report with a `[COMPLIANT]` / `[WARNING]` / `[VIOLATION]` verdict. |
+
+### Self-RAG Hallucination Guard (`doc_agent`)
+1. **Generate** a draft answer from the retrieved context.
+2. **Grade** it with `SYSTEM_PROMPT_GRADER`. The verdict passes only if its first word is `yes` / `evet`. If the grader itself fails, the answer counts as **unverified** (fail closed).
+3. **Refine** once if the grade fails: unsupported claims are pruned (`SYSTEM_PROMPT_REFINE`) and the result is graded again.
+4. **Fallback:** if the refined answer still fails, the safe `FALLBACK_RESPONSE` is returned.
+
+The verdict and refinement flag are returned as `hallucination_grade` and `is_refined`.
+
+> [!NOTE]
+> `src/agent/agent_graph.py` (`EnterpriseRAGAgent`) contains the earlier single-agent Self-RAG graph (`rewrite → retrieve → generate → grade → refine/fallback`). It is kept as a library component and covered by tests, but the API does not use it for queries and it is not loaded at startup.
 
 ---
 
 ## 🧠 Multi-Turn Conversational Memory & Checkpointing
 
-Conversations are statefully managed across turns without inflating prompt tokens or leaking context across users:
+1. **SQLite Checkpointer (`data/multi_agent_conversations.db`):**
+   - The workflow is compiled with LangGraph's `SqliteSaver`. `chat_history` persists across turns; all other state keys (answer, sources, trace, forced agent) are reset at the start of every turn.
+   - Falls back to an in-memory checkpointer if SQLite initialization fails.
+   - Requests without a `session_id` run on a checkpointer-less copy of the graph (single-turn, nothing persisted).
+2. **User-Isolated Session Threads:**
+   - Thread keys are partitioned by username: `thread_id = f"{username}_{session_id}"`, so users cannot read or poison another user's conversation.
+3. **Conversation-Aware Agents:**
+   - The supervisor sees recent turns when routing, `doc_agent` rewrites follow-up questions into standalone search queries (`SYSTEM_PROMPT_REWRITE`), and `db_agent` passes recent turns to SQL generation. Example: *"What is its unit price?"* after *"Which product has the highest stock?"* resolves "its" to the product from the previous answer.
+4. **Retention:** `POST /api/v1/admin/cleanup-sessions?max_age_days=N` deletes threads whose most recent checkpoint is older than `N` days (`src/agent/multi_agent/sessions.py`).
 
-1. **SQLite Checkpointer (`data/conversations.db`):**
-   - The LangGraph workflow is compiled with `SqliteSaver`, creating atomic checkpoint snapshots at each graph node.
-   - Falls back gracefully to in-memory checkpointing if SQLite initialization encounters permission limits.
-2. **User-Isolated Session Threads (`thread_id`):**
-   - Thread keys are partitioned by username: `thread_id = f"{username}_{session_id}"`.
-   - Ensures strict tenant isolation: users cannot observe or poison another employee's session state.
-3. **Retrieval Query Context Enrichment:**
-   - In `AgentNodes.retrieve()`, when multi-turn conversation history is detected, the search query is dynamically enriched with keywords from recent question turns:
-     `search_query = f"{question} {recent_context}"`.
-   - Enables intuitive follow-up queries (e.g., *"What were the exemptions?"* following a question about *"Password update policy"*).
-
----
-
-## 🤖 LangGraph State Graph & Closed-Loop Self-Correction (Self-RAG)
-
-Rather than executing as a rigid linear pipeline, the system operates as a feedback-driven state graph (`src/agent/agent_graph.py`):
-
-1. **`rewrite` Node (Dynamic Query Optimization):**
-   - Evaluates user queries in multi-turn conversation context.
-   - For ambiguous follow-ups, pronoun references, or underspecified questions, invokes the LLM using `SYSTEM_PROMPT_REWRITE` to generate an optimized standalone `search_query` specifically formulated for vector retrieval.
-   - Preserves the user's authentic question in conversation history (`chat_history`) while routing the optimized `search_query` to the retriever.
-   - Single-turn and concise queries pass through directly to avoid unnecessary inference latency.
-2. **`retrieve` Node:**
-   - Queries ChromaDB with the optimized `search_query` (enriched with recent question context if unrewritten) and reranks candidates with the Cross-Encoder.
-   - If no relevant enterprise documents are found, immediately routes to the standard no-context response.
-3. **`generate` Node:**
-   - Invokes the active LLM backend (`ChatHuggingFace` or `ChatOllama`) to formulate a professional, grounded response adhering strictly to the retrieved context.
-4. **`grade` Node (Hallucination Grader):**
-   - Compares the draft response with the retrieved context. Paraphrasing and stylistic summaries are preserved; only unverified, contradictory, or fabricated claims trigger failure.
-5. **Conditional Routing (`decide_hallucinate`):**
-   - **Grounded (`yes`):** Workflow terminates successfully (`END`), returning the verified answer alongside chunk sources and distances.
-   - **Ungrounded / Speculative (`no`):**
-     - If the answer has not yet been refined (`retry_count < 1`), it routes to the **`refine`** node.
-     - If retry limits are exceeded (`retry_count >= 1`), it routes to the safe `fallback` node.
-6. **`refine` Node (Closed-Loop Self-Correction):**
-   - Prunes unverified assertions, retains confirmed factual statements, and cleanly restructures the draft response.
-   - **Re-Grading Loop:** Once refined, control automatically loops back to `grade` for a secondary audit. If the refined answer passes, it terminates to `END`; if speculative statements persist, it routes to `fallback`.
-7. **User Interaction & Thinking Indicator:**
-   - Eliminates progressive character streaming glitches. The UI displays an active thinking indicator while graph nodes execute, delivering the complete, validated response atomically.
+### Streaming
+`stream_events()` executes the same graph with `stream_mode="updates"` and converts node updates into NDJSON events (`status`, `agent_selected`, `sources`, `done`). If the client disconnects, the API stops the worker before the next node and keeps the concurrency gate until inference has actually finished, so the in-process model never runs two requests at once.
 
 ---
 
 ## 🛡️ Enterprise Infrastructure & Security Architecture
 
-### 1. Role-Based Access Control (RBAC) & Dual-Token Authentication
+### 1. Authentication, RBAC & Token Lifecycle
 * **Dual JWT Token Lifecycle:**
-  - **Access Token:** Short-lived HMAC-SHA256 Bearer token (`ACCESS_TOKEN_EXPIRE_MINUTES`, default: 60 minutes) used for API authorization.
-  - **Refresh Token:** Long-lived Bearer token (`REFRESH_TOKEN_EXPIRE_DAYS`, default: 7 days) allowing clients to seamlessly rotate access tokens via `POST /api/v1/auth/refresh` without credentials re-entry.
-* **Dynamic Secret Management:** If `JWT_SECRET_KEY` is not set in `.env`, a cryptographically secure 256-bit secret is generated and persisted in `data/.jwt_secret` (with `0600` permissions on POSIX systems), ensuring tokens remain valid across server restarts without committing secrets to git.
-* **Configurable Password Policy (`PasswordPolicy`):** Enforces enterprise password complexity upon user creation and updates (minimum length, uppercase, lowercase, digit, and optional special characters).
+  - **Access Token:** Short-lived HMAC-SHA256 Bearer token (`ACCESS_TOKEN_EXPIRE_MINUTES`, default 60) used for API authorization.
+  - **Refresh Token:** Long-lived token (`REFRESH_TOKEN_EXPIRE_DAYS`, default 7) exchanged via `POST /api/v1/auth/refresh`.
+  - Tokens carry a `type` claim; refresh tokens are rejected as bearer credentials and vice versa.
+* **Token Revocation:** Each user has a `token_version`, embedded in every token. Changing a password or disabling an account increments it, which invalidates all previously issued access and refresh tokens.
+* **Dynamic Secret Management:** If `JWT_SECRET_KEY` is not set, a random 256-bit secret is generated and persisted in `data/.jwt_secret` (owner read/write only, `0600`, on POSIX systems) so tokens survive restarts without committing secrets to git.
+* **Default Password Replacement:** Accounts using the built-in `admin123` password are flagged `must_change_password`. Until the password is changed via `POST /api/v1/auth/change-password`, every other endpoint returns HTTP 403 (`REQUIRE_DEFAULT_PASSWORD_CHANGE`, default `true`).
+* **Configurable Password Policy (`PasswordPolicy`):** Enforced on user creation, admin password resets, and self-service password changes (minimum length, uppercase, lowercase, digit, optional special character).
+* **Login Brute-Force Protection:** After `LOGIN_MAX_FAILED_ATTEMPTS` (default 5) failures within `LOGIN_LOCKOUT_WINDOW_SECONDS` (default 900), the account is temporarily locked (HTTP 429). The lock is per username, so users behind a shared gateway do not lock each other out.
 * **Bcrypt Password Hashing:** Salted hashes stored locally in `data/users.json`. Plaintext passwords are never persisted or logged.
 * **Three-Tier Authorization Model:**
-  * `admin`: Complete administrative privileges (user registration, account status/role editing, account deletion, database execution, table ETL sync, audit log inspection, backup/restore, session cleanup).
-  * `editor`: Operational privileges (uploading files, deleting files, vectorization, running assistant queries).
-  * `viewer`: Read-only access (asking questions, viewing public stats, inspecting database connection status).
+  * `admin`: Complete administrative privileges (user management, ad-hoc SQL, table ETL sync, audit inspection and verification, backup/restore, session cleanup).
+  * `editor`: Document management (upload, delete) and assistant queries.
+  * `viewer`: Assistant queries, statistics, and database connection status.
 
 ### 2. Tamper-Evident Compliance Audit Trail (`src.core.audit`)
-* **Structured SQLite Storage (`data/audit.db`):** Records every business event: user login, token refresh, query, stream query, document upload, document deletion, database query, ETL synchronization, and user answer feedback.
-* **Metadata Captured:** Timestamp (ISO), username, role, action, target detail, sources cited, answer preview, client IP address, execution duration in milliseconds, and status (`success`, `error`, `denied`).
-* **Zero Cloud Leakage:** Audit logs reside strictly on local storage; no telemetry or reporting metrics leave the network.
+* **Structured SQLite Storage (`data/audit.db`):** Records logins (including failures and lockouts), token refreshes, password changes, queries, stream queries, document uploads/deletions, SQL queries, ETL syncs, feedback, backups, restores, and session cleanups.
+* **Metadata Captured:** ISO timestamp, username, role, action, detail, cited sources, answer preview, client IP, duration (ms), and status (`success`, `error`, `denied`, `warning`, `cancelled`).
+* **Hash Chain:** Every entry stores `prev_hash` and `entry_hash = SHA-256(prev_hash + entry content)`. Writes take an exclusive SQLite transaction (`BEGIN IMMEDIATE`) so concurrent writers cannot fork the chain.
+* **Verification:** `GET /api/v1/admin/audit-verify` recomputes the chain and reports the first edited or deleted entry. Truncating the newest entries or rewriting the whole chain can only be detected against a previously exported `head_hash`, so store it outside the server periodically. Entries written before hash chaining existed are reported as unverifiable legacy entries.
+* **Zero Cloud Leakage:** Audit logs reside strictly on local storage.
 
 ### 3. Dual LLM Serving & Adaptive Concurrency Protection
 * **In-Process HuggingFace (`LLM_BACKEND=huggingface`):**
-  - Model weights loaded directly in BF16 (~2.8 GB VRAM).
-  - Serialized via `asyncio.Lock()` to prevent GPU VRAM collisions and transformers pipeline race conditions.
+  - Model weights loaded in BF16 on CUDA (~2.8 GB VRAM for the 1.5B model), FP32 on CPU.
+  - Serialized via `asyncio.Lock()` to prevent GPU memory collisions and pipeline race conditions.
 * **External Ollama Serving (`LLM_BACKEND=ollama`):**
-  - Offloads generation to an external Ollama instance hosting larger models (`qwen2.5:7b`, `llama3.1:8b`).
-  - Governed by `asyncio.Semaphore(OLLAMA_NUM_PARALLEL)` for multi-user parallel request processing.
+  - Offloads generation to an Ollama instance hosting larger models (`qwen2.5:7b`, `llama3.1:8b`).
+  - Governed by `asyncio.Semaphore(OLLAMA_NUM_PARALLEL)` for parallel multi-user processing.
 
 ### 4. File Upload Hardening & Path Traversal Prevention
-* **Path Traversal Protection:** `os.path.basename()` and canonical directory resolution enforce strict sanitization against directory traversal vectors (e.g. `../../`).
-* **Extension Whitelist:** Restricts uploads exclusively to `.pdf`, `.docx`, and `.txt` files. Executables or scripts (`.exe`, `.sh`, `.py`) are rejected with HTTP 400.
-* **Streaming Memory Limit:** File uploads are validated in 1MB chunks up to `MAX_UPLOAD_SIZE_MB` (default 50 MB). Exceeding uploads are immediately purged from disk and return HTTP 413.
+* **Path Traversal Protection:** `os.path.basename()` sanitization plus a canonical-path containment check (`os.path.commonpath`) against the data directory.
+* **Extension Whitelist:** Uploads are restricted to `.pdf`, `.docx`, and `.txt`. Other files (`.exe`, `.sh`, `.py`, …) are rejected with HTTP 400.
+* **Streaming Size Limit:** Uploads are written in 1 MB chunks up to `MAX_UPLOAD_SIZE_MB` (default 50). Oversized uploads are deleted and return HTTP 413.
 
-### 5. AST-Based Database Security & Table Whitelisting (`src.connectors`)
-* **AST-Based SQL Validation (`sqlparse`):**
-  - Parses query tokens into abstract syntax trees rather than relying solely on naive regex.
-  - Automatically strips inline (`--`) and block (`/* ... */`) comments to neutralize evasion attempts.
-  - Rejects multi-statement / stacked queries (`query; DROP TABLE ...`).
-  - Validates that the root statement type is strictly `SELECT` or `WITH`.
-* **Prohibited Keyword Guards:** Aborts execution if destructive keywords (`DROP`, `DELETE`, `INSERT`, `UPDATE`, `ALTER`, `TRUNCATE`, `EXEC`, `CREATE`, `GRANT`, `REVOKE`) appear anywhere in the parsed AST.
-* **Table Whitelist Enforcement:** When `DB_ALLOWED_TABLES` is defined, `FROM` and `JOIN` table identifiers are extracted and verified against the whitelist before execution.
-* **Max Rows Capping:** Result sets are capped at `DB_MAX_ROWS` to prevent memory exhaustion.
+### 5. Database Security (`src.connectors`)
+Defense in depth, from application layer to database engine. See [Database Connectors](database_connectors.md#-strict-read-only-security-guard) for the full list.
+* **Token-Level SQL Validation (`sqlparse`):** single statement only; must start with `SELECT` / `WITH`; data-, schema- and session-modifying keywords (`INSERT`, `DELETE`, `INTO`, `ATTACH`, `PRAGMA`, `SET`, …) and file/network/sleep functions (`pg_read_file`, `load_extension`, `pg_sleep`, …) are rejected. String literals are ignored, so values like `'Deleted'` do not cause false positives.
+* **Table Allowlist (`DB_ALLOWED_TABLES`):** Table references are extracted from `FROM` lists (including comma joins), `JOIN`s, subqueries, and CTEs. Quoted and schema-qualified names are normalized.
+* **Database-Enforced Read-Only Sessions:** SQLite connections run with `PRAGMA query_only = ON`; PostgreSQL and MySQL queries run inside read-only transactions with a statement timeout (`DB_QUERY_TIMEOUT_SECONDS`). For MSSQL/Oracle, use a SELECT-only database account.
+* **Row Capping:** Result sets are capped at `DB_MAX_ROWS`.
 
-### 6. Session Inactivity Tracking & Pruning (`src.api.state`)
-* **Active Session Registry:** Tracks active conversation sessions with last-seen timestamps and thread identifiers.
-* **Session Expiration Cleanup:** Automated periodic or admin-triggered cleanup (`POST /api/v1/admin/cleanup-sessions`) purges checkpointer records and state older than the retention threshold (default: 30 days).
+### 6. Conversation Session Retention (`src.agent.multi_agent.sessions`)
+* Admin-triggered cleanup (`POST /api/v1/admin/cleanup-sessions`) reads each thread's latest checkpoint timestamp and deletes threads older than the retention window (default 30 days) with `SqliteSaver.delete_thread()`.
 
-### 7. Vector Database Disaster Recovery & Backup (`src.api.state`)
-* **Atomic Snapshot Creation:** `backup_vector_db()` creates timestamped archives of the ChromaDB directory in `backups/vector_db_<timestamp>`.
-* **Safe Rollback:** `restore_vector_db()` creates a safety snapshot of the active vector database before restoring the target archive, preventing accidental data loss during recovery operations.
+### 7. Vector Database Backup & Restore (`src.api.state`)
+* **Snapshots:** `backup_vector_db()` copies the ChromaDB directory to `backups/vector_db_backup_<timestamp>` while index writes are paused.
+* **Staged Restore:** `restore_vector_db()` copies the chosen snapshot to `vector_db.restore_pending` and never touches the open database. On the next startup, `apply_pending_restore()` moves the current database to `backups/pre_restore_<timestamp>` and swaps the snapshot in before ChromaDB is opened.
+* **Name Validation:** Only plain backup directory names created by the backup endpoint are accepted.
 
-### 8. Per-IP Rate Limiting & DoS Protection
-* **Sliding Window Middleware:** Monitors incoming requests per client IP address against `RATE_LIMIT_PER_MINUTE` (default: 30 req/min).
-* **Automated Throttling:** Rejects traffic exceeding thresholds with HTTP 429 and a standard `Retry-After` header.
+### 8. Rate Limiting & DoS Protection
+* **Sliding Window Middleware:** Limits requests to `RATE_LIMIT_PER_MINUTE` (default 30) per authenticated account, or per client IP for anonymous requests. Keying by account prevents all users behind the Streamlit container (a single IP) from sharing one budget.
+* **Automated Throttling:** Excess requests receive HTTP 429 with a `Retry-After` header. `/health` and API docs are exempt. Idle entries are purged periodically.
 
-### 9. Centralized Logging Infrastructure (`src.core.logger`)
-* Structured, leveled logging (`INFO`, `WARNING`, `ERROR`).
-* Output is streamed to both the terminal and rotating disk log files (10 MB per file, 5 backup cycles) with sensitive user data omitted.
+### 9. Centralized Logging & Error Handling (`src.core.logger`)
+* Leveled logging (`DEBUG`, `INFO`, `WARNING`, `ERROR`) to the console and rotating log files (10 MB per file, 5 backups).
+* User questions are logged only at `DEBUG` level; `INFO` logs record the user, session, agent, and question length.
+* API clients receive generic error messages; exception details are written to the server log only.

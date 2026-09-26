@@ -55,10 +55,7 @@ class TestDatabaseSecurityAndConnector(unittest.TestCase):
 
     def test_allowed_tables_enforcement(self):
         # Connector restricted only to 'urunler'
-        restricted_conn = DatabaseConnector(
-            database_url=self.db_url,
-            allowed_tables=["urunler"]
-        )
+        restricted_conn = DatabaseConnector(database_url=self.db_url, allowed_tables=["urunler"])
         # Querying allowed table should succeed
         res_ok = restricted_conn.execute_query("SELECT * FROM urunler")
         self.assertEqual(res_ok["status"], "success")

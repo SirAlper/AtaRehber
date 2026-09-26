@@ -6,23 +6,31 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      args:
+        TORCH_INDEX_URL: https://download.pytorch.org/whl/cpu
     container_name: rag_agents_backend
     restart: unless-stopped
     ports:
       - "8000:8000"
+    # Every setting from .env (next to this file) is passed to the container.
+    # The defaults below apply only when .env does not define the variable.
+    env_file:
+      - path: .env
+        required: false
     environment:
-      - CORS_ORIGINS=http://localhost:8501,http://127.0.0.1:8501,http://frontend:8501
-      - RAG_DEVICE=cpu
-      - MAX_UPLOAD_SIZE_MB=50
-      - LOG_LEVEL=INFO
-      - ALLOW_ONLINE_HF=0
-      - LLM_BACKEND=huggingface
-      - OLLAMA_BASE_URL=http://ollama:11434
-      - OLLAMA_MODEL=qwen2.5:7b
+      - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:8501,http://127.0.0.1:8501,http://frontend:8501}
+      - RAG_DEVICE=${RAG_DEVICE:-cpu}
+      - MAX_UPLOAD_SIZE_MB=${MAX_UPLOAD_SIZE_MB:-50}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - ALLOW_ONLINE_HF=${ALLOW_ONLINE_HF:-0}
+      - LLM_BACKEND=${LLM_BACKEND:-huggingface}
+      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://ollama:11434}
+      - OLLAMA_MODEL=${OLLAMA_MODEL:-qwen2.5:7b}
     volumes:
       - ./models:/app/models
       - ./data:/app/data
       - ./vector_db:/app/vector_db
+      - ./backups:/app/backups
     # Uncomment the deploy block below to enable NVIDIA GPU acceleration:
     # deploy:
     #   resources:
@@ -32,11 +40,11 @@ services:
     #           count: all
     #           capabilities: [gpu]
     healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:8000/api/v1/stats || exit 1"]
+      test: ["CMD-SHELL", "curl -f http://localhost:8000/health || exit 1"]
       interval: 20s
       timeout: 10s
       retries: 5
-      start_period: 60s
+      start_period: 120s
     networks:
       - rag_network
 
@@ -46,11 +54,9 @@ services:
   frontend:
     build:
       context: .
-      dockerfile: Dockerfile
+      dockerfile: Dockerfile.frontend
     container_name: rag_agents_frontend
     restart: unless-stopped
-
-    command: ["streamlit", "run", "ui/app.py", "--server.port=8501", "--server.address=0.0.0.0"]
     ports:
       - "8501:8501"
     environment:
@@ -69,8 +75,9 @@ services:
     image: ollama/ollama:latest
     container_name: rag_agents_ollama
     restart: unless-stopped
+    # Bound to localhost only: the backend reaches Ollama over the internal network
     ports:
-      - "11434:11434"
+      - "127.0.0.1:11434:11434"
     volumes:
       - ollama_data:/root/.ollama
     networks:

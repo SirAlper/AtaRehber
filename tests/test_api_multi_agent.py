@@ -1,9 +1,11 @@
 import unittest
 from unittest.mock import patch, MagicMock
 from fastapi.testclient import TestClient
+from langgraph.checkpoint.memory import MemorySaver
+
 from src.api.main import app
 from src.auth.jwt_handler import create_access_token
-from src.agent.multi_agent.registry import agent_registry
+from src.agent.multi_agent.orchestrator_graph import MultiAgentOrchestrator
 
 
 class TestAPIMultiAgentIntegration(unittest.TestCase):
@@ -44,11 +46,18 @@ class TestAPIMultiAgentIntegration(unittest.TestCase):
 
     def test_query_direct_greeting_supervisor(self):
         """Greetings should be routed directly by Supervisor without calling worker sub-agents."""
-        response = self.client.post(
-            "/api/v1/query",
-            headers=self.auth_headers,
-            json={"question": "Merhaba, nasılsın?", "session_id": "test_session_1"},
-        )
+        mock_chat = MagicMock()
+        orchestrator = MultiAgentOrchestrator(chat_model=mock_chat, checkpointer=MemorySaver())
+        with patch(
+            "src.api.routes.query.get_multi_agent_orchestrator",
+            return_value=orchestrator,
+        ):
+            response = self.client.post(
+                "/api/v1/query",
+                headers=self.auth_headers,
+                json={"question": "Merhaba, nasılsın?", "session_id": "test_session_1"},
+            )
+        mock_chat.invoke.assert_not_called()
         self.assertEqual(response.status_code, 200)
         data = response.json()
         self.assertEqual(data["status"], "success")
@@ -62,7 +71,14 @@ class TestAPIMultiAgentIntegration(unittest.TestCase):
         mock_response = {
             "answer": "Denetim raporu: Herhangi bir uyumsuzluk tespit edilmedi.",
             "sources": [],
-            "agent_trace": [{"agent": "compliance_agent", "action": "audit", "duration_ms": 150, "status": "success"}],
+            "agent_trace": [
+                {
+                    "agent": "compliance_agent",
+                    "action": "audit",
+                    "duration_ms": 150,
+                    "status": "success",
+                }
+            ],
             "active_agent": "compliance_agent",
             "chat_history": [],
         }
@@ -93,9 +109,24 @@ class TestAPIMultiAgentIntegration(unittest.TestCase):
     def test_query_stream_endpoint(self):
         """Streaming endpoint should deliver NDJSON formatted events."""
         events_to_stream = [
-            {"type": "status", "message": "Supervisor routing...", "node": "supervisor"},
-            {"type": "agent_selected", "agent": "doc_agent", "display_name": "Belge RAG", "reason": "Doküman araması"},
-            {"type": "done", "answer": "Cevap metni", "sources": [], "agent_trace": [], "active_agent": "doc_agent"},
+            {
+                "type": "status",
+                "message": "Supervisor routing...",
+                "node": "supervisor",
+            },
+            {
+                "type": "agent_selected",
+                "agent": "doc_agent",
+                "display_name": "Belge RAG",
+                "reason": "Doküman araması",
+            },
+            {
+                "type": "done",
+                "answer": "Cevap metni",
+                "sources": [],
+                "agent_trace": [],
+                "active_agent": "doc_agent",
+            },
         ]
 
         with patch("src.api.routes.query.get_multi_agent_orchestrator") as mock_get_orch:

@@ -10,13 +10,16 @@ class TestMultiTurnMemory(unittest.TestCase):
     def test_build_rag_messages_with_history(self):
         """Verify build_rag_messages formats previous conversation context."""
         history = [
-            {"question": "What is our leave policy?", "answer": "Employees have 20 days."},
-            {"question": "How do I request it?", "answer": "Submit via the HR portal."}
+            {
+                "question": "What is our leave policy?",
+                "answer": "Employees have 20 days.",
+            },
+            {"question": "How do I request it?", "answer": "Submit via the HR portal."},
         ]
         messages = build_rag_messages(
             context="Some HR documents.",
             question="Can I carry it over?",
-            chat_history=history
+            chat_history=history,
         )
         self.assertEqual(len(messages), 2)
         human_content = messages[1].content
@@ -30,7 +33,7 @@ class TestMultiTurnMemory(unittest.TestCase):
         mock_engine = MagicMock()
         mock_engine.search.return_value = {
             "context": "Annual leave is 20 days per year.",
-            "sources": [{"source": "hr.txt", "chunk_index": 0, "content": "20 days"}]
+            "sources": [{"source": "hr.txt", "chunk_index": 0, "content": "20 days"}],
         }
 
         mock_chat = MagicMock()

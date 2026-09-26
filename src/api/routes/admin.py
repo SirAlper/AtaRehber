@@ -3,6 +3,7 @@
 Exposes endpoints for compliance audit log querying, audit statistics,
 session cleanup, and vector database backup/restore operations.
 """
+
 import os
 import asyncio
 from typing import Optional
@@ -11,10 +12,11 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from src.auth.dependencies import require_role
 from src.auth.models import User
 from src.core.audit import audit_logger
-from src.core.config import VECTOR_DB_PATH
 from src.api.state import (
+    BACKUP_DIR,
     cleanup_expired_sessions,
     backup_vector_db,
+    is_valid_backup_name,
     restore_vector_db,
     list_backups,
 )
@@ -81,32 +83,52 @@ async def get_audit_stats(_: User = Depends(require_role("admin"))):
     }
 
 
+@router.get("/audit-verify", summary="Verify Audit Trail Hash Chain Integrity")
+async def verify_audit_chain(current_admin: User = Depends(require_role("admin"))):
+    """Recompute the audit log hash chain (Admin only).
+
+    Store the returned head_hash externally; a later head that no longer chains to it
+    reveals truncation or wholesale rewriting of the log.
+    """
+    result = await audit_logger.averify_chain()
+    await audit_logger.alog(
+        username=current_admin.username,
+        role=current_admin.role,
+        action="audit_verify",
+        detail=f"Audit chain verification: {'valid' if result['valid'] else 'INVALID at id ' + str(result['first_invalid_id'])}",
+        status="success" if result["valid"] else "warning",
+    )
+    return {"status": "success", **result}
+
+
 # ──────────────────────────── SESSION MANAGEMENT ────────────────────────────
+
 
 @router.post("/cleanup-sessions", summary="Cleanup Expired Conversation Sessions")
 async def cleanup_sessions(
     max_age_days: int = Query(30, ge=1, le=365, description="Maximum session age in days"),
     current_admin: User = Depends(require_role("admin")),
 ):
-    """Remove conversation sessions older than the specified number of days (Admin only)."""
+    """Remove conversation threads inactive for longer than the specified number of days (Admin only)."""
     deleted = await asyncio.to_thread(cleanup_expired_sessions, max_age_days=max_age_days)
 
     await audit_logger.alog(
         username=current_admin.username,
         role=current_admin.role,
         action="session_cleanup",
-        detail=f"Cleaned up sessions older than {max_age_days} days ({deleted} records removed)",
+        detail=f"Cleaned up sessions older than {max_age_days} days ({deleted} threads removed)",
         status="success",
     )
 
     return {
         "status": "success",
-        "message": f"Removed {deleted} expired session records.",
-        "deleted_records": deleted,
+        "message": f"Removed {deleted} expired conversation session(s).",
+        "deleted_sessions": deleted,
     }
 
 
 # ──────────────────────────── VECTOR DB BACKUP/RESTORE ────────────────────────────
+
 
 @router.post("/backup", summary="Create Vector Database Backup")
 async def create_backup(current_admin: User = Depends(require_role("admin"))):
@@ -127,8 +149,9 @@ async def create_backup(current_admin: User = Depends(require_role("admin"))):
         }
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail="Vector database directory not found.")
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Backup failed: {e}")
+    except Exception:
+        logger.exception("Vector database backup failed")
+        raise HTTPException(status_code=500, detail="Backup failed due to an internal error.")
 
 
 @router.get("/backups", summary="List Available Backups")
@@ -148,31 +171,31 @@ async def restore_backup(
     current_admin: User = Depends(require_role("admin")),
 ):
     """
-    Restore ChromaDB vector database from a named backup (Admin only).
-    WARNING: This replaces the current vector database entirely.
+    Stage a restore of the ChromaDB vector database from a named backup (Admin only).
+    The swap happens on the next server start, never while the live database is open.
+    The replaced database is preserved as a 'pre_restore_' directory.
     """
-    backup_dir = os.path.join(os.path.dirname(VECTOR_DB_PATH), "backups")
-    backup_path = os.path.join(backup_dir, backup_name)
-
-    # Security: prevent path traversal
-    real_backup = os.path.realpath(backup_path)
-    real_backup_dir = os.path.realpath(backup_dir)
-    if not real_backup.startswith(real_backup_dir):
+    # Security: only plain backup directory names produced by /backup are accepted
+    if not is_valid_backup_name(backup_name):
         raise HTTPException(status_code=400, detail="Invalid backup name.")
+    backup_path = os.path.join(BACKUP_DIR, backup_name)
 
     success = await asyncio.to_thread(restore_vector_db, backup_path)
     if not success:
-        raise HTTPException(status_code=400, detail=f"Restore failed. Backup '{backup_name}' may not exist.")
+        raise HTTPException(
+            status_code=400,
+            detail=f"Restore failed. Backup '{backup_name}' may not exist.",
+        )
 
     await audit_logger.alog(
         username=current_admin.username,
         role=current_admin.role,
         action="backup_restore",
-        detail=f"Vector database restored from: {backup_name}",
+        detail=f"Vector database restore staged from: {backup_name}",
         status="success",
     )
 
     return {
         "status": "success",
-        "message": f"Vector database restored from '{backup_name}'. Restart the server for changes to take effect.",
+        "message": f"Restore from '{backup_name}' staged. Restart the server to apply it.",
     }

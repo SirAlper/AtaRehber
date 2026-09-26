@@ -4,6 +4,7 @@ Exposes endpoints for database status checking, read-only query testing,
 and relational-to-vector table synchronization.
 Delegates business logic to DatabaseService.
 """
+
 from fastapi import APIRouter, Depends, Request
 
 from src.api.schemas import SyncTableRequest, TestQueryRequest

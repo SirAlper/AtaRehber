@@ -5,7 +5,6 @@ from typing import Dict, Any, Optional
 from langchain_core.messages import SystemMessage, HumanMessage
 from src.agent.multi_agent.base import BaseSubAgent
 from src.agent.multi_agent.registry import register_agent
-from src.agent.llm import create_chat_model
 from src.rag.rag_engine import RAGEngine
 from src.core.logger import get_logger
 
@@ -60,6 +59,7 @@ class ComplianceAuditorAgent(BaseSubAgent):
     def _get_engine(self) -> RAGEngine:
         if self._rag_engine is None:
             from src.api.state import get_rag_engine
+
             self._rag_engine = get_rag_engine()
         return self._rag_engine
 
@@ -86,29 +86,34 @@ class ComplianceAuditorAgent(BaseSubAgent):
             return {
                 "final_answer": answer,
                 "sources": [],
-                "agent_trace": list(state.get("agent_trace", [])) + [{
-                    "agent": self.name,
-                    "display_name": self.display_name,
-                    "action": "compliance_audit",
-                    "verdict": "NO_POLICY_FOUND",
-                    "sources_count": 0,
-                    "duration_ms": duration_ms,
-                    "status": "warning",
-                    "timestamp": datetime.now(timezone.utc).isoformat(),
-                }],
+                "agent_trace": list(state.get("agent_trace", []))
+                + [
+                    {
+                        "agent": self.name,
+                        "display_name": self.display_name,
+                        "action": "compliance_audit",
+                        "verdict": "NO_POLICY_FOUND",
+                        "sources_count": 0,
+                        "duration_ms": duration_ms,
+                        "status": "warning",
+                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                    }
+                ],
             }
 
         # 2. Generate structured audit report
         prompt = COMPLIANCE_SYSTEM_PROMPT.format(context=context)
         try:
-            response = self.chat_model.invoke([
-                SystemMessage(content=prompt),
-                HumanMessage(content=f"Scenario / Request to Audit: {question}"),
-            ])
+            response = self.chat_model.invoke(
+                [
+                    SystemMessage(content=prompt),
+                    HumanMessage(content=f"Scenario / Request to Audit: {question}"),
+                ]
+            )
             audit_report = response.content.strip()
         except Exception as e:
             logger.error(f"[{self.name}] Compliance audit LLM error: {e}")
-            audit_report = f"A system error occurred while generating the audit report: {e}"
+            audit_report = "A system error occurred while generating the audit report. Please try again later."
 
         duration_ms = int((time.time() - start_time) * 1000)
         trace_entry = {

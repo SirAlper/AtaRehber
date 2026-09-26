@@ -71,6 +71,23 @@ if "refresh_token" not in st.session_state:
     st.session_state.refresh_token = None
 if "user_info" not in st.session_state:
     st.session_state.user_info = None
+if "must_change_password" not in st.session_state:
+    st.session_state.must_change_password = False
+
+
+def is_password_change_pending():
+    return bool(st.session_state.get("auth_token")) and st.session_state.get("must_change_password", False)
+
+
+def store_tokens(data):
+    """Persist a TokenResponse from login, refresh, or change-password in the session."""
+    st.session_state.auth_token = data["access_token"]
+    st.session_state.refresh_token = data.get("refresh_token", st.session_state.get("refresh_token"))
+    st.session_state.user_info = {
+        "username": data["username"],
+        "role": data["role"]
+    }
+    st.session_state.must_change_password = data.get("must_change_password", False)
 
 
 def get_auth_headers():
@@ -88,13 +105,7 @@ def login_api(username, password):
             timeout=10,
         )
         if res.status_code == 200:
-            data = res.json()
-            st.session_state.auth_token = data["access_token"]
-            st.session_state.refresh_token = data.get("refresh_token")
-            st.session_state.user_info = {
-                "username": data["username"],
-                "role": data["role"]
-            }
+            store_tokens(res.json())
             return True, "Login successful!"
         else:
             detail = res.json().get("detail", "Invalid username or password.")
@@ -115,19 +126,35 @@ def refresh_token_api():
             timeout=10,
         )
         if res.status_code == 200:
-            data = res.json()
-            st.session_state.auth_token = data["access_token"]
-            st.session_state.refresh_token = data.get("refresh_token", refresh)
+            store_tokens(res.json())
             return True
     except Exception:
         pass
     return False
 
 
+def change_password_api(current_password, new_password):
+    """Change the logged-in user's password; the API returns fresh tokens (old ones are revoked)."""
+    try:
+        res = requests.post(
+            f"{API_BASE_URL}/api/v1/auth/change-password",
+            headers=get_auth_headers(),
+            json={"current_password": current_password, "new_password": new_password},
+            timeout=10,
+        )
+        if res.status_code == 200:
+            store_tokens(res.json())
+            return True, "Password changed successfully."
+        return False, res.json().get("detail", "Password change failed.")
+    except Exception as e:
+        return False, f"Connection error: {e}"
+
+
 def logout():
     st.session_state.auth_token = None
     st.session_state.refresh_token = None
     st.session_state.user_info = None
+    st.session_state.must_change_password = False
     st.rerun()
 
 
@@ -341,7 +368,6 @@ with st.sidebar:
                     st.rerun()
                 else:
                     st.error(msg)
-        st.caption("Default admin credentials: `admin` / `admin123`")
         st.divider()
     else:
         user_info = st.session_state.user_info or {}
@@ -353,8 +379,29 @@ with st.sidebar:
             logout()
         st.divider()
 
+    # ──── Mandatory password change (e.g. first login with the default admin password) ────
+    if is_password_change_pending():
+        st.subheader("🔑 Change Password")
+        st.warning("You must set a new password before using the assistant.")
+        current_pw = st.text_input("Current password", type="password", key="cp_current")
+        new_pw = st.text_input("New password", type="password", key="cp_new")
+        confirm_pw = st.text_input("Confirm new password", type="password", key="cp_confirm")
+        if st.button("Update Password", use_container_width=True, type="primary"):
+            if not current_pw or not new_pw:
+                st.warning("Please fill in all password fields.")
+            elif new_pw != confirm_pw:
+                st.error("New passwords do not match.")
+            else:
+                ok, msg = change_password_api(current_pw, new_pw)
+                if ok:
+                    st.success(msg)
+                    st.rerun()
+                else:
+                    st.error(msg)
+        st.divider()
+
     # ──── 2. System Status ────
-    if st.session_state.auth_token:
+    if st.session_state.auth_token and not is_password_change_pending():
         stats = fetch_stats()
         if stats:
             st.success("🟢 API Connected")
@@ -520,6 +567,8 @@ st.markdown('<div class="sub-header">Zero-leakage, on-premise generative AI assi
 
 if not st.session_state.auth_token:
     st.info("🔒 **Authentication Required:** Please log in using the Control Panel in the sidebar to access the Enterprise Assistant.")
+elif is_password_change_pending():
+    st.warning("🔑 **Password Change Required:** Set a new password in the sidebar to continue.")
 else:
     # Render Message History
     for msg_idx, msg in enumerate(st.session_state.messages):

@@ -46,8 +46,8 @@ The strategic development roadmap for `OpenLocalRagAgents` is structured below t
 ## 🤖 Phase 2 — Next-Gen Agentic RAG
 
 - [x] **Multi-Turn Conversational Memory (LangGraph Checkpointer):**
-  - Integrated LangGraph SQLite checkpointer (`conversations.db`) and session-based thread tracking (`thread_id`).
-  - Contextual retrieval query enrichment and conversational history retention across turns.
+  - LangGraph SQLite checkpointer (`multi_agent_conversations.db`) with per-user session threads (`{username}_{session_id}`).
+  - Supervisor routing, document query rewriting, and SQL generation all use the recent conversation turns.
 - [x] **Dynamic Query Rewriting & Expansion:**
   - Autonomous `rewrite` node in LangGraph that rewrites ambiguous user prompts into optimized search representations before querying the vector store.
   - Resolves pronouns and references using conversation history for multi-turn coherence.
@@ -55,17 +55,19 @@ The strategic development roadmap for `OpenLocalRagAgents` is structured below t
   - Integrated `refine` node in LangGraph routed back to `grade` to audit refined responses, ensuring high factual fidelity.
 - [x] **Universal Relational Database Connector & Text-to-SQL Tools:**
   - SQLAlchemy-based connector layer supporting PostgreSQL, MSSQL, MySQL, Oracle, and SQLite.
-  - Strict read-only query guardrails, automatic `LIMIT` capping, and table whitelisting.
+  - Token-level read-only query guardrails, database-enforced read-only sessions, row capping (`DB_MAX_ROWS`), and table allowlisting.
   - Table-to-vector ETL pipeline (`DatabaseTableLoader`) and agent tools (`sql_db_query`, `sql_db_schema`).
-- [ ] **Multi-Agent Supervisor Teams:**
-  - Supervisor pattern to route queries dynamically across specialized agents (Documentation Agent, SQL Data Agent, Code Analysis Agent).
+- [x] **Multi-Agent Supervisor Teams:**
+  - Supervisor pattern routing queries dynamically across specialized agents (`doc_agent`, `db_agent`, `compliance_agent`) with a pluggable registry for custom agents.
+- [ ] **Additional Specialist Agents:**
+  - Code Analysis Agent and multi-agent collaboration (one question answered by several specialists in sequence).
 - [x] **User Feedback Loop:**
   - Thumbs up/down feedback buttons in Streamlit UI with `/api/v1/feedback` API endpoint.
   - Feedback events recorded in the compliance audit trail for answer quality tracking.
 - [x] **Conversation Session Management:**
   - Admin endpoint `/api/v1/admin/cleanup-sessions` for TTL-based cleanup of expired sessions.
 - [x] **SQL Injection Guard Enhancement:**
-  - AST-based SQL parser (`sqlparse`) added alongside regex for defense against comment-based bypass and encoding attacks.
+  - Token-level `sqlparse` analysis (single statement, forbidden keywords and functions, table allowlist across joins, subqueries and CTEs) plus database-enforced read-only sessions.
 
 ---
 
@@ -81,7 +83,7 @@ The strategic development roadmap for `OpenLocalRagAgents` is structured below t
 - [ ] **Speculative Decoding:**
   - Accelerate local LLM token generation using small draft models.
 - [x] **API Rate Limiting:**
-  - Per-IP rate limiting middleware in FastAPI with configurable `RATE_LIMIT_PER_MINUTE` via environment variables.
+  - Sliding-window rate limiting per authenticated account (per IP for anonymous requests) with configurable `RATE_LIMIT_PER_MINUTE`.
   - Returns `429 Too Many Requests` with `Retry-After` header.
 - [ ] **WebSocket Streaming Support:**
   - Replace NDJSON-based streaming with WebSocket connections for lower-latency, bidirectional real-time communication.
@@ -90,8 +92,8 @@ The strategic development roadmap for `OpenLocalRagAgents` is structured below t
 
 ## 🏢 Phase 4 — Enterprise Security, Governance & DevOps
 
-- [x] **Automated Testing Suite (52 Tests):**
-  - Comprehensive unit and integration tests covering LangGraph decision branches, read-only SQL guards, file upload security, authentication/RBAC, multi-turn memory, Ollama serving, resource stability, and audit trail logging.
+- [x] **Automated Testing Suite:**
+  - Unit, end-to-end (real LangGraph workflow with stubbed LLM), and security tests covering routing and memory, Self-RAG, SQL guard bypass attempts, file upload security, authentication/RBAC and token revocation, rate limiting, audit hash chain, backup/restore, and resource stability.
 - [x] **Defense-in-Depth API Security:**
   - Path traversal protection, file extension whitelisting, upload size limits, and configurable CORS origins.
 - [x] **Centralized Logging & Lifespan Architecture:**
@@ -101,13 +103,14 @@ The strategic development roadmap for `OpenLocalRagAgents` is structured below t
   - Permission-gated endpoints for document management, database queries, and user administration.
 - [x] **Enterprise Audit Trail & Compliance Logging:**
   - Structured SQLite audit database (`data/audit.db`) recording all queries, file uploads/deletions, logins, and anomalies with execution duration and client IP.
+  - SHA-256 hash chain with `/api/v1/admin/audit-verify` integrity verification.
   - Admin compliance inspection dashboard and statistics in both REST API and Streamlit UI.
 - [ ] **Observability & Tracing:**
   - OpenTelemetry, Langfuse, or Arize Phoenix integration to trace latency, token consumption, and retrieval fidelity.
   - Prometheus `/metrics` endpoint with GPU VRAM usage, model load status, queue depth, and request latency histograms.
   - Grafana dashboard templates for production monitoring.
 - [x] **One-Command Containerization (Docker & NVIDIA Container Toolkit):**
-  - Production-ready multi-stage Dockerfile and docker-compose configurations with GPU passthrough for automated server provisioning.
+  - Multi-stage backend image (CPU default, CUDA via build argument), lightweight frontend image, non-root containers, `/health` probe, and GPU passthrough override.
 - [ ] **Enterprise SSO & Directory Integration:**
   - SAML 2.0 / OAuth2 integration with Active Directory, Okta, and Keycloak for enterprise-grade authentication.
 - [x] **JWT Refresh Token Flow:**
@@ -115,11 +118,13 @@ The strategic development roadmap for `OpenLocalRagAgents` is structured below t
   - Automatic token refresh in Streamlit UI for seamless user experience.
 - [x] **Password Policy Enforcement:**
   - Configurable minimum length, uppercase/lowercase, digit, and special character requirements via environment variables.
-  - Enforced during user creation in `UserStore.create_user()`.
+  - Enforced on user creation, admin password resets, and self-service password changes.
+- [x] **Credential Hardening:**
+  - Token revocation on password change or account deactivation, mandatory replacement of the default `admin123` password, and per-account login lockout.
 - [ ] **Multi-Tenant Document Isolation:**
   - Department-level or organization-level document namespace isolation, allowing each tenant to maintain private knowledge bases.
 - [x] **ChromaDB Backup & Restore:**
-  - Admin API endpoints: `/api/v1/admin/backup`, `/api/v1/admin/backups`, `/api/v1/admin/restore` for point-in-time backup and restore.
+  - Admin API endpoints: `/api/v1/admin/backup`, `/api/v1/admin/backups`, `/api/v1/admin/restore` for point-in-time snapshots and staged restores applied at startup.
 - [x] **Dockerfile Multi-Stage Optimization:**
   - Split into builder + runtime stages to reduce production image size by removing `build-essential`, `git`, and development dependencies.
 
@@ -136,11 +141,11 @@ The strategic development roadmap for `OpenLocalRagAgents` is structured below t
 - [ ] **Async Node Migration:**
   - Evaluate and document the sync-to-async migration path for LangGraph agent nodes to eliminate `asyncio.to_thread()` overhead.
 - [ ] **Test Coverage Expansion:**
-  - Add end-to-end integration tests with model loading, API endpoint tests for upload/stream/database routes, and Streamlit UI tests.
-  - Integrate `pytest-cov` with minimum 80% coverage target and CI gate.
+  - Add integration tests that load the real models (currently the LLM is stubbed), plus Streamlit UI tests.
+  - Enforce a minimum coverage target (e.g. 80%) as a CI gate; coverage is currently reported but not enforced.
 - [x] **CONTRIBUTING.md & Code of Conduct:**
-  - Created contributor guidelines, PR template, code style guide, and code of conduct for open-source community readiness.
+  - Created contributor guidelines, code style guide, and code of conduct for open-source community readiness.
 - [x] **CI/CD Pipeline:**
-  - GitHub Actions workflow for automated testing (Python 3.10/3.11/3.12), linting (`ruff`), coverage reporting, and Docker image build validation.
+  - GitHub Actions workflow for automated testing (Python 3.10/3.11/3.12), linting and format checks (`ruff`), coverage reporting, and backend/frontend Docker image build validation.
 - [ ] **API Versioning Strategy:**
   - Document and enforce `/api/v1/` versioning convention with deprecation policy for future `/api/v2/` migration.

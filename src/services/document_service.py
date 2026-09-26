@@ -3,10 +3,11 @@
 Encapsulates document management, safe storage, validation, chunking,
 vector indexing, and audit logging.
 """
+
 import os
 import time
 import asyncio
-from typing import Dict, Any, List, Tuple
+from typing import Dict, Any
 from fastapi import HTTPException, UploadFile
 
 from src.api.state import get_rag_engine, get_db_connector, get_document_loader
@@ -39,6 +40,7 @@ class DocumentService:
         is_cuda = False
         try:
             import torch
+
             is_cuda = torch.cuda.is_available()
         except ImportError:
             pass
@@ -78,12 +80,14 @@ class DocumentService:
             file_path = os.path.join(DOCS_PATH, filename)
             if os.path.isfile(file_path):
                 stat = os.stat(file_path)
-                files.append({
-                    "filename": filename,
-                    "size_kb": round(stat.st_size / 1024, 2),
-                    "chunk_count": chunk_map.get(filename, 0),
-                    "modified_at": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(stat.st_mtime)),
-                })
+                files.append(
+                    {
+                        "filename": filename,
+                        "size_kb": round(stat.st_size / 1024, 2),
+                        "chunk_count": chunk_map.get(filename, 0),
+                        "modified_at": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(stat.st_mtime)),
+                    }
+                )
 
         return {"status": "success", "count": len(files), "documents": files}
 
@@ -102,9 +106,8 @@ class DocumentService:
             )
 
         file_path = os.path.join(DOCS_PATH, safe_filename)
-        real_path = os.path.realpath(file_path)
         real_docs_path = os.path.realpath(DOCS_PATH)
-        if not real_path.startswith(real_docs_path):
+        if os.path.commonpath([os.path.realpath(file_path), real_docs_path]) != real_docs_path:
             raise HTTPException(status_code=400, detail="Path traversal attempt detected.")
 
         file_deleted = False
@@ -178,7 +181,7 @@ class DocumentService:
             if os.path.exists(file_path):
                 os.remove(file_path)
             logger.error(f"File upload write error: {e}")
-            raise HTTPException(status_code=500, detail=f"Failed to write uploaded file: {e}")
+            raise HTTPException(status_code=500, detail="Failed to write uploaded file.")
 
         # Chunk loaded file in worker thread
         loader = get_document_loader()

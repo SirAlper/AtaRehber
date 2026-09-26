@@ -25,6 +25,7 @@ class BaseSubAgent(ABC):
     def chat_model(self):
         if self._chat_model is None:
             from src.agent.llm import create_chat_model
+
             self._chat_model = create_chat_model()
         return self._chat_model
 

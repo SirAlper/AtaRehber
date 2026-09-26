@@ -7,6 +7,7 @@ Modular Architecture:
 - src.connectors: Universal database connector and table vectorizer
 - src.api: FastAPI REST API gateway
 """
+
 from src.core.config import (
     BASE_DIR,
     MODELS_DIR,

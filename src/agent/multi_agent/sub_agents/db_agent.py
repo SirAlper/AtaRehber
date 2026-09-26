@@ -1,13 +1,14 @@
 import time
 import json
 import re
+
+import sqlparse
 from datetime import datetime, timezone
 from typing import Dict, Any, Optional
 
 from langchain_core.messages import SystemMessage, HumanMessage
 from src.agent.multi_agent.base import BaseSubAgent
 from src.agent.multi_agent.registry import register_agent
-from src.agent.llm import create_chat_model
 from src.connectors.db_connector import DatabaseConnector
 from src.core.logger import get_logger
 
@@ -52,6 +53,7 @@ class DatabaseAgent(BaseSubAgent):
     def _get_connector(self) -> DatabaseConnector:
         if self._db_connector is None:
             from src.api.state import get_db_connector
+
             self._db_connector = get_db_connector()
         return self._db_connector
 
@@ -81,36 +83,50 @@ class DatabaseAgent(BaseSubAgent):
         # 1. Fetch available schema
         schema_summary = connector.get_schema_summary()
 
-        # 2. Generate SQL via LLM
+        # 2. Generate SQL via LLM (recent turns help resolve follow-up questions)
         prompt = SQL_GENERATOR_SYSTEM_PROMPT.format(schema_summary=schema_summary)
+        history_lines = [
+            f"User: {turn.get('question', '')}\nAssistant: {turn.get('answer', '')}"
+            for turn in state.get("chat_history", [])[-3:]
+            if turn.get("question") and turn.get("answer")
+        ]
+        human_content = question
+        if history_lines:
+            human_content = "Recent conversation:\n" + "\n".join(history_lines) + f"\n\nCurrent question: {question}"
         try:
-            sql_response = self.chat_model.invoke([
-                SystemMessage(content=prompt),
-                HumanMessage(content=question),
-            ])
+            sql_response = self.chat_model.invoke(
+                [
+                    SystemMessage(content=prompt),
+                    HumanMessage(content=human_content),
+                ]
+            )
             generated_sql = sql_response.content.strip()
 
             # Clean markdown code blocks if present
             sql_cleaned = re.sub(r"^```(?:sql)?\s*", "", generated_sql, flags=re.IGNORECASE)
             sql_cleaned = re.sub(r"\s*```$", "", sql_cleaned).strip()
-            # Take only the first query if multiple lines with semicolon
-            if ";" in sql_cleaned:
-                sql_cleaned = sql_cleaned.split(";")[0].strip()
+            # Keep only the first statement (sqlparse respects semicolons inside string literals)
+            statements = [stmt.strip() for stmt in sqlparse.split(sql_cleaned) if stmt.strip()]
+            if statements:
+                sql_cleaned = statements[0].rstrip(";").strip()
 
             logger.info(f"[{self.name}] Generated SQL: '{sql_cleaned}'")
         except Exception as e:
             logger.error(f"[{self.name}] Error during SQL generation: {e}")
             duration_ms = int((time.time() - start_time) * 1000)
             return {
-                "final_answer": f"An error occurred while generating the database query: {e}",
+                "final_answer": "An error occurred while generating the database query. Please try again or rephrase your question.",
                 "sources": [],
-                "agent_trace": list(state.get("agent_trace", [])) + [{
-                    "agent": self.name,
-                    "action": "sql_generation",
-                    "status": "error",
-                    "duration_ms": duration_ms,
-                    "timestamp": datetime.now(timezone.utc).isoformat(),
-                }],
+                "agent_trace": list(state.get("agent_trace", []))
+                + [
+                    {
+                        "agent": self.name,
+                        "action": "sql_generation",
+                        "status": "error",
+                        "duration_ms": duration_ms,
+                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                    }
+                ],
             }
 
         # 3. Execute safe query via DatabaseConnector AST security guards
@@ -118,24 +134,27 @@ class DatabaseAgent(BaseSubAgent):
 
         if query_result.get("status") == "error":
             duration_ms = int((time.time() - start_time) * 1000)
-            err_msg = query_result.get("error", "Unknown database error")
+            err_msg = query_result.get("message", "Unknown database error")
             return {
                 "final_answer": f"Database query could not be executed due to security or syntax constraints:\n`{err_msg}`",
                 "sources": [],
-                "agent_trace": list(state.get("agent_trace", [])) + [{
-                    "agent": self.name,
-                    "action": "sql_execution",
-                    "sql": sql_cleaned,
-                    "status": "rejected",
-                    "error": err_msg,
-                    "duration_ms": duration_ms,
-                    "timestamp": datetime.now(timezone.utc).isoformat(),
-                }],
+                "agent_trace": list(state.get("agent_trace", []))
+                + [
+                    {
+                        "agent": self.name,
+                        "action": "sql_execution",
+                        "sql": sql_cleaned,
+                        "status": "rejected",
+                        "error": err_msg,
+                        "duration_ms": duration_ms,
+                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                    }
+                ],
             }
 
         rows = query_result.get("rows", [])
         columns = query_result.get("columns", [])
-        count = query_result.get("count", 0)
+        count = query_result.get("row_count", len(rows))
 
         # 4. Synthesize tabular result into user-friendly explanation
         explain_prompt = (
@@ -147,10 +166,12 @@ class DatabaseAgent(BaseSubAgent):
         )
 
         try:
-            summary_response = self.chat_model.invoke([
-                SystemMessage(content=SQL_EXPLAINER_SYSTEM_PROMPT),
-                HumanMessage(content=explain_prompt),
-            ])
+            summary_response = self.chat_model.invoke(
+                [
+                    SystemMessage(content=SQL_EXPLAINER_SYSTEM_PROMPT),
+                    HumanMessage(content=explain_prompt),
+                ]
+            )
             answer = summary_response.content.strip()
         except Exception as e:
             logger.error(f"[{self.name}] Error synthesizing SQL results: {e}")
@@ -169,11 +190,13 @@ class DatabaseAgent(BaseSubAgent):
         }
 
         # Format sources as database table metadata
-        sources = [{
-            "source": f"Database: {connector.dialect}",
-            "chunk_index": 0,
-            "content": f"Executed SQL: {sql_cleaned} ({count} rows returned)",
-        }]
+        sources = [
+            {
+                "source": f"Database: {connector.dialect}",
+                "chunk_index": 0,
+                "content": f"Executed SQL: {sql_cleaned} ({count} rows returned)",
+            }
+        ]
 
         return {
             "final_answer": answer,

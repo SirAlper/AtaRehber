@@ -25,12 +25,12 @@ class AgentState(TypedDict, total=False):
 class EnterpriseRAGAgent:
     """Orchestrator class that sets up the LangGraph workflow and initializes the query service."""
 
-    def __init__(self, rag_engine: RAGEngine, checkpointer=None):
+    def __init__(self, rag_engine: RAGEngine, checkpointer=None, chat_model=None):
         self.rag_engine = rag_engine
-        self.chat_model = create_chat_model()
+        self.chat_model = chat_model or create_chat_model()
         self.nodes = AgentNodes(self.chat_model, self.rag_engine)
+        self._sqlite_conn = None  # Track connection for cleanup (set by _init_default_checkpointer)
         self.checkpointer = checkpointer or self._init_default_checkpointer()
-        self._sqlite_conn = None  # Track connection for cleanup
         self.app = self._build_graph()
         self.service = QueryService(self.app, self.nodes, self.chat_model)
 
@@ -52,6 +52,7 @@ class EnterpriseRAGAgent:
         except Exception as e:
             logger.warning(f"Could not initialize SqliteSaver, falling back to MemorySaver: {e}")
             from langgraph.checkpoint.memory import MemorySaver
+
             return MemorySaver()
 
     def _build_graph(self):
@@ -72,7 +73,7 @@ class EnterpriseRAGAgent:
         workflow.add_conditional_edges(
             "grade",
             self.nodes.decide_hallucinate,
-            {"end": END, "refine": "refine", "fallback": "fallback"}
+            {"end": END, "refine": "refine", "fallback": "fallback"},
         )
         workflow.add_edge("refine", "grade")
         workflow.add_edge("fallback", END)

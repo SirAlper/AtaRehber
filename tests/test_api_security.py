@@ -14,6 +14,7 @@ class TestAPISecurityAndEndpoints(unittest.TestCase):
         # We don't start the entire LLM model pipeline in tests to keep execution fast
         cls.client = TestClient(app, raise_server_exceptions=False)
         from src.auth.jwt_handler import create_access_token
+
         token, _ = create_access_token("admin", "admin")
         cls.auth_headers = {"Authorization": f"Bearer {token}"}
 
@@ -36,7 +37,7 @@ class TestAPISecurityAndEndpoints(unittest.TestCase):
         response = self.client.post(
             "/api/v1/upload-file",
             headers=self.auth_headers,
-            files={"file": ("malicious.exe", fake_exe, "application/octet-stream")}
+            files={"file": ("malicious.exe", fake_exe, "application/octet-stream")},
         )
         self.assertEqual(response.status_code, 400)
         self.assertIn("Unsupported file extension", response.json()["detail"])
@@ -46,7 +47,7 @@ class TestAPISecurityAndEndpoints(unittest.TestCase):
         response = self.client.post(
             "/api/v1/upload-file",
             headers=self.auth_headers,
-            files={"file": ("exploit.sh", fake_sh, "text/plain")}
+            files={"file": ("exploit.sh", fake_sh, "text/plain")},
         )
         self.assertEqual(response.status_code, 400)
         self.assertIn("Unsupported file extension", response.json()["detail"])
@@ -56,7 +57,7 @@ class TestAPISecurityAndEndpoints(unittest.TestCase):
         response = self.client.post(
             "/api/v1/upload-file",
             headers=self.auth_headers,
-            files={"file": ("../../etc/safe_note.txt", fake_txt, "text/plain")}
+            files={"file": ("../../etc/safe_note.txt", fake_txt, "text/plain")},
         )
         # Should succeed because os.path.basename stripped ../../etc/ -> safe_note.txt
         # Or return 200/400 without creating outside DOCS_PATH

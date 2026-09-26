@@ -99,6 +99,7 @@ class TestAdminAuditEndpoints(unittest.TestCase):
     @classmethod
     def tearDownClass(cls):
         from src.auth.user_store import user_store
+
         if user_store.get_user("audit_viewer"):
             user_store.delete_user("audit_viewer")
 

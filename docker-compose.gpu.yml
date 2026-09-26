@@ -1,7 +1,10 @@
 services:
   backend:
+    build:
+      args:
+        TORCH_INDEX_URL: https://download.pytorch.org/whl/cu121
     environment:
-      - RAG_DEVICE=cuda
+      - RAG_DEVICE=${RAG_DEVICE:-cuda}
     deploy:
       resources:
         reservations:
