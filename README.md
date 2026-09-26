@@ -1,6 +1,6 @@
 # 🏢 OpenLocalRagAgents
 
-[![Python Version](https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12-blue.svg)](https://www.python.org/)
+[![Python Version](https://img.shields.io/badge/python-3.12%20%7C%203.13%20%7C%203.14-blue.svg)](https://www.python.org/)
 [![PyTorch](https://img.shields.io/badge/PyTorch-EE4C2C?logo=pytorch&logoColor=white)](https://pytorch.org/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
 [![Streamlit](https://img.shields.io/badge/Streamlit-FF4B4B?logo=streamlit&logoColor=white)](https://streamlit.io/)
@@ -45,6 +45,7 @@ Explore our detailed architectural, operational, and development guides:
 | 🗄️ [**Database Connectors**](docs/database_connectors.md) | Universal SQLAlchemy configurations, Text-to-SQL security, and ETL table vectorization |
 | 🔌 [**REST API Reference**](docs/api_reference.md) | FastAPI endpoint documentation, JWT auth, NDJSON event streaming, and cURL examples |
 | 🐳 [**Docker Deployment**](docs/docker_deployment.md) | Production multi-service containerization (Backend, Frontend, Ollama), NVIDIA GPU passthrough |
+| 📏 [**Evaluation Guide**](docs/evaluation.md) | Labeled question set and harness measuring retrieval, routing, and answer quality |
 | 🗺️ [**Roadmap**](docs/roadmap.md) | Hybrid search (BM25 + Dense), GraphRAG, observability, SSO, and multi-tenant isolation |
 
 ---
@@ -61,7 +62,7 @@ python -m venv .venv
 .\.venv\Scripts\activate   # Linux/macOS: source .venv/bin/activate
 
 # Install PyTorch (CUDA 12.1 recommended) and project requirements
-pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
+pip install torch --index-url https://download.pytorch.org/whl/cu121
 pip install -r requirements.txt -r requirements-ui.txt
 ```
 
@@ -123,6 +124,7 @@ OpenLocalRagAgents/
 ├── vector_db/             # ChromaDB persistent vector collection
 ├── backups/               # Vector DB snapshots and staged restores
 ├── tests/                 # Automated unit, end-to-end, and security test suite
+├── evals/                 # Quality evaluation harness (labeled dataset, corpus, run_eval.py)
 │
 ├── ui/
 │   └── app.py             # Streamlit enterprise management dashboard, RBAC chat & audit UI

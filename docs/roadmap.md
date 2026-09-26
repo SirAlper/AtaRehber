@@ -27,6 +27,8 @@ The strategic development roadmap for `OpenLocalRagAgents` is structured below t
 
 ## 🔍 Phase 1 — Advanced Retrieval & Structured Ingestion
 
+- [x] **Retrieval & Answer Quality Evaluation:**
+  - Labeled question set and harness (`python -m evals.run_eval`) measuring retrieval hit rate/MRR, off-topic rejection, similarity and reranker threshold sweeps, supervisor routing accuracy, and end-to-end answer accuracy with before/after comparison. See the [Evaluation Guide](evaluation.md).
 - [ ] **Hybrid Search (BM25 + Dense Vector with Reciprocal Rank Fusion):**
   - Merge semantic dense vector search with sparse keyword/code matching (BM25) via *Reciprocal Rank Fusion (RRF)* to achieve 100% precision on SKU codes and technical terminology.
 - [ ] **Complex Table & Unstructured Document Parsing:**
@@ -140,12 +142,14 @@ The strategic development roadmap for `OpenLocalRagAgents` is structured below t
   - Replaced broad `except Exception as e` blocks in `nodes.py`, `jwt_handler.py` with specific exception types (`ConnectionError`, `TimeoutError`, `IOError`, `OSError`, `RuntimeError`).
 - [ ] **Async Node Migration:**
   - Evaluate and document the sync-to-async migration path for LangGraph agent nodes to eliminate `asyncio.to_thread()` overhead.
+- [x] **Real Database Integration Tests:**
+  - CI runs the read-only enforcement tests against PostgreSQL 16 and MySQL 8.4 service containers, bypassing the SQL guard to verify the database-level protection on its own.
 - [ ] **Test Coverage Expansion:**
-  - Add integration tests that load the real models (currently the LLM is stubbed), plus Streamlit UI tests.
+  - Streamlit UI tests; run the model-backed evaluation (`evals/`) on a GPU runner and gate on quality regressions.
   - Enforce a minimum coverage target (e.g. 80%) as a CI gate; coverage is currently reported but not enforced.
 - [x] **CONTRIBUTING.md & Code of Conduct:**
   - Created contributor guidelines, code style guide, and code of conduct for open-source community readiness.
 - [x] **CI/CD Pipeline:**
-  - GitHub Actions workflow for automated testing (Python 3.10/3.11/3.12), linting and format checks (`ruff`), coverage reporting, and backend/frontend Docker image build validation.
+  - GitHub Actions workflow for automated testing (Python 3.12/3.13/3.14), linting and format checks (`ruff`), coverage reporting, and backend/frontend Docker image build validation.
 - [ ] **API Versioning Strategy:**
   - Document and enforce `/api/v1/` versioning convention with deprecation policy for future `/api/v2/` migration.

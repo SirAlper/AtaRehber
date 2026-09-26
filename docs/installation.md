@@ -11,7 +11,7 @@ The platform is engineered to support both lightweight in-process execution (Hug
 | Component | Minimum Requirements (HF 1.5B) | Recommended Enterprise (Ollama 7B/14B) |
 | :--- | :--- | :--- |
 | **Operating System** | Ubuntu 22.04 LTS / Windows 11 | Ubuntu 22.04 LTS / Windows 11 / RHEL 9 |
-| **Python** | 3.10+ | 3.11 or 3.12 |
+| **Python** | 3.12+ | 3.12 or 3.13 |
 | **System RAM** | 8 GB DDR4 | 16 GB - 32 GB DDR5 |
 | **GPU / VRAM** | NVIDIA GPU (**Min 4-6 GB VRAM**) | NVIDIA RTX 3060 / 4060 / A4000+ (8-16 GB VRAM) |
 | **CUDA Version** | CUDA 11.8+ | CUDA 12.1+ |
@@ -49,17 +49,17 @@ python -m venv .venv
 
 * **NVIDIA GPU (CUDA 12.1 - Recommended):**
   ```bash
-  pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
+  pip install torch --index-url https://download.pytorch.org/whl/cu121
   ```
 
 * **NVIDIA GPU (CUDA 11.8):**
   ```bash
-  pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
+  pip install torch --index-url https://download.pytorch.org/whl/cu118
   ```
 
 * **CPU-Only (Testing / Development without GPU):**
   ```bash
-  pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
+  pip install torch --index-url https://download.pytorch.org/whl/cpu
   ```
 
 ### 4. Install Project Dependencies

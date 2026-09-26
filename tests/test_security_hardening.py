@@ -141,9 +141,12 @@ class TestForcedPasswordChange(unittest.TestCase):
     def test_login_with_insecure_default_password_sets_flag(self):
         ensure_user("default_pw_user", "Placeholder123", "viewer")
         self.addCleanup(lambda: user_store.get_user("default_pw_user") and user_store.delete_user("default_pw_user"))
-        # Simulate a legacy account still on the built-in default password (bypasses the policy)
-        with patch(
-            "src.auth.user_store.UserStore.authenticate_user",
+        # Simulate a legacy account still on the built-in default password (bypasses the policy).
+        # Patch the singleton itself. A string path through "src.auth.user_store" is fragile because
+        # src.auth re-exports the `user_store` instance under the submodule's name.
+        with patch.object(
+            user_store,
+            "authenticate_user",
             return_value=user_store.get_user("default_pw_user"),
         ):
             resp = self.client.post(

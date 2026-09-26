@@ -1,0 +1,14 @@
+DOKÜMAN: Seyahat ve Masraf Yönetimi Politikası
+KOD: FIN-POL-05
+
+1. Konaklama ve Harcırah:
+- Yurt içi iş seyahatlerinde otel konaklama limiti gecelik 3.500 TL'dir.
+- Yurt dışı iş seyahatlerinde günlük harcırah 120 EUR olarak ödenir; konaklama bu tutara dahil değildir.
+
+2. Ulaşım:
+- Uçuşlar ekonomi sınıfında yapılır. Business class yalnızca 6 saati aşan uçuşlarda ve departman direktörünün onayıyla kullanılabilir.
+- Şehir içi ulaşımda taksi masrafları yalnızca toplu taşımanın bulunmadığı saatlerde karşılanır.
+
+3. Masraf Beyanı:
+- Tüm masraflar, harcama tarihinden itibaren en geç 30 gün içinde fişleriyle birlikte masraf sistemine girilmelidir.
+- 5.000 TL'yi aşan tekil harcamalar için finans departmanının ön onayı gerekir.

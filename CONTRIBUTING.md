@@ -40,12 +40,22 @@ pytest tests/ -v
 pytest --cov=src --cov-report=term-missing
 
 # Check linting and formatting (same commands as CI; settings in ruff.toml):
-ruff check src/ tests/
-ruff format --check src/ tests/
+ruff check src/ tests/ evals/
+ruff format --check src/ tests/ evals/
 ```
-Ensure all tests and lint/format checks pass before submitting. Run `ruff format src/ tests/` to fix formatting automatically.
+Ensure all tests and lint/format checks pass before submitting. Run `ruff format src/ tests/ evals/` to fix formatting automatically.
 
-### 6. Submit a Pull Request
+`tests/test_db_integration.py` runs only when `TEST_POSTGRES_URL` / `TEST_MYSQL_URL` point at a database server; CI provides both.
+
+### 6. Measure Retrieval & Answer Quality
+If you change retrieval, chunking, prompts, routing, or an agent, run the evaluation harness before and after the change and include the comparison in your PR:
+```bash
+python -m evals.run_eval --stages all                                   # before (on master)
+python -m evals.run_eval --stages all --compare evals/results/<before>.json   # after
+```
+See the [Evaluation Guide](docs/evaluation.md) for details.
+
+### 7. Submit a Pull Request
 - Push your branch and open a PR against `master`
 - Provide a clear description of what your changes do
 - Reference any related issues
@@ -64,7 +74,7 @@ Ensure all tests and lint/format checks pass before submitting. Run `ruff format
 
 ## 📐 Code Style
 
-- **Python 3.10+** compatibility
+- **Python 3.12+** compatibility
 - Use type hints for function signatures
 - Follow PEP 8 conventions
 - Use descriptive variable and function names

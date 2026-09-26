@@ -45,3 +45,5 @@ data/.jwt_secret
 # İşletim Sistemi Kalıntıları
 .DS_Store
 Thumbs.db
+# Evaluation reports (generated)
+evals/results/

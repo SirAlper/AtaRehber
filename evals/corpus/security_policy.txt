@@ -1,0 +1,12 @@
+DOKÜMAN: NovaTech Bilgi Güvenliği ve Cihaz Kullanım Esasları
+KOD: SEC-POL-04
+
+1. Parola ve Kimlik Doğrulama:
+- Kurumsal hesap şifreleri en az 14 karakterden oluşmalı; büyük harf, küçük harf, rakam ve özel karakter içermelidir.
+- Şifreler her 90 günde bir zorunlu olarak değiştirilir. Son 5 şifre tekrar kullanılamaz.
+- Tüm sistemlerde ve VPN erişiminde Çok Faktörlü Kimlik Doğrulama (MFA - Duo Mobile veya YubiKey) kullanımı mecburidir.
+
+2. Cihaz Güvenliği ve Veri Gizliliği:
+- Şirket verileri kesinlikle çalışanların kişisel bilgisayarlarına, USB belleklere veya üçüncü taraf kişisel bulut depolama alanlarına (Google Drive, Dropbox) aktarılamaz.
+- Şirket dizüstü bilgisayarlarında BitLocker/FileVault disk şifrelemesi kapatılamaz.
+- Şirket kod tabanı veya gizli müşteri bilgileri genel kullanıma açık yapay zeka araçlarına (ChatGPT, Claude vb. genel bulut API'lerine) girilemez. Yalnızca şirket içi onaylı yerel RAG sistemleri kullanılabilir.
