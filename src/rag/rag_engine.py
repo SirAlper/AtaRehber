@@ -10,6 +10,7 @@ from src.core.config import (
     RERANKER_TOP_N,
     RAG_DEVICE,
     RAG_MIN_SIMILARITY,
+    RAG_MIN_RERANKER_SCORE,
 )
 from src.core.logger import get_logger
 
@@ -131,13 +132,15 @@ class RAGEngine:
         n_results: int = 10,
         min_similarity: Optional[float] = None,
         top_n: Optional[int] = None,
+        min_reranker_score: Optional[float] = None,
     ) -> dict:
         """Retrieve most relevant document chunks and rerank them with Cross-Encoder.
 
         Retrieval Workflow:
         1. Query ChromaDB for candidate pool (n_results=10).
         2. Filter out candidates below min_similarity (cosine, independent of the collection's metric).
-        3. Score remaining candidates with Cross-Encoder [Query, Chunk] pairs.
+        3. Score remaining candidates with Cross-Encoder [Query, Chunk] pairs and drop those below
+           min_reranker_score (default RAG_MIN_RERANKER_SCORE), so off-topic questions get no context.
         4. Return top `top_n` (default RERANKER_TOP_N) chunks as verified context.
         """
         if self.collection.count() == 0:
@@ -181,8 +184,18 @@ class RAGEngine:
         if isinstance(reranker_scores, (int, float)):
             reranker_scores = [reranker_scores]
 
+        # Compare unrounded scores: relevant chunks for scenario-style questions can score close to the threshold
+        min_score = RAG_MIN_RERANKER_SCORE if min_reranker_score is None else min_reranker_score
+        scored = []
         for candidate, score in zip(candidates, reranker_scores):
+            if float(score) < min_score:
+                continue
             candidate["reranker_score"] = round(float(score), 4)
+            scored.append(candidate)
+        candidates = scored
+
+        if not candidates:
+            return {"context": "", "sources": []}
 
         # 3. Sort by reranker score and pick the top chunks
         candidates.sort(key=lambda x: x["reranker_score"], reverse=True)

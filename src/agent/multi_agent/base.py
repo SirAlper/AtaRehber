@@ -45,6 +45,14 @@ class BaseSubAgent(ABC):
         """
         pass
 
+    def get_routing_context(self) -> str:
+        """Optional live context for the supervisor, e.g. which data this agent can reach.
+
+        Appended to the agent's description in the routing prompt. It is requested for every routed
+        question, so keep it short and cheap (cache it if it needs I/O).
+        """
+        return ""
+
     def get_info(self) -> Dict[str, str]:
         """Return agent metadata card for supervisor routing and observability."""
         return {

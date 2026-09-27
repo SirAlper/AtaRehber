@@ -202,6 +202,8 @@ agent_registry.unregister("my_custom_agent")
    * *Avoid:* `"Handles financial tasks."`
    * *Recommended:* `"Used for foreign currency exchange rates, currency conversions (USD, EUR, GBP), VAT/tax calculations, budget ratios, and cost analyses."`
 
+   * If routing depends on live data (for example which tables or systems your agent can reach), override `get_routing_context()` to return a short sentence. The supervisor appends it to your description on every routed question, so cache anything that needs I/O. `db_agent` uses this to list the connected tables; without it, small models sent every database question to `doc_agent`.
+
 2. **Memory Safety & Lazy Loading:**
    * If your agent requires heavy dependencies or external drivers, load them inside `execute()` or behind a cached `@property` rather than during module import.
    * Leave `chat_model` unset: the orchestrator injects the shared LLM instance, preventing duplicate VRAM allocations. Pass `chat_model=` only in tests.

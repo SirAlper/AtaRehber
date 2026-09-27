@@ -14,6 +14,9 @@ from src.core.logger import get_logger
 
 logger = get_logger("MultiAgent.DbAgent")
 
+# How long the table list shown to the supervisor is reused before the schema is read again
+ROUTING_CONTEXT_TTL_SECONDS = 300
+
 SQL_GENERATOR_SYSTEM_PROMPT = """You are an expert SQL analyst and database specialist.
 Your task is to generate a single safe, read-only SQL query to run against a relational database to answer the user's question.
 
@@ -49,6 +52,7 @@ class DatabaseAgent(BaseSubAgent):
     def __init__(self, chat_model=None, db_connector: Optional[DatabaseConnector] = None):
         super().__init__(chat_model=chat_model)
         self._db_connector = db_connector
+        self._routing_context: Optional[tuple[float, str]] = None
 
     def _get_connector(self) -> DatabaseConnector:
         if self._db_connector is None:
@@ -56,6 +60,28 @@ class DatabaseAgent(BaseSubAgent):
 
             self._db_connector = get_db_connector()
         return self._db_connector
+
+    def get_routing_context(self) -> str:
+        """List the connected tables so the supervisor routes questions about their data here.
+
+        Without it the supervisor only sees a generic description and cannot know that, e.g., stock levels
+        or order totals live in the database rather than in documents.
+        """
+        now = time.monotonic()
+        if self._routing_context and now - self._routing_context[0] < ROUTING_CONTEXT_TTL_SECONDS:
+            return self._routing_context[1]
+
+        connector = self._get_connector()
+        overview = connector.get_table_overview() if connector.is_connected else {}
+        text = ""
+        if overview:
+            tables = "; ".join(f"{table} ({', '.join(columns)})" for table, columns in overview.items())
+            text = (
+                f"Connected database tables: {tables}. Questions about the data in these tables "
+                "(counts, totals, prices, quantities, statuses, or specific records) belong to this agent."
+            )
+        self._routing_context = (now, text)
+        return text
 
     def execute(self, state: Dict[str, Any]) -> Dict[str, Any]:
         """Generate, validate, and execute read-only SQL queries to answer operational data questions."""

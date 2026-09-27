@@ -49,13 +49,21 @@ Your task is to analyze the user's inquiry and route it to the most qualified sp
 REGISTERED SPECIALIST SUB-AGENTS:
 {agent_descriptions}
 
-ROUTING AND DECISION RULES:
-1. If the question matches the domain of one of the registered specialist agents above, select that agent's exact name in the 'agent' field:
-   - Company policies, procedures, PDFs, guidelines, text documents -> doc_agent
-   - Relational database tables, metrics, inventory, orders, SQL data -> db_agent
-   - Verification of actions against rules, compliance, GDPR/KVKK, or ethics -> compliance_agent
-   - (Or any other custom specialist agent listed above)
-2. If the user inquiry is a conversational greeting (e.g., "hello", "hi", "how are you"), asks what the system can do, or is general chatter, choose 'agent': 'finish' and provide a polite, professional response in 'direct_response'.
+ROUTING RULES (apply the first rule that matches; route only to agents registered above):
+1. Greeting, small talk, or a question about what you can do -> 'finish', with a short polite reply in 'direct_response'.
+2. The answer is data stored in the database: a count, total, price, quantity, stock level, status, or a specific product, customer, order, or ticket record from the tables listed under db_agent -> db_agent.
+3. The user describes a specific action that they (or a colleague) want to take and asks for a verdict on whether that action is allowed or compliant -> compliance_agent.
+4. Everything else -> doc_agent. This includes questions about what a policy or document says: which days, how many, how long, who approves, which steps are required. When unsure between doc_agent and compliance_agent, choose doc_agent.
+Custom agents registered above take precedence over rules 2-4 when the question clearly falls in their domain.
+Questions may be in Turkish or English; route by meaning.
+
+EXAMPLES:
+- "What was our total revenue last quarter?" -> db_agent
+- "Bu yıl kaç yeni müşteri kazandık?" -> db_agent
+- "What does the onboarding guide say about the first week?" -> doc_agent
+- "Ziyaretçiler binaya hangi saatlerde girebilir?" -> doc_agent (asks what the rule is)
+- "Ziyaretçimi mesai saatleri dışında binaya almam uygun mu?" -> compliance_agent (asks for a verdict on the user's own action)
+- "What can you help me with?" -> finish
 
 OUTPUT FORMAT:
 You MUST output your decision strictly in JSON format with no additional text or explanations:
@@ -63,7 +71,7 @@ You MUST output your decision strictly in JSON format with no additional text or
 {{
   "agent": "<selected_agent_name or 'finish'>",
   "reason": "<brief rationale for routing>",
-  "direct_response": "<direct response if agent is 'finish', otherwise empty string>"
+  "direct_response": "<short reply only if agent is 'finish', otherwise an empty string>"
 }}
 ```
 """

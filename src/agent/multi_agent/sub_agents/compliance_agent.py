@@ -22,10 +22,11 @@ AUDIT AND REPORTING STANDARDS:
 You MUST produce your response in the following structured corporate audit format:
 
 ### 📌 1. Audit Verdict
-Explicitly select one of the following three categories:
+Explicitly select exactly one of the following four categories:
 - **[COMPLIANT]**: The request is fully compliant with company policies.
 - **[WARNING / CONDITIONALLY COMPLIANT]**: Permissible only if specific security or administrative prerequisites/approvals are satisfied.
 - **[VIOLATION / PROHIBITED]**: The request violates enterprise information security, data privacy (GDPR/KVKK), or code of conduct rules, and cannot be permitted.
+- **[UNDETERMINED]**: None of the policies above address this scenario. Never infer a verdict from general knowledge.
 
 ### 📑 2. Underlying Policy & Clause References
 Specify the document name, policy code, and relevant sections from the context above (e.g., SEC-POL-04 Section 4.1).
@@ -36,7 +37,7 @@ Analyze the security, legal, administrative, or operational risks the action pos
 ### 💡 4. Mandatory Approvals & Action Plan
 Required administrative approvals (CISO, DPO, HR, Legal) or proper procedure steps to execute this request safely.
 
-If no specific rule is found in company documents, state that no written policy was identified and recommend consulting the Legal or Information Security team.
+Base the verdict only on the policies above. If none of them address the scenario, choose [UNDETERMINED], state that no written policy was identified, and recommend consulting the Legal or Information Security team.
 """
 
 
@@ -46,10 +47,10 @@ class ComplianceAuditorAgent(BaseSubAgent):
 
     name: str = "compliance_agent"
     display_name: str = "Enterprise Compliance Auditor"
+    # Kept narrow on purpose: a broad "policies / HR rules" wording pulls plain policy questions away from doc_agent
     description: str = (
-        "Used for officially auditing user scenarios, processes, or requests against enterprise security policies, "
-        "privacy regulations (GDPR/KVKK), and HR rules, producing structured compliance audit reports "
-        "[COMPLIANT / WARNING / VIOLATION]."
+        "Gives a formal verdict [COMPLIANT / WARNING / VIOLATION] on a specific action or scenario the user "
+        "describes, by checking it against company policies and regulations (GDPR/KVKK)."
     )
 
     def __init__(self, chat_model=None, rag_engine: Optional[RAGEngine] = None):

@@ -57,6 +57,11 @@ def test_select_like_production_applies_pool_threshold_and_rerank():
     # top_n
     selected = metrics.select_like_production(candidates, min_similarity=0.0, pool_size=3, top_n=1)
     assert [c["id"] for c in selected] == ["third"]
+    # Reranker threshold
+    selected = metrics.select_like_production(
+        candidates, min_similarity=0.0, pool_size=3, top_n=3, min_reranker_score=0.5
+    )
+    assert [c["id"] for c in selected] == ["third", "mid"]
 
 
 def test_threshold_sweep_keeps_recall_then_maximizes_rejection():

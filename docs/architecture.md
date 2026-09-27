@@ -78,11 +78,12 @@ Traditional naive RAG implementations rely solely on vector similarity, which fr
 ### Stage 1: Fast Bi-Encoder Vector Search (`BAAI/bge-m3`)
 * **Model:** `BAAI/bge-m3` (1024-dimensional, L2-normalized dense vectors).
 * **Operation:** The query is vectorized and matched against ChromaDB to retrieve a broad candidate pool (`n_results=10`).
-* **Similarity Thresholding:** Candidates below `RAG_MIN_SIMILARITY` (cosine similarity, default `0.325`) are discarded. New collections use cosine distance; collections created by older versions keep their L2 metric, and distances are converted so the same threshold applies to both.
+* **Similarity Thresholding:** Candidates below `RAG_MIN_SIMILARITY` (cosine similarity, default `0.325`) are discarded. This is only a coarse pre-filter: bi-encoder similarity cannot separate off-topic questions from answerable ones (see [Evaluation](evaluation.md)). New collections use cosine distance; collections created by older versions keep their L2 metric, and distances are converted so the same threshold applies to both.
 
 ### Stage 2: Full-Attention Cross-Encoder Reranking (`BAAI/bge-reranker-v2-m3`)
 * **Model:** `BAAI/bge-reranker-v2-m3`.
 * **Operation:** Remaining candidates are paired with the query (`[Query, Document Chunk]`) and scored jointly by the cross-encoder.
+* **Relevance Gate:** Passages scoring below `RAG_MIN_RERANKER_SCORE` (0–1, default `0.005`) are dropped. If none remain, the question gets no context, so `doc_agent` answers "not found in company documents" and `compliance_agent` returns an `[UNDETERMINED]` verdict without calling the LLM. On the evaluation set this rejects all off-topic questions while keeping every answerable one.
 * **Output:** The top `RERANKER_TOP_N` (default `3`) passages are concatenated into the LLM context.
 
 Index writes are serialized with a write lock (also used by backups), and per-document chunk statistics are cached and recomputed only after the index changes.
@@ -117,7 +118,7 @@ supervisor ──► doc_agent | db_agent | compliance_agent | <custom agents> �
 1. **`supervisor` (`SupervisorAgent.route`):**
    - If the request names an agent (`forced_agent`, from the API `agent` field), routes there without calling the LLM.
    - Messages consisting only of greeting words (e.g. "Merhaba", "hi there") are answered directly via a fast path. Mixed messages such as "hi, list sales" go through normal routing.
-   - Otherwise the LLM receives the registered agents' descriptions plus the last turns of the conversation and returns a JSON routing decision. If the JSON cannot be parsed, keyword heuristics pick the agent; unknown agent names fall back to `doc_agent`.
+   - Otherwise the LLM receives the registered agents' descriptions, each agent's live routing context (`get_routing_context()`; `db_agent` lists the connected tables and columns, refreshed every 5 minutes), and the last turns of the conversation, and returns a JSON routing decision. If the JSON cannot be parsed, keyword heuristics pick the agent; unknown agent names fall back to `doc_agent`.
 2. **Specialist sub-agent** (see [Custom Agents Guide](custom_agents_guide.md) for the contract).
 3. **`record_turn`:** appends `{question, answer, agent}` to `chat_history` (trimmed to `CHAT_HISTORY_MAX_TURNS`, default 20) and sets `active_agent`.
 
@@ -129,7 +130,7 @@ supervisor ──► doc_agent | db_agent | compliance_agent | <custom agents> �
 | :--- | :--- |
 | **`doc_agent`** | Query rewrite (for follow-ups) → two-stage retrieval → grounded generation → **Self-RAG guard** (below). |
 | **`db_agent`** | Schema inspection → SQL generation (with recent conversation for follow-ups) → first statement extracted with `sqlparse` → guarded read-only execution → LLM summary of the rows. |
-| **`compliance_agent`** | Policy retrieval → structured audit report with a `[COMPLIANT]` / `[WARNING]` / `[VIOLATION]` verdict. |
+| **`compliance_agent`** | Policy retrieval → structured audit report with a `[COMPLIANT]` / `[WARNING]` / `[VIOLATION]` / `[UNDETERMINED]` verdict. If no policy passes the relevance gate, it returns `[UNDETERMINED]` without calling the LLM; the prompt also requires `[UNDETERMINED]` when the retrieved policies do not address the scenario. |
 
 ### Self-RAG Hallucination Guard (`doc_agent`)
 1. **Generate** a draft answer from the retrieved context.

@@ -85,7 +85,16 @@ class AgentRegistry:
         for name, agent in self._agents.items():
             desc = agent.description.strip() if agent.description else "No description provided."
             display = f" ({agent.display_name})" if agent.display_name else ""
-            lines.append(f"- **`{name}`**{display}: {desc}")
+            line = f"- **`{name}`**{display}: {desc}"
+            try:
+                context = agent.get_routing_context().strip()
+            except Exception as e:
+                # Routing must keep working if, for example, the database is unreachable
+                logger.warning(f"Routing context of agent '{name}' unavailable: {e}")
+                context = ""
+            if context:
+                line += f"\n  {context}"
+            lines.append(line)
 
         return "\n".join(lines)
 

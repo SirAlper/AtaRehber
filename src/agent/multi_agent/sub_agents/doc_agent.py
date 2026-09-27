@@ -25,9 +25,10 @@ class DocumentRagAgent(BaseSubAgent):
 
     name: str = "doc_agent"
     display_name: str = "Document & Policy RAG Specialist"
+    # Routing depends mostly on this text: name the question types, not the retrieval technique
     description: str = (
-        "Used for dense semantic retrieval and grounded answer generation across enterprise "
-        "policies, procedures, regulations, technical specifications, PDFs, DOCXs, and text documents."
+        "Answers questions about what company documents say: policies, procedures, guidelines, handbooks, "
+        "limits, deadlines, durations, required approvals and steps (PDF, DOCX, TXT)."
     )
 
     def __init__(self, chat_model=None, rag_engine: Optional[RAGEngine] = None):

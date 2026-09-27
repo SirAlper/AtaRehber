@@ -325,9 +325,9 @@ curl -X GET "http://localhost:8000/api/v1/agents" \
 {
   "agents": [
     {"name": "auto", "display_name": "👑 Auto (Supervisor Orchestrator)", "description": "Automatically analyzes question intent and delegates to the best specialist sub-agent or responds directly.", "version": "2.0.0"},
-    {"name": "doc_agent", "display_name": "Document & Policy RAG Specialist", "description": "Used for dense semantic retrieval and grounded answer generation ...", "version": "1.0.0"},
+    {"name": "doc_agent", "display_name": "Document & Policy RAG Specialist", "description": "Answers questions about what company documents say: policies, procedures, ...", "version": "1.0.0"},
     {"name": "db_agent", "display_name": "SQL & Database Analyst", "description": "Used for querying structured relational database tables ...", "version": "1.0.0"},
-    {"name": "compliance_agent", "display_name": "Enterprise Compliance Auditor", "description": "Used for officially auditing user scenarios ...", "version": "1.0.0"}
+    {"name": "compliance_agent", "display_name": "Enterprise Compliance Auditor", "description": "Gives a formal verdict [COMPLIANT / WARNING / VIOLATION] on a specific action ...", "version": "1.0.0"}
   ]
 }
 ```

@@ -153,6 +153,7 @@ CHUNK_SIZE=600
 CHUNK_OVERLAP=100
 RERANKER_TOP_N=3
 RAG_MIN_SIMILARITY=0.325
+RAG_MIN_RERANKER_SCORE=0.005
 ```
 
 See [`.env.example`](../.env.example) for the complete list of settings.

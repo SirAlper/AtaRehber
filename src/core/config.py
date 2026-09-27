@@ -63,6 +63,9 @@ RERANKER_MODEL_NAME = LOCAL_RERANKER_PATH if os.path.exists(LOCAL_RERANKER_PATH)
 RERANKER_TOP_N = int(os.getenv("RERANKER_TOP_N", "3"))
 # Minimum cosine similarity for a vector search candidate to reach the reranker
 RAG_MIN_SIMILARITY = float(os.getenv("RAG_MIN_SIMILARITY", "0.325"))
+# Minimum cross-encoder relevance score (0-1) for a chunk to be used as context. The bi-encoder similarity
+# cannot tell off-topic questions apart; the reranker can (see docs/evaluation.md). 0 disables the check.
+RAG_MIN_RERANKER_SCORE = float(os.getenv("RAG_MIN_RERANKER_SCORE", "0.005"))
 
 # ──────────────────────────── CONVERSATION MEMORY ────────────────────────────
 MULTI_AGENT_CONVERSATIONS_DB = os.path.join(DOCS_PATH, "multi_agent_conversations.db")
