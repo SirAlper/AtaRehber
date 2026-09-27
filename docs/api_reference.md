@@ -380,6 +380,7 @@ curl -X POST "http://localhost:8000/api/v1/query" \
 
 * **`active_agent`:** the agent that produced the answer (`supervisor` for direct answers).
 * **`sources[].reranker_score`:** cross-encoder relevance from 0 to 1. Chunks below `RAG_MIN_RERANKER_SCORE` (default `0.005`) are never used or returned.
+* **Response language:** answers follow the language of the question (Turkish or English; other languages on a best-effort basis with English fixed texts, see [Language Support](language_support.md)); a question without language cues, such as a bare ticket code, inherits the language of the session's earlier questions. The fixed texts below are shown in English; Turkish questions get the Turkish versions (e.g. *"Bu bilgi şirket dokümanlarında bulunmuyor."*). Compliance verdict labels such as `[VIOLATION / PROHIBITED]` stay in English in both languages.
 * **No relevant documents:** if no chunk passes the relevance gate, `doc_agent` answers *"This information is not found in company documents."* with empty `sources`, and `compliance_agent` returns an `[UNDETERMINED]` verdict. The LLM is not called in either case.
 * **`hallucination_grade` / `is_refined`:** set by `doc_agent`'s Self-RAG guard. An unverifiable answer is replaced by *"This information cannot be fully verified against company documents."* Other agents leave `hallucination_grade` empty.
 * **`db_agent` traces** include the executed `sql` and `row_count`.

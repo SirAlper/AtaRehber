@@ -27,9 +27,10 @@ def scripted_chat_model(generate: str, grades: list, refined: str = "refined ans
 
     def invoke(messages):
         system = messages[0].content
-        if system == SYSTEM_PROMPT_GRADER:
+        # startswith: agents append a response-language instruction to some system prompts
+        if system.startswith(SYSTEM_PROMPT_GRADER):
             return MagicMock(content=next(grade_iter))
-        if system == SYSTEM_PROMPT_REFINE:
+        if system.startswith(SYSTEM_PROMPT_REFINE):
             return MagicMock(content=refined)
         return MagicMock(content=generate)
 

@@ -6,6 +6,14 @@ This document provides a comprehensive log of new features, architectural upgrad
 
 ## 🧭 Unreleased
 
+### Fixed: answers in the user's language
+* Every agent now answers in the language of the question (Turkish or English). Before, only 63% of the Turkish evaluation questions got a Turkish answer: "not found" and fallback texts, the greeting, and database/compliance error messages were hard-coded in English, and `db_agent` summaries and compliance reports often switched to English, especially in follow-up questions. Now 100% match.
+* New module `src/agent/language.py`: `response_language()` detects the language (a question without language cues, such as a ticket code, inherits the session's language), `language_instruction()` pins it in prompts, and `message()` returns the fixed texts in Turkish or English. The English constants `NO_CONTEXT_RESPONSE` / `FALLBACK_RESPONSE` remain for compatibility.
+* Compliance reports use Turkish section headings for Turkish questions; verdict labels such as `[VIOLATION / PROHIBITED]` stay in English in both languages.
+* The evaluation harness reports `language_match_rate` and recognizes the Turkish fixed answers as refusals.
+* Questions in other languages are recognized as such (by script or function words) and answered in the question's language on a best-effort basis, with English fixed texts. A spot check answered Spanish and German questions correctly; Mandarin Chinese and Hindi are not usable yet.
+* New [Language Support](docs/language_support.md) page: supported languages, behavior for other languages, how to add a language, and the languages coming next (Mandarin Chinese, Hindi, Spanish).
+
 ### ⚠️ Breaking: the LLM is served by Ollama only
 * The in-process HuggingFace LLM backend was removed. The LLM always runs in an [Ollama](https://ollama.com) server (`OLLAMA_BASE_URL`, `OLLAMA_MODEL`, default `qwen2.5:7b`). Before upgrading, install Ollama and run `ollama pull qwen2.5:7b`.
 * Removed settings: `LLM_BACKEND`, `LLM_MODEL_ID`, `LLM_MODEL_DIR` (a startup warning lists them if they are still set). New setting: `OLLAMA_NUM_CTX` (default 4096), because some Ollama versions default to a 2048-token context and silently cut long prompts.

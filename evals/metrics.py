@@ -18,6 +18,7 @@ RETRIEVAL_CATEGORIES = ("document", "compliance", "out_of_scope")
 REFUSAL_MARKERS = (
     "not found in company documents",
     "cannot be fully verified",
+    "doğrulanamadı",
     "no written policy",
     "no relevant policy",
     "[undetermined]",
