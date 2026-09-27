@@ -153,6 +153,7 @@ python download_model.py
   ```bash
   FORCE_DOWNLOAD=1 python download_model.py
   ```
+  In PowerShell, set the variable separately: `$env:FORCE_DOWNLOAD = "1"; python download_model.py; Remove-Item Env:FORCE_DOWNLOAD`
 
 Once both the retrieval models and the Ollama model are downloaded, the system operates in **100% offline (air-gapped)** mode with zero internet access required.
 
@@ -209,3 +210,18 @@ streamlit run ui/app.py
 > - **Password:** `admin123`
 >
 > The built-in default password must be changed at first login (the UI prompts for it; API clients use `POST /api/v1/auth/change-password`). Set `ADMIN_DEFAULT_USERNAME` / `ADMIN_DEFAULT_PASSWORD` in `.env` to seed a different account.
+
+---
+
+## 🩺 Troubleshooting
+
+| Symptom | Cause and fix |
+| :--- | :--- |
+| Startup log: `[LLM] Ollama server is not reachable` | Ollama is not running. Start the Ollama app (Windows/macOS) or `ollama serve` (Linux). If it runs on another machine, set `OLLAMA_BASE_URL`. |
+| Startup log: `Ollama model '…' is not pulled` | Run `ollama pull <model>` for the model in `OLLAMA_MODEL`. |
+| Every answer says *"This information cannot be fully verified against company documents."* | Often the LLM is unavailable, not the documents. Check `llm_status` in `GET /api/v1/stats` or the UI sidebar. |
+| The first answer takes about a minute, later ones a few seconds | Ollama loads the model on first use and unloads it after 5 idle minutes. Keep it loaded longer with the Ollama server setting `OLLAMA_KEEP_ALIVE` (for example `30m`). |
+| Answers are slow on a small GPU | `ollama ps` shows how much of the model runs on the CPU (for example `18%/82% CPU/GPU`). Use a smaller model such as `qwen2.5:3b` or close other GPU applications, and compare the quality with the [evaluation harness](evaluation.md). |
+| A question is answered "not found" although a document covers it | The relevance gate (`RAG_MIN_RERANKER_SCORE`) may be too strict for your documents. Measure with your own questions ([how](evaluation.md#using-your-own-documents)). |
+| Log: `Ignoring LLM_BACKEND, …` | Settings of the removed HuggingFace backend are still in `.env`; delete them. |
+| `VAR=value python …` fails in PowerShell | That syntax is for bash. In PowerShell use `$env:VAR = "value"` on its own line, run the command, then `Remove-Item Env:VAR`. |

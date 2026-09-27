@@ -18,7 +18,7 @@
 
 * 🤖 **Pluggable Multi-Agent Ecosystem:** Dynamic Supervisor Orchestrator with runtime intent analysis, routing to specialist Sub-Agents (Document RAG, SQL Database Analyst, Compliance Auditor) with millisecond-precision execution tracing.
 * 🔒 **100% Local & Air-Gapped:** All embeddings, Cross-Encoder reranking, and LLM inferences execute strictly on your local GPU/CPU. Zero data egress, zero cloud telemetry, and zero token costs.
-* 🎯 **Two-Stage Retrieval:** Combines `BAAI/bge-m3` dense vector search with `BAAI/bge-reranker-v2-m3` Cross-Encoder scoring to extract pinpoint enterprise context within milliseconds.
+* 🎯 **Two-Stage Retrieval with a Relevance Gate:** Combines `BAAI/bge-m3` dense vector search with `BAAI/bge-reranker-v2-m3` Cross-Encoder scoring. Passages the reranker scores below `RAG_MIN_RERANKER_SCORE` are dropped, so questions the documents do not answer get "not found in company documents" instead of a guess.
 * 🛡️ **Self-Correcting Hallucination Guard (Self-RAG):** `doc_agent` grades each draft answer against the retrieved sources. Unsupported claims are pruned by a refine step; if the answer still cannot be verified, a safe fallback is returned instead of a guess.
 * 🔐 **Enterprise Authentication & RBAC:** JWT access/refresh tokens with revocation on password change, bcrypt password hashing, mandatory replacement of the default password, per-account login lockout, and three access tiers (`admin`, `editor`, `viewer`).
 * 📜 **Tamper-Evident Compliance Audit Trail:** SQLite-backed audit logging (`data/audit.db`) recording all queries, document uploads/deletions, SQL queries, user logins, and errors with IP tracking and execution latency (ms). Entries form a SHA-256 hash chain verifiable via `GET /api/v1/admin/audit-verify`; export the returned `head_hash` periodically to also detect truncation.
@@ -27,7 +27,27 @@
 * 🗄️ **Universal Database Connector:** Connects to **PostgreSQL, MSSQL, MySQL, Oracle, and SQLite** via an SQLAlchemy abstraction layer with token-level SQL validation, database-enforced read-only sessions (SQLite/PostgreSQL/MySQL), and automated table vectorization. For production, connect with a SELECT-only database account.
 * ⚡ **Thinking Indicator & Trace UX:** Streamlined user experience featuring interactive thinking indicators and collapsible multi-agent execution traces showing internal actions, durations, and SQL queries.
 * 🌐 **Language-Agnostic & Multilingual:** Native multilingual search across enterprise corpora powered by BGE-M3 dense vectors, responding naturally in the user's language without artificial constraints.
+* 📏 **Measured Quality:** A labeled evaluation harness (`python -m evals.run_eval`) measures retrieval, routing, and answer accuracy with the real models and compares runs before and after a change (see [Measured Quality](#-measured-quality)).
 * 🖥️ **Full-Stack Suite:** Ready-to-use FastAPI REST gateway (with Swagger OpenAPI docs) paired with a modern Streamlit enterprise control panel.
+
+---
+
+## 📊 Measured Quality
+
+Answer quality is measured, not assumed. The [evaluation harness](docs/evaluation.md) runs 51 labeled questions through the real models: document questions, compliance scenarios, database questions, greetings, and questions the documents do not answer.
+
+Default configuration, `qwen2.5:7b` via Ollama on an RTX 3060 Laptop GPU (6 GB):
+
+| Metric | Result |
+| :--- | :---: |
+| Correct answers (all expected facts present) | **95%** |
+| ↳ document / compliance / database questions | 100% / 100% / 80% |
+| Questions routed to the right specialist agent | 98% |
+| Off-topic questions answered with "not in the documents" instead of a guess | 100% |
+| Answerable questions wrongly refused | 2% |
+| Latency per question (median / 95th percentile) | 7.3 s / 23.2 s |
+
+Before the relevance gate, the routing fixes, and the switch from an in-process 1.5B model to Ollama, the same questions scored 59% correct answers, 0% on database questions, and only half of the off-topic questions were refused. The dataset is small and synthetic, so measure with your own documents before relying on these numbers ([how](docs/evaluation.md#using-your-own-documents)).
 
 ---
 
@@ -45,7 +65,7 @@ Explore our detailed architectural, operational, and development guides:
 | 🗄️ [**Database Connectors**](docs/database_connectors.md) | Universal SQLAlchemy configurations, Text-to-SQL security, and ETL table vectorization |
 | 🔌 [**REST API Reference**](docs/api_reference.md) | FastAPI endpoint documentation, JWT auth, NDJSON event streaming, and cURL examples |
 | 🐳 [**Docker Deployment**](docs/docker_deployment.md) | Production multi-service containerization (Backend, Frontend, Ollama), NVIDIA GPU passthrough |
-| 📏 [**Evaluation Guide**](docs/evaluation.md) | Labeled question set and harness measuring retrieval, routing, and answer quality |
+| 📏 [**Evaluation Guide**](docs/evaluation.md) | Labeled question set, harness, current results, and how each change was measured |
 | 🗺️ [**Roadmap**](docs/roadmap.md) | Hybrid search (BM25 + Dense), GraphRAG, observability, SSO, and multi-tenant isolation |
 
 ---
@@ -105,7 +125,7 @@ docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d
 See the full [Docker Deployment Guide](docs/docker_deployment.md) for Container Toolkit setup.
 
 ### 5. Run Automated Tests
-Install the development tooling and run the unit, end-to-end, and security test suite (tests use an isolated temporary data directory; model-dependent profiling tests are skipped when weights are not downloaded):
+Install the development tooling and run the unit, end-to-end, and security test suite (tests use an isolated temporary data directory and a stubbed LLM, so Ollama is not needed; model-dependent profiling tests are skipped when weights are not downloaded):
 ```bash
 pip install -r requirements-dev.txt
 pytest tests/ -v
@@ -137,6 +157,7 @@ OpenLocalRagAgents/
 │   ├── api/               # Modular FastAPI REST API gateway (routes/, schemas, state)
 │   └── main.py            # Backward-compatible launch entrypoint (uvicorn src.main:app)
 ├── docs/                  # Comprehensive Technical Guides (docs/)
+├── .github/workflows/     # CI: lint, tests (Python 3.12-3.14), PostgreSQL/MySQL integration, Docker builds
 ├── examples/              # Developer examples (custom sub-agents)
 ├── Dockerfile             # Backend multi-stage image (CPU default, CUDA via build arg)
 ├── Dockerfile.frontend    # Lightweight Streamlit UI image
@@ -146,6 +167,8 @@ OpenLocalRagAgents/
 ├── requirements.txt       # Backend runtime dependencies
 ├── requirements-ui.txt    # Streamlit UI dependencies
 ├── requirements-dev.txt   # Test & lint tooling
+├── .env.example           # Every setting with its default and a comment
+├── ruff.toml              # Lint and format settings (same as CI)
 ├── WHATSNEW.md            # Release notes and changelog
 ├── CONTRIBUTING.md        # Contribution guidelines and development workflow
 └── LICENSE                # MIT License

@@ -29,6 +29,8 @@ The strategic development roadmap for `OpenLocalRagAgents` is structured below t
 
 - [x] **Retrieval & Answer Quality Evaluation:**
   - Labeled question set and harness (`python -m evals.run_eval`) measuring retrieval hit rate/MRR, off-topic rejection, similarity and reranker threshold sweeps, supervisor routing accuracy, and end-to-end answer accuracy with before/after comparison. See the [Evaluation Guide](evaluation.md).
+- [ ] **Stored-Value Hints for Text-to-SQL:**
+  - Show sample values of low-cardinality columns (statuses, categories) in the SQL prompt so generated filters match what is stored. Evaluation case `db-04` filters on `'çözüldü'` while the table stores `'Resolved'`.
 - [ ] **Hybrid Search (BM25 + Dense Vector with Reciprocal Rank Fusion):**
   - Merge semantic dense vector search with sparse keyword/code matching (BM25) via *Reciprocal Rank Fusion (RRF)* to achieve 100% precision on SKU codes and technical terminology.
 - [ ] **Complex Table & Unstructured Document Parsing:**
@@ -123,6 +125,8 @@ The strategic development roadmap for `OpenLocalRagAgents` is structured below t
   - Enforced on user creation, admin password resets, and self-service password changes.
 - [x] **Credential Hardening:**
   - Token revocation on password change or account deactivation, mandatory replacement of the default `admin123` password, and per-account login lockout.
+- [ ] **Multi-Worker Shared State:**
+  - Move rate limiting, login throttling, and the user store out of process memory and `users.json` (SQLite or Redis) so the API can run with several workers or replicas.
 - [ ] **Multi-Tenant Document Isolation:**
   - Department-level or organization-level document namespace isolation, allowing each tenant to maintain private knowledge bases.
 - [x] **ChromaDB Backup & Restore:**
@@ -136,6 +140,10 @@ The strategic development roadmap for `OpenLocalRagAgents` is structured below t
 
 > **Priority: Ongoing** — Improvements to maintainability, developer onboarding, and open-source readiness.
 
+- [ ] **Legacy Single-Agent Cleanup:**
+  - Remove the unused `EnterpriseRAGAgent` graph (`agent_graph.py`, `query_service.py`, `tools.py`) and move the grading helpers that `doc_agent` still imports out of `nodes.py`.
+- [ ] **Explicit LLM-Outage Answers:**
+  - When Ollama is unreachable, `doc_agent` returns the "cannot be fully verified" fallback, which reads like a document problem. Return a clear "language model unavailable" message instead.
 - [ ] **Streamlit Multi-Page Refactoring:**
   - Refactor the monolithic `ui/app.py` into Streamlit multi-page architecture (`pages/` directory) with dedicated pages for Chat, Documents, Database, Audit, and Admin.
 - [x] **Specific Exception Handling:**

@@ -12,6 +12,7 @@ This document provides a comprehensive log of new features, architectural upgrad
 * The API checks at startup that Ollama is reachable and the model is pulled, and logs the fix otherwise. `GET /api/v1/stats` reports it as `llm_status` and the UI shows a warning. The evaluation harness stops early with the same message.
 * `download_model.py` downloads only the embedding and reranker models (~3.3 GB instead of ~6.4 GB). The old `models/qwen2.5-1.5b` folder is no longer used and can be deleted.
 * Dependencies: `langchain-huggingface`, `accelerate`, and `bitsandbytes` were dropped. PyTorch only runs the retrieval models, so the CPU build is enough.
+* **Measured effect:** on the evaluation set, `qwen2.5:7b` via Ollama answers 95% of questions correctly versus 73% for the removed in-process 1.5B model (routing 98% vs 82%, database questions 80% vs 40%). See the [Evaluation Guide](docs/evaluation.md#-current-results).
 * Docker: the `ollama` service always runs (no `--profile ollama`), a one-shot `ollama-pull` service downloads the model on the first start, and `docker-compose.gpu.yml` gives the GPU to Ollama. Ollama's port is no longer published on the host, so it does not clash with an Ollama already running there.
 
 
