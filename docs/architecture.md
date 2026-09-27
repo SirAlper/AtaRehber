@@ -21,7 +21,7 @@
 │  └─────────────────────────┘  └────────────────────────┘  └───────────────────┘  │
 │  ┌────────────────────────────────────────────────────────────────────────────┐  │
 │  │                    Query Concurrency Manager (State)                       │  │
-│  │      HuggingFace: asyncio.Lock()  │  Ollama: asyncio.Semaphore(N)          │  │
+│  │      Ollama requests capped by asyncio.Semaphore(OLLAMA_NUM_PARALLEL)      │  │
 │  └────────────────────────────────────────────────────────────────────────────┘  │
 └───────────────────────┬──────────────────────────────────┬───────────────────────┘
                         │                                  │
@@ -53,21 +53,21 @@
        Context Scoring │ Generation Call
                        ▼
 ┌────────────────────────────────────────┐  ┌──────────────────────────────────────┐
-│         Knowledge Retrieval Layer      │  │          Dual LLM Serving            │
+│         Knowledge Retrieval Layer      │  │        LLM Serving (Ollama)          │
 │                                        │  │                                      │
-│  ┌──────────────────────────────────┐  │  │  [Option A: In-Process HuggingFace]  │
-│  │ ChromaDB Vector Store            │  │  │  - Qwen2.5-1.5B-Instruct (BF16)      │
-│  │ - BAAI/bge-m3 Dense Vectors      │  │  │  - Zero network overhead             │
+│  ┌──────────────────────────────────┐  │  │  Separate Ollama server process      │
+│  │ ChromaDB Vector Store            │  │  │  - LangChain ChatOllama client       │
+│  │ - BAAI/bge-m3 Dense Vectors      │  │  │  - Default model: qwen2.5:7b         │
 │  │ - Contextual Chunking Headers    │  │  │                                      │
-│  └──────────────────────────────────┘  │  │  [Option B: External Ollama Engine]  │
-│  ┌──────────────────────────────────┐  │  │  - LangChain ChatOllama              │
-│  │ Cross-Encoder Reranker           │  │  │  - Qwen2.5:7B / Llama3.1:8B          │
-│  │ - BAAI/bge-reranker-v2-m3        │  │  │  - Parallel worker semaphore         │
+│  └──────────────────────────────────┘  │  │  - Explicit context window (num_ctx) │
+│  ┌──────────────────────────────────┐  │  │  - Startup check: server reachable,  │
+│  │ Cross-Encoder Reranker           │  │  │    model pulled                      │
+│  │ - BAAI/bge-reranker-v2-m3        │  │  │  - No LLM weights in the API process │
 │  └──────────────────────────────────┘  │  └──────────────────────────────────────┘
 └────────────────────────────────────────┘
 ```
 
-A single LLM instance is loaded once (`get_chat_model()` in `src/api/state.py`) and shared by the supervisor and every sub-agent.
+A single Ollama chat model client is created once (`get_chat_model()` in `src/api/state.py`) and shared by the supervisor and every sub-agent; the model itself runs in the Ollama server.
 
 ---
 
@@ -158,7 +158,7 @@ The verdict and refinement flag are returned as `hallucination_grade` and `is_re
 4. **Retention:** `POST /api/v1/admin/cleanup-sessions?max_age_days=N` deletes threads whose most recent checkpoint is older than `N` days (`src/agent/multi_agent/sessions.py`).
 
 ### Streaming
-`stream_events()` executes the same graph with `stream_mode="updates"` and converts node updates into NDJSON events (`status`, `agent_selected`, `sources`, `done`). If the client disconnects, the API stops the worker before the next node and keeps the concurrency gate until inference has actually finished, so the in-process model never runs two requests at once.
+`stream_events()` executes the same graph with `stream_mode="updates"` and converts node updates into NDJSON events (`status`, `agent_selected`, `sources`, `done`). If the client disconnects, the API stops the worker before the next node and keeps the concurrency gate until inference has actually finished, so Ollama never receives more than `OLLAMA_NUM_PARALLEL` concurrent requests.
 
 ---
 
@@ -187,13 +187,12 @@ The verdict and refinement flag are returned as `hallucination_grade` and `is_re
 * **Verification:** `GET /api/v1/admin/audit-verify` recomputes the chain and reports the first edited or deleted entry. Truncating the newest entries or rewriting the whole chain can only be detected against a previously exported `head_hash`, so store it outside the server periodically. Entries written before hash chaining existed are reported as unverifiable legacy entries.
 * **Zero Cloud Leakage:** Audit logs reside strictly on local storage.
 
-### 3. Dual LLM Serving & Adaptive Concurrency Protection
-* **In-Process HuggingFace (`LLM_BACKEND=huggingface`):**
-  - Model weights loaded in BF16 on CUDA (~2.8 GB VRAM for the 1.5B model), FP32 on CPU.
-  - Serialized via `asyncio.Lock()` to prevent GPU memory collisions and pipeline race conditions.
-* **External Ollama Serving (`LLM_BACKEND=ollama`):**
-  - Offloads generation to an Ollama instance hosting larger models (`qwen2.5:7b`, `llama3.1:8b`).
-  - Governed by `asyncio.Semaphore(OLLAMA_NUM_PARALLEL)` for parallel multi-user processing.
+### 3. LLM Serving (Ollama) & Concurrency Protection
+* **Separate server:** The LLM runs in an [Ollama](https://ollama.com) server (`OLLAMA_BASE_URL`, default model `qwen2.5:7b`). The API process loads no LLM weights, so it starts quickly, and switching models is a matter of `ollama pull <model>` plus `OLLAMA_MODEL`.
+* **Explicit context window:** Requests set `num_ctx` (`OLLAMA_NUM_CTX`, default 4096) because some Ollama versions default to 2048 tokens and silently drop the beginning of longer prompts, i.e. the system prompt and retrieved context.
+* **Availability check:** At startup the API checks that the server is reachable and the model is pulled, and logs an actionable error (`ollama pull …`) otherwise. The API still starts, so documents, users, and the audit log remain usable; `GET /api/v1/stats` reports the state as `llm_status`.
+* **Concurrency:** Queries are capped by `asyncio.Semaphore(OLLAMA_NUM_PARALLEL)`. Match it to the server's own `OLLAMA_NUM_PARALLEL` setting.
+* **Model choice is measured:** on the evaluation set, `qwen2.5:7b` answers 95% of the questions correctly versus 73% for the previous in-process 1.5B model (see [Evaluation](evaluation.md#-current-results)).
 
 ### 4. File Upload Hardening & Path Traversal Prevention
 * **Path Traversal Protection:** `os.path.basename()` sanitization plus a canonical-path containment check (`os.path.commonpath`) against the data directory.
@@ -204,7 +203,7 @@ The verdict and refinement flag are returned as `hallucination_grade` and `is_re
 Defense in depth, from application layer to database engine. See [Database Connectors](database_connectors.md#-strict-read-only-security-guard) for the full list.
 * **Token-Level SQL Validation (`sqlparse`):** single statement only; must start with `SELECT` / `WITH`; data-, schema- and session-modifying keywords (`INSERT`, `DELETE`, `INTO`, `ATTACH`, `PRAGMA`, `SET`, …) and file/network/sleep functions (`pg_read_file`, `load_extension`, `pg_sleep`, …) are rejected. String literals are ignored, so values like `'Deleted'` do not cause false positives.
 * **Table Allowlist (`DB_ALLOWED_TABLES`):** Table references are extracted from `FROM` lists (including comma joins), `JOIN`s, subqueries, and CTEs. Quoted and schema-qualified names are normalized.
-* **Database-Enforced Read-Only Sessions:** SQLite connections run with `PRAGMA query_only = ON`; PostgreSQL and MySQL queries run inside read-only transactions with a statement timeout (`DB_QUERY_TIMEOUT_SECONDS`). For MSSQL/Oracle, use a SELECT-only database account.
+* **Database-Enforced Read-Only Sessions:** SQLite connections run with `PRAGMA query_only = ON`; PostgreSQL queries run inside read-only transactions and MySQL/MariaDB sessions are read-only at session scope, both with a statement timeout (`DB_QUERY_TIMEOUT_SECONDS`). CI verifies this against real PostgreSQL and MySQL servers. For MSSQL/Oracle, use a SELECT-only database account.
 * **Row Capping:** Result sets are capped at `DB_MAX_ROWS`.
 
 ### 6. Conversation Session Retention (`src.agent.multi_agent.sessions`)

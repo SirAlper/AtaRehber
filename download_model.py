@@ -9,37 +9,30 @@ os.environ["TRANSFORMERS_OFFLINE"] = "0"
 from huggingface_hub import snapshot_download
 from src.core.config import (
     MODELS_DIR,
-    LOCAL_LLM_PATH,
     LOCAL_EMBEDDING_PATH,
     LOCAL_RERANKER_PATH,
-    LLM_MODEL_ID,
+    OLLAMA_MODEL,
 )
 
 os.makedirs(MODELS_DIR, exist_ok=True)
 
 models = [
     {
-        "name": "1/3 - Multilingual Embedding Model (BAAI/bge-m3)",
+        "name": "1/2 - Multilingual Embedding Model (BAAI/bge-m3)",
         "repo_id": "BAAI/bge-m3",
         "local_dir": LOCAL_EMBEDDING_PATH,
         "est_size": "~2.2 GB",
         "key_file": "config.json"
     },
     {
-        "name": "2/3 - Cross-Encoder Reranker Model (BAAI/bge-reranker-v2-m3)",
+        "name": "2/2 - Cross-Encoder Reranker Model (BAAI/bge-reranker-v2-m3)",
         "repo_id": "BAAI/bge-reranker-v2-m3",
         "local_dir": LOCAL_RERANKER_PATH,
         "est_size": "~1.1 GB",
         "key_file": "config.json"
     },
-    {
-        "name": f"3/3 - Language Model ({LLM_MODEL_ID})",
-        "repo_id": LLM_MODEL_ID,
-        "local_dir": LOCAL_LLM_PATH,
-        "est_size": "~3.1 - ~15 GB",
-        "key_file": "config.json"
-    }
 ]
+# The LLM is not downloaded here: it is served by Ollama (`ollama pull <model>`)
 
 force_download = os.getenv("FORCE_DOWNLOAD", "0") == "1"
 
@@ -47,7 +40,7 @@ if __name__ == "__main__":
     print("=" * 70)
     print("  Enterprise Local RAG — Model Downloader & Verification Utility")
     print(f"  Target Storage Directory: {os.path.abspath(MODELS_DIR)}")
-    print("  Total Estimated Space Required: ~6.4 GB")
+    print("  Retrieval models only (~3.3 GB). The LLM is pulled with Ollama.")
     print("=" * 70)
 
     download_failures = []
@@ -88,6 +81,6 @@ if __name__ == "__main__":
         print("\nPlease check your internet connection or HuggingFace access and retry.")
         sys.exit(1)
     else:
-        print("✅ All models verified and available in './models' directory!")
-        print("   The system can now operate in full offline/air-gapped mode.")
+        print("✅ Retrieval models verified and available in './models' directory!")
+        print(f"   Next, pull the LLM with Ollama: ollama pull {OLLAMA_MODEL}")
     print("=" * 70)

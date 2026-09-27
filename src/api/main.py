@@ -21,7 +21,6 @@ from src.api.state import (
     get_db_connector,
     get_db_loader,
     auto_index_on_startup,
-    query_lock,
 )
 from src.api.routes import (
     documents_router,
@@ -147,11 +146,10 @@ __all__ = [
     "get_db_connector",
     "get_db_loader",
     "auto_index_on_startup",
-    "query_lock",
 ]
 
 if __name__ == "__main__":
     import uvicorn
 
-    # Use reload=False to prevent reloading model weights on disk modifications
+    # reload=False: reloading would re-load the embedding and reranker models on every file change
     uvicorn.run("src.api.main:app", host="0.0.0.0", port=8000, reload=False)

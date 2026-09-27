@@ -6,6 +6,16 @@ This document provides a comprehensive log of new features, architectural upgrad
 
 ## 🧭 Unreleased
 
+### ⚠️ Breaking: the LLM is served by Ollama only
+* The in-process HuggingFace LLM backend was removed. The LLM always runs in an [Ollama](https://ollama.com) server (`OLLAMA_BASE_URL`, `OLLAMA_MODEL`, default `qwen2.5:7b`). Before upgrading, install Ollama and run `ollama pull qwen2.5:7b`.
+* Removed settings: `LLM_BACKEND`, `LLM_MODEL_ID`, `LLM_MODEL_DIR` (a startup warning lists them if they are still set). New setting: `OLLAMA_NUM_CTX` (default 4096), because some Ollama versions default to a 2048-token context and silently cut long prompts.
+* The API checks at startup that Ollama is reachable and the model is pulled, and logs the fix otherwise. `GET /api/v1/stats` reports it as `llm_status` and the UI shows a warning. The evaluation harness stops early with the same message.
+* `download_model.py` downloads only the embedding and reranker models (~3.3 GB instead of ~6.4 GB). The old `models/qwen2.5-1.5b` folder is no longer used and can be deleted.
+* Dependencies: `langchain-huggingface`, `accelerate`, and `bitsandbytes` were dropped. PyTorch only runs the retrieval models, so the CPU build is enough.
+* **Measured effect:** on the evaluation set, `qwen2.5:7b` via Ollama answers 95% of questions correctly versus 73% for the removed in-process 1.5B model (routing 98% vs 82%, database questions 80% vs 40%). See the [Evaluation Guide](docs/evaluation.md#-current-results).
+* Docker: the `ollama` service always runs (no `--profile ollama`), a one-shot `ollama-pull` service downloads the model on the first start, and `docker-compose.gpu.yml` gives the GPU to Ollama. Ollama's port is no longer published on the host, so it does not clash with an Ollama already running there.
+
+
 ### Added
 * **Evaluation harness (`evals/`):** a labeled set of 51 questions over six policy documents and the sample database, and `python -m evals.run_eval`, which measures retrieval (hit rate, MRR, off-topic rejection, threshold sweeps), supervisor routing, and end-to-end answers (fact accuracy, refusals, Self-RAG grounding, latency). Reports can be compared run to run. See the [Evaluation Guide](docs/evaluation.md).
 * **Database integration tests:** read-only enforcement is tested against real PostgreSQL and MySQL servers in CI.

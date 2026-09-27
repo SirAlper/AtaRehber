@@ -12,7 +12,7 @@ Run from the repository root with the project's virtual environment:
 # Retrieval only: embedding + reranker, no LLM (about 3 minutes on CPU)
 python -m evals.run_eval
 
-# Retrieval + supervisor routing + end-to-end answers (loads the LLM)
+# Retrieval + supervisor routing + end-to-end answers (needs Ollama with OLLAMA_MODEL pulled)
 python -m evals.run_eval --stages all
 
 # Only some questions
@@ -28,8 +28,8 @@ The harness runs in a temporary directory. It indexes `evals/corpus/` into its o
 | Stage | Needs | What it measures |
 | :--- | :--- | :--- |
 | `retrieval` | Embedding + reranker | Whether the right document reaches the LLM, and whether off-topic questions retrieve nothing. |
-| `routing` | LLM | Whether the supervisor picks the expected agent. |
-| `e2e` | LLM | The full workflow (`MultiAgentOrchestrator.query`): answer correctness, refusals, Self-RAG grounding, latency. |
+| `routing` | Ollama | Whether the supervisor picks the expected agent. |
+| `e2e` | Ollama | The full workflow (`MultiAgentOrchestrator.query`): answer correctness, refusals, Self-RAG grounding, latency. |
 
 ### Retrieval metrics
 
@@ -77,8 +77,17 @@ Settings are read from the environment, like the application itself, so you can 
 ```bash
 RAG_MIN_RERANKER_SCORE=0.01 python -m evals.run_eval
 RERANKER_TOP_N=5 CHUNK_SIZE=400 python -m evals.run_eval --stages all
-LLM_BACKEND=ollama OLLAMA_MODEL=qwen2.5:7b python -m evals.run_eval --stages e2e
+OLLAMA_MODEL=qwen2.5:3b python -m evals.run_eval --stages all     # pull it first: ollama pull qwen2.5:3b
 ```
+
+This `VAR=value command` form works in bash. In PowerShell, set the variable first and remove it afterwards:
+```powershell
+$env:OLLAMA_MODEL = "qwen2.5:3b"
+python -m evals.run_eval --stages all
+Remove-Item Env:OLLAMA_MODEL
+```
+
+The routing and end-to-end stages need a running Ollama server with `OLLAMA_MODEL` pulled; the harness checks this first and stops with the fix if not. Each report records the model under `config.llm_model`.
 
 LLM output varies slightly between runs, so treat differences of one or two questions as noise.
 
@@ -116,34 +125,56 @@ Keep private datasets and documents out of the repository.
 
 ---
 
-## 📊 Results
+## 📊 Current Results
 
-Default settings, bundled dataset (51 questions), `qwen2.5-1.5b` (HuggingFace backend) on an RTX 3060 Laptop GPU, embedding and reranker on CPU. "Before" is the code before the reranker gate and the routing changes.
+Default settings, bundled dataset (51 questions), `qwen2.5:7b` via Ollama on an RTX 3060 Laptop GPU (6 GB; Ollama kept 82% of the model on the GPU and 18% on the CPU), embedding and reranker on CPU. A full `--stages all` run takes about 15 minutes on this machine.
 
-| Metric | Before | After |
-| :--- | :---: | :---: |
-| Retrieval hit rate / MRR | 100% / 1.00 | 100% / 1.00 |
-| Off-topic questions that retrieve no context | 0% | **100%** |
-| Routing accuracy | 67% | **82%** |
-| ↳ documents / compliance / database | 91% / 38% / **0%** | 83% / 88% / **70%** |
-| Answer accuracy | 59% | **73%** |
-| ↳ documents / compliance / database | 96% / 25% / 0% | 91% / 63% / 40% |
-| Off-topic questions refused | 50% | **100%** |
-| Answerable questions refused | 17% | 7% |
+| Metric | Value |
+| :--- | :---: |
+| Retrieval hit rate / MRR | 100% / 1.00 |
+| Off-topic questions that retrieve no context | 100% |
+| Routing accuracy | 98% |
+| Answer accuracy | 95% |
+| ↳ documents / compliance / database | 100% / 100% / 80% |
+| Grounded answers (Self-RAG passed) | 100% |
+| Off-topic questions refused | 100% |
+| Answerable questions refused | 2% |
+| Latency p50 / p95 | 7.3 s / 23.2 s |
 
-The 13 questions added before tuning (`db-06`–`db-10`, `cmp-06`–`cmp-08`, `oos-06`–`oos-08`, `doc-hr-05`, `doc-kvkk-03`) were not used to choose the prompt wording. On them, routing went from 5/13 to 9/13 and correct answers from 2/10 to 6/10, so the gains are not limited to the questions used during tuning.
+On the 13 held-out questions (see below): routing 12/13 and 9/10 correct answers.
 
-What changed and why:
+Remaining failures:
+* `db-04` filters on `durum = 'çözüldü'`, but the column stores `'Resolved'`. The SQL prompt shows column names, not the values stored in them.
+* `db-10` (a support ticket code) is routed to `doc_agent`, which correctly answers that the information is not in the documents instead of guessing.
+
+---
+
+## 📈 How We Got Here
+
+The same 51 questions were measured after each step. The 13 questions `db-06`–`db-10`, `cmp-06`–`cmp-08`, `oos-06`–`oos-08`, `doc-hr-05`, and `doc-kvkk-03` were added before step 1 and never used to choose prompt wording, so they show whether a change generalizes beyond the questions used for tuning.
+
+| Metric | Baseline (1.5B) | Step 1: gate + routing (1.5B) | Step 2: `qwen2.5:7b` via Ollama |
+| :--- | :---: | :---: | :---: |
+| Off-topic questions that retrieve no context | 0% | 100% | 100% |
+| Routing accuracy | 67% | 82% | 98% |
+| ↳ documents / compliance / database | 91% / 38% / 0% | 83% / 88% / 70% | 100% / 100% / 90% |
+| Answer accuracy | 59% | 73% | 95% |
+| ↳ documents / compliance / database | 96% / 25% / 0% | 91% / 63% / 40% | 100% / 100% / 80% |
+| Off-topic questions refused | 50% | 100% | 100% |
+| Answerable questions refused | 17% | 7% | 2% |
+| Held-out routing / correct answers | 5/13 / 2/10 | 9/13 / 6/10 | 12/13 / 9/10 |
+
+Latency is not compared across all three columns because other work ran on the machine during the baseline measurement. Between step 1 and step 2 it improved from 10.2 s / 39.2 s (p50 / p95) to 7.3 s / 23.2 s.
+
+### Step 1: relevance gate and routing (still on the 1.5B model)
 1. **Relevance gate (`RAG_MIN_RERANKER_SCORE=0.005`).** Bi-encoder similarity could not separate off-topic questions from answerable ones: off-topic questions reached 0.59 while one answerable question scored only 0.48. The cross-encoder score separates them: the highest off-topic score is 0.0036 and the lowest answerable score is 0.0065. The margin is narrow, so re-run the sweep on your own documents before relying on the default. With no context left, `doc_agent` says the information is not in the documents and `compliance_agent` returns `[UNDETERMINED]`, both without calling the LLM. 0.01 would have been too strict: it drops one of the held-out questions.
-2. **Database routing.** `db_agent` now tells the supervisor which tables and columns exist (`get_routing_context()`). Before that, the 1.5B model could not know that stock or prices live in the database.
+2. **Database routing.** `db_agent` tells the supervisor which tables and columns exist (`get_routing_context()`). Before that, the model could not know that stock or prices live in the database.
 3. **Agent descriptions.** Routing depends more on the agents' descriptions than on the supervisor rules. The old `compliance_agent` description ("policies, privacy regulations, HR rules") pulled plain policy questions away from `doc_agent`, and the table list alone made this worse. Narrow descriptions fixed both: rewriting only the rules left routing at 66%, while rewriting the descriptions raised it to 87% on the tuning questions.
 
-Remaining weaknesses, all limits of the 1.5B model rather than of retrieval or routing:
-* `db_agent` reaches the right agent in 70% of cases but answers only 40% correctly. The generated SQL sometimes uses non-existent columns, and summaries misstate numbers (170,000 TL reported as 17,000 TL).
-* A few policy questions phrased with "can"/"must" (`-ebilir`, `-meli`) still go to `compliance_agent`, and "Bu sistem neler yapabilir?" goes to `doc_agent` instead of a direct answer.
-* The Self-RAG grader still passes one wrong answer (26 instead of 20 leave days).
+After step 1 the remaining errors were limits of the 1.5B model: invented SQL columns, misread numbers (170,000 TL reported as 17,000 TL), policy questions phrased with "can"/"must" (`-ebilir`, `-meli`) routed to `compliance_agent`, and a wrong answer the Self-RAG grader accepted (26 instead of 20 leave days).
 
-A larger model (for example `LLM_BACKEND=ollama` with `qwen2.5:7b`) is the next thing to measure.
+### Step 2: switching the LLM to `qwen2.5:7b` via Ollama
+Same code and dataset; only the LLM changed. The 7B model fixed every step-1 error listed above except the database value mismatch (`db-04`). This result is why the in-process HuggingFace backend was removed and the LLM now always runs on Ollama.
 
 ---
 

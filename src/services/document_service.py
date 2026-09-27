@@ -10,17 +10,17 @@ import asyncio
 from typing import Dict, Any
 from fastapi import HTTPException, UploadFile
 
+from src.agent.llm import check_ollama
 from src.api.state import get_rag_engine, get_db_connector, get_document_loader
 from src.core.audit import audit_logger
 from src.core.config import (
     DOCS_PATH,
     EMBEDDING_MODEL_NAME,
-    LLM_MODEL_NAME,
-    LLM_BACKEND,
     OLLAMA_MODEL,
     OLLAMA_BASE_URL,
     MAX_UPLOAD_SIZE_MB,
     ALLOWED_UPLOAD_EXTENSIONS,
+    RAG_DEVICE,
 )
 from src.core.logger import get_logger
 
@@ -32,29 +32,22 @@ class DocumentService:
 
     @staticmethod
     def get_system_stats() -> Dict[str, Any]:
-        """Aggregate system, hardware accelerator, model parameters, and index stats."""
+        """Aggregate model settings, LLM availability, index, and database stats."""
         engine = get_rag_engine()
         connector = get_db_connector()
         db_stats = engine.get_stats()
-
-        is_cuda = False
-        try:
-            import torch
-
-            is_cuda = torch.cuda.is_available()
-        except ImportError:
-            pass
-
-        device = "CUDA (NVIDIA GPU)" if is_cuda else "CPU"
         db_conn_info = connector.test_connection()
+        llm_problem = check_ollama(timeout=2.0)
 
         return {
             "status": "success",
-            "device": device,
-            "llm_backend": LLM_BACKEND,
+            # Device of the embedding and reranker models; the LLM runs wherever Ollama runs
+            "device": "CUDA (NVIDIA GPU)" if RAG_DEVICE.startswith("cuda") else "CPU",
+            "llm_backend": "ollama",
             "embedding_model": EMBEDDING_MODEL_NAME,
-            "llm_model": OLLAMA_MODEL if LLM_BACKEND == "ollama" else LLM_MODEL_NAME,
-            "ollama_base_url": OLLAMA_BASE_URL if LLM_BACKEND == "ollama" else None,
+            "llm_model": OLLAMA_MODEL,
+            "ollama_base_url": OLLAMA_BASE_URL,
+            "llm_status": llm_problem or "ok",
             "total_chunks": db_stats.get("total_chunks", 0),
             "total_documents": db_stats.get("total_documents", 0),
             "documents": db_stats.get("document_chunks", {}),

@@ -21,9 +21,12 @@ git checkout -b feature/your-feature-name
 ```bash
 python -m venv .venv
 .venv\Scripts\activate  # Linux/macOS: source .venv/bin/activate
-pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
+pip install torch --index-url https://download.pytorch.org/whl/cpu
 pip install -r requirements-dev.txt
+python download_model.py       # embedding + reranker models
+ollama pull qwen2.5:7b         # the LLM, served by Ollama (https://ollama.com)
 ```
+The tests stub the LLM and do not need Ollama. Running the app and the evaluation's routing and end-to-end stages do.
 
 ### 4. Make Your Changes
 - Follow existing code style and conventions
@@ -53,7 +56,7 @@ If you change retrieval, chunking, prompts, routing, or an agent, run the evalua
 python -m evals.run_eval --stages all                                   # before (on master)
 python -m evals.run_eval --stages all --compare evals/results/<before>.json   # after
 ```
-See the [Evaluation Guide](docs/evaluation.md) for details.
+The routing and end-to-end stages need Ollama with `OLLAMA_MODEL` pulled. Measure both runs with the same model and mention it in the PR (reports record it under `config.llm_model`). See the [Evaluation Guide](docs/evaluation.md) for details.
 
 ### 7. Submit a Pull Request
 - Push your branch and open a PR against `master`

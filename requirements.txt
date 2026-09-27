@@ -1,11 +1,11 @@
 # Backend runtime dependencies. Upper bounds guard against untested major releases.
 # PyTorch is installed separately (CPU or CUDA wheel index), see README / Dockerfile.
+# It runs only the embedding and reranker models; the LLM is served by Ollama.
 transformers>=4.44.0,<6
 sentence-transformers>=3.0.0,<7
 chromadb>=0.5.0,<2
 langgraph>=0.2.0,<2
 langchain-core>=0.3.0,<2
-langchain-huggingface>=0.1.0,<2
 langchain-text-splitters>=0.3.0,<2
 langchain-ollama>=0.2.0,<2
 langgraph-checkpoint-sqlite>=2.0.0,<4
@@ -13,12 +13,10 @@ fastapi>=0.112.0,<1
 uvicorn[standard]>=0.30.0,<1
 pydantic>=2.8.0,<3
 python-dotenv>=1.0.0,<2
-accelerate>=0.33.0,<2
 huggingface_hub>=0.24.0,<2
 pypdf>=4.3.0,<7
 python-docx>=1.1.0,<2
 python-multipart>=0.0.9,<1
-bitsandbytes>=0.43.0,<1
 sqlalchemy>=2.0.0,<3
 sqlparse>=0.5.0,<1
 PyJWT>=2.8.0,<3

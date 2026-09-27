@@ -41,21 +41,23 @@ JWT_SECRET_FILE_PATH = os.path.join(DOCS_PATH, ".jwt_secret")
 INSECURE_DEFAULT_PASSWORD = "admin123"
 REQUIRE_DEFAULT_PASSWORD_CHANGE = os.getenv("REQUIRE_DEFAULT_PASSWORD_CHANGE", "true").lower() == "true"
 
-# ──────────────────────────── LLM & SERVING CONFIGURATION ────────────────────────────
-# Backend: "huggingface" (in-process) or "ollama" (external high-concurrency server)
-LLM_BACKEND = os.getenv("LLM_BACKEND", "huggingface").lower()
+# ──────────────────────────── LLM (OLLAMA) ────────────────────────────
+# The LLM is served by Ollama (https://ollama.com); no LLM weights are loaded in this process.
+# Pull the model once before starting: `ollama pull qwen2.5:7b`
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen2.5:7b")
+# Context window in tokens. Set explicitly because some Ollama versions default to 2048 and silently
+# drop the start of longer prompts (system prompt and retrieved context).
+OLLAMA_NUM_CTX = int(os.getenv("OLLAMA_NUM_CTX", "4096"))
+# Maximum number of LLM requests the API sends to Ollama at once
 OLLAMA_NUM_PARALLEL = int(os.getenv("OLLAMA_NUM_PARALLEL", "4"))
 
-LLM_MODEL_ID = os.getenv("LLM_MODEL_ID", "Qwen/Qwen2.5-1.5B-Instruct")
-LLM_MODEL_DIR = os.getenv("LLM_MODEL_DIR", "qwen2.5-1.5b")
-LOCAL_LLM_PATH = os.path.join(MODELS_DIR, LLM_MODEL_DIR)
+# ──────────────────────────── RETRIEVAL MODELS (LOCAL) ────────────────────────────
+# Embedding and reranker models run in this process (Ollama has no reranking support).
 LOCAL_EMBEDDING_PATH = os.path.join(MODELS_DIR, "bge-m3")
 LOCAL_RERANKER_PATH = os.path.join(MODELS_DIR, "bge-reranker-v2-m3")
 
 # Load from local folder if exists, otherwise fallback to HuggingFace Hub model ID
-LLM_MODEL_NAME = LOCAL_LLM_PATH if os.path.exists(LOCAL_LLM_PATH) else LLM_MODEL_ID
 EMBEDDING_MODEL_NAME = LOCAL_EMBEDDING_PATH if os.path.exists(LOCAL_EMBEDDING_PATH) else "BAAI/bge-m3"
 RERANKER_MODEL_NAME = LOCAL_RERANKER_PATH if os.path.exists(LOCAL_RERANKER_PATH) else "BAAI/bge-reranker-v2-m3"
 
@@ -78,19 +80,14 @@ CHUNK_OVERLAP = int(os.getenv("CHUNK_OVERLAP", "100"))
 os.environ["HF_HUB_DISABLE_TELEMETRY"] = "1"
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
-# Enable offline mode only if all local models exist and online download flag is not set
-ALL_LOCAL_MODELS_EXIST = (
-    os.path.exists(LOCAL_LLM_PATH) and os.path.exists(LOCAL_EMBEDDING_PATH) and os.path.exists(LOCAL_RERANKER_PATH)
-)
+# Enable offline mode only if the local retrieval models exist and online download flag is not set
+ALL_LOCAL_MODELS_EXIST = os.path.exists(LOCAL_EMBEDDING_PATH) and os.path.exists(LOCAL_RERANKER_PATH)
 if ALL_LOCAL_MODELS_EXIST and os.getenv("ALLOW_ONLINE_HF", "0") != "1":
     os.environ["HF_HUB_OFFLINE"] = "1"
     os.environ["TRANSFORMERS_OFFLINE"] = "1"
 
-# PyTorch 4-bit quantization setting (1.5B model in BF16 consumes only ~2.8GB VRAM)
-USE_4BIT_QUANTIZATION = False
-
 # Embedding and Reranker Device:
-# Configured by default to CPU to keep full GPU VRAM available for the LLM
+# Configured by default to CPU to keep full GPU VRAM available for Ollama
 RAG_DEVICE = os.getenv("RAG_DEVICE", "cpu")
 
 # ──────────────────────────── DATABASE CONNECTION (OPTIONAL) ────────────────────────────

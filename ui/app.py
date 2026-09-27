@@ -405,8 +405,10 @@ with st.sidebar:
         stats = fetch_stats()
         if stats:
             st.success("🟢 API Connected")
-            st.markdown(f"**Device:** `{stats.get('device', 'Unknown')}`")
-            st.markdown(f"**Model:** `{stats.get('llm_model', '').split('/')[-1]}`")
+            st.markdown(f"**LLM (Ollama):** `{stats.get('llm_model', '')}`")
+            if stats.get("llm_status", "ok") != "ok":
+                st.warning(stats["llm_status"])
+            st.markdown(f"**Retrieval device:** `{stats.get('device', 'Unknown')}`")
 
             col1, col2 = st.columns(2)
             with col1:

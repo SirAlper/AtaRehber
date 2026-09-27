@@ -209,7 +209,7 @@ curl -X DELETE "http://localhost:8000/api/v1/auth/users/jane_analyst" \
 ## 📄 2. Document & System Endpoints
 
 ### 2.1 System Statistics (`GET /api/v1/stats`)
-Returns hardware acceleration status, active embedding/LLM models, backend architecture (HuggingFace/Ollama), and vector collection statistics.
+Returns the embedding and LLM models, whether Ollama is ready (`llm_status`: `"ok"` or a problem with the fix, e.g. `"... Run: ollama pull qwen2.5:7b"`), the retrieval device, and vector collection statistics.
 
 ```bash
 curl -X GET "http://localhost:8000/api/v1/stats" \
@@ -220,11 +220,12 @@ curl -X GET "http://localhost:8000/api/v1/stats" \
 ```json
 {
   "status": "success",
-  "device": "CUDA (NVIDIA GPU)",
-  "llm_backend": "huggingface",
+  "device": "CPU",
+  "llm_backend": "ollama",
   "embedding_model": ".../models/bge-m3",
-  "llm_model": ".../models/qwen2.5-1.5b",
-  "ollama_base_url": null,
+  "llm_model": "qwen2.5:7b",
+  "ollama_base_url": "http://localhost:11434",
+  "llm_status": "ok",
   "total_chunks": 42,
   "total_documents": 3,
   "documents": {
@@ -364,7 +365,7 @@ curl -X POST "http://localhost:8000/api/v1/query" \
       "chunk_index": 2,
       "content": "[Document: NovaTech Information Security | CODE: SEC-04]\nClause 3: User passwords must be updated every 90 days...",
       "distance": 0.421,
-      "reranker_score": 4.812
+      "reranker_score": 0.9871
     }
   ],
   "active_agent": "doc_agent",
@@ -378,8 +379,11 @@ curl -X POST "http://localhost:8000/api/v1/query" \
 ```
 
 * **`active_agent`:** the agent that produced the answer (`supervisor` for direct answers).
+* **`sources[].reranker_score`:** cross-encoder relevance from 0 to 1. Chunks below `RAG_MIN_RERANKER_SCORE` (default `0.005`) are never used or returned.
+* **No relevant documents:** if no chunk passes the relevance gate, `doc_agent` answers *"This information is not found in company documents."* with empty `sources`, and `compliance_agent` returns an `[UNDETERMINED]` verdict. The LLM is not called in either case.
 * **`hallucination_grade` / `is_refined`:** set by `doc_agent`'s Self-RAG guard. An unverifiable answer is replaced by *"This information cannot be fully verified against company documents."* Other agents leave `hallucination_grade` empty.
 * **`db_agent` traces** include the executed `sql` and `row_count`.
+* **LLM unavailable:** if Ollama cannot be reached, the request still returns HTTP 200 with a fallback answer (for `doc_agent` the same *"cannot be fully verified"* text). Check `llm_status` in `GET /api/v1/stats` when answers suddenly degrade.
 
 ---
 

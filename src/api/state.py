@@ -7,7 +7,7 @@ from typing import Optional, Any
 from src.rag.document_loader import DocumentLoader
 from src.rag.rag_engine import RAGEngine
 from src.agent.agent_graph import EnterpriseRAGAgent
-from src.agent.llm import create_chat_model
+from src.agent.llm import check_ollama, create_chat_model
 from src.connectors.db_connector import DatabaseConnector, create_sample_sqlite_db
 from src.connectors.db_loader import DatabaseTableLoader
 from src.core.config import (
@@ -16,7 +16,6 @@ from src.core.config import (
     DEFAULT_SQLITE_URL,
     SAMPLE_DB_PATH,
     ALLOWED_UPLOAD_EXTENSIONS,
-    LLM_BACKEND,
     OLLAMA_NUM_PARALLEL,
     VECTOR_DB_PATH,
 )
@@ -32,29 +31,18 @@ multi_agent_orchestrator: Optional[Any] = None
 document_loader: Optional[DocumentLoader] = None
 db_connector: Optional[DatabaseConnector] = None
 db_loader: Optional[DatabaseTableLoader] = None
-query_lock = asyncio.Lock()
 ollama_semaphore = asyncio.Semaphore(OLLAMA_NUM_PARALLEL)
 
 
 class QueryConcurrencyManager:
-    """
-    Manages query concurrency depending on LLM backend:
-    - Ollama: allows up to OLLAMA_NUM_PARALLEL parallel requests.
-    - HuggingFace: serializes to 1 active inference to protect GPU/RAM.
-    """
+    """Limits concurrent queries to OLLAMA_NUM_PARALLEL so the Ollama server is not overloaded."""
 
     async def __aenter__(self):
-        if LLM_BACKEND == "ollama":
-            await ollama_semaphore.acquire()
-        else:
-            await query_lock.acquire()
+        await ollama_semaphore.acquire()
         return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
-        if LLM_BACKEND == "ollama":
-            ollama_semaphore.release()
-        else:
-            query_lock.release()
+        ollama_semaphore.release()
 
 
 query_concurrency_gate = QueryConcurrencyManager()
@@ -170,6 +158,13 @@ def init_services():
     get_db_connector()
     get_db_loader()
     get_multi_agent_orchestrator()
+
+    # The API still starts without Ollama (documents, users, audit work); queries fail until it is available
+    llm_problem = check_ollama()
+    if llm_problem:
+        logger.error(f"[LLM] {llm_problem}")
+    else:
+        logger.info("[LLM] Ollama server reachable and model available.")
 
     auto_index_on_startup()
     logger.info("Enterprise RAG services initialized successfully.")
