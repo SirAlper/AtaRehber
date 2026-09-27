@@ -23,7 +23,7 @@ class TestAPIMultiAgentIntegration(unittest.TestCase):
         self.assertEqual(response.status_code, 401)
 
     def test_list_agents_authorized(self):
-        """Authenticated users should receive list of all registered sub-agents + auto."""
+        """Authenticated users receive the available sub-agents + auto (db_agent only with a database)."""
         response = self.client.get("/api/v1/agents", headers=self.auth_headers)
         self.assertEqual(response.status_code, 200)
         data = response.json()
@@ -35,8 +35,11 @@ class TestAPIMultiAgentIntegration(unittest.TestCase):
         self.assertIn("auto", agent_names)
         # Verify core sub-agents exist
         self.assertIn("doc_agent", agent_names)
-        self.assertIn("db_agent", agent_names)
         self.assertIn("compliance_agent", agent_names)
+        self.assertIn("request_agent", agent_names)
+        from src.agent.multi_agent.registry import agent_registry
+
+        self.assertEqual("db_agent" in agent_names, agent_registry.is_available("db_agent"))
 
         # Check structure of agent metadata
         doc_agent_meta = next(a for a in agents if a["name"] == "doc_agent")

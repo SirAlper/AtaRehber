@@ -15,10 +15,12 @@ from src.core.config import (
     DATABASE_URL,
     DEFAULT_SQLITE_URL,
     SAMPLE_DB_PATH,
+    SAMPLE_DB_ENABLED,
     ALLOWED_UPLOAD_EXTENSIONS,
     OLLAMA_NUM_PARALLEL,
     VECTOR_DB_PATH,
 )
+from src.core.document_access import access_metadata, document_access_store
 from src.core.logger import get_logger
 
 logger = get_logger("API.State")
@@ -92,7 +94,8 @@ def get_db_connector() -> DatabaseConnector:
     if db_connector is None:
         # Resolved here rather than at import time: on a fresh install the sample database is
         # only created by init_services(), after config was loaded.
-        database_url = DATABASE_URL or (DEFAULT_SQLITE_URL if os.path.exists(SAMPLE_DB_PATH) else "")
+        use_sample = SAMPLE_DB_ENABLED and os.path.exists(SAMPLE_DB_PATH)
+        database_url = DATABASE_URL or (DEFAULT_SQLITE_URL if use_sample else "")
         db_connector = DatabaseConnector(database_url=database_url)
     return db_connector
 
@@ -128,9 +131,14 @@ def auto_index_on_startup():
         return
 
     logger.info(f"[Auto-Indexing] Detected {len(unindexed)} new document(s), indexing...")
+    access = document_access_store.all()
     for filename in unindexed:
         file_path = os.path.join(DOCS_PATH, filename)
         chunks, ids, metadatas = loader.load_and_chunk_file(file_path)
+        # Documents restricted to groups (e.g. re-indexed after a vector store restore) stay restricted
+        if access.get(filename):
+            for metadata in metadatas:
+                metadata.update(access_metadata(access[filename]))
         if chunks:
             engine.add_documents(chunks, ids, metadatas)
             logger.info(f"  ✓ '{filename}' -> {len(chunks)} chunks indexed.")
@@ -146,7 +154,7 @@ def init_services():
 
     apply_pending_restore()
 
-    if not DATABASE_URL and not os.path.exists(SAMPLE_DB_PATH):
+    if SAMPLE_DB_ENABLED and not DATABASE_URL and not os.path.exists(SAMPLE_DB_PATH):
         try:
             create_sample_sqlite_db(SAMPLE_DB_PATH)
             logger.info(f"Sample database created at '{SAMPLE_DB_PATH}'.")

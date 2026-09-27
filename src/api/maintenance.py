@@ -1,7 +1,7 @@
 """Scheduled maintenance: retention policy and automatic backups.
 
 Runs once at startup and then hourly inside the API process. Every task is off by default and enabled
-through settings (AUDIT_RETENTION_DAYS, SESSION_RETENTION_DAYS, BACKUP_INTERVAL_HOURS).
+through settings (AUDIT_RETENTION_DAYS, SESSION_RETENTION_DAYS, REQUEST_RETENTION_DAYS, BACKUP_INTERVAL_HOURS).
 The backup schedule is derived from the newest full backup on disk, so restarts do not reset it.
 """
 
@@ -35,6 +35,10 @@ def run_maintenance_once() -> Dict[str, Any]:
         results["audit_entries_deleted"] = audit_logger.purge_older_than_days(config.AUDIT_RETENTION_DAYS)
     if config.SESSION_RETENTION_DAYS > 0:
         results["sessions_deleted"] = state.cleanup_expired_sessions(max_age_days=config.SESSION_RETENTION_DAYS)
+    if config.REQUEST_RETENTION_DAYS > 0:
+        from src.core.service_requests import get_request_store
+
+        results["requests_deleted"] = get_request_store().purge_closed_older_than_days(config.REQUEST_RETENTION_DAYS)
     if backup_due(now):
         backup_path = state.backup_all()
         results["backup_path"] = backup_path

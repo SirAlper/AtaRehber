@@ -32,7 +32,7 @@ TEXTS: Dict[str, Dict[str, str]] = {
         ),
     },
     # ── Login & password ──
-    "login_title": {"tr": "🔐 Giriş", "en": "🔐 Enterprise Login"},
+    "login_title": {"tr": "🔐 Giriş", "en": "🔐 Login"},
     "username": {"tr": "Kullanıcı adı", "en": "Username"},
     "username_placeholder": {"tr": "örn. admin", "en": "e.g., admin"},
     "password": {"tr": "Şifre", "en": "Password"},
@@ -61,7 +61,7 @@ TEXTS: Dict[str, Dict[str, str]] = {
     "password_change_failed": {"tr": "Şifre değiştirilemedi.", "en": "Password change failed."},
     "auth_required": {
         "tr": "🔒 **Giriş gerekli:** Asistanı kullanmak için kenar çubuğundaki panelden giriş yapın.",
-        "en": "🔒 **Authentication Required:** Please log in using the Control Panel in the sidebar to access the Enterprise Assistant.",
+        "en": "🔒 **Authentication Required:** Please log in using the Control Panel in the sidebar to access the assistant.",
     },
     "password_change_pending": {
         "tr": "🔑 **Şifre değişikliği gerekli:** Devam etmek için kenar çubuğundan yeni bir şifre belirleyin.",
@@ -91,24 +91,35 @@ TEXTS: Dict[str, Dict[str, str]] = {
         ),
     },
     "agent_auto": {"tr": "👑 Otomatik (Yönetici Ajan)", "en": "👑 Auto (Supervisor Orchestrator)"},
-    "agent_doc_agent": {"tr": "📄 Doküman Ajanı", "en": "📄 Document & Policy Specialist"},
+    "agent_doc_agent": {"tr": "📄 Doküman Ajanı", "en": "📄 Document & Regulation Specialist"},
     "agent_db_agent": {"tr": "🗄️ Veritabanı Ajanı", "en": "🗄️ SQL & Database Analyst"},
     "agent_compliance_agent": {"tr": "🛡️ Uyum Denetçisi", "en": "🛡️ Compliance Auditor"},
+    "agent_request_agent": {"tr": "📝 Talep Ajanı", "en": "📝 Service Request Agent"},
     "agent_desc_auto": {
-        "tr": "Soruyu inceleyip en uygun uzman ajana yönlendirir veya doğrudan cevaplar.",
-        "en": "Analyzes the question and delegates to the best specialist or answers directly.",
+        "tr": (
+            "Soruyu inceleyip en uygun uzman ajana yönlendirir; birden fazla ajan gerekiyorsa hepsini çalıştırıp "
+            "cevapları birleştirir."
+        ),
+        "en": (
+            "Analyzes the question and delegates to the best specialist; runs several agents and combines their "
+            "answers when needed."
+        ),
     },
     "agent_desc_doc_agent": {
-        "tr": "Şirket dokümanlarında arama yapar ve kaynak göstererek cevaplar.",
-        "en": "Searches company documents and answers with cited sources.",
+        "tr": "Kurum dokümanlarında ve mevzuatta arama yapar, kaynak göstererek cevaplar.",
+        "en": "Searches the organization's documents and regulations and answers with cited sources.",
     },
     "agent_desc_db_agent": {
         "tr": "Veritabanındaki kayıtları salt okunur SQL sorgularıyla cevaplar.",
         "en": "Answers questions about database records with read-only SQL.",
     },
     "agent_desc_compliance_agent": {
-        "tr": "Anlattığınız bir işlemin kurum politikalarına uygun olup olmadığını değerlendirir.",
-        "en": "Checks whether an action you describe complies with company policies.",
+        "tr": "Anlattığınız bir işlemin kurum kurallarına ve mevzuata uygun olup olmadığını değerlendirir.",
+        "en": "Checks whether an action you describe complies with the organization's rules and regulations.",
+    },
+    "agent_desc_request_agent": {
+        "tr": "Sohbetten talep/arıza kaydı açar ve taleplerinizin durumunu gösterir.",
+        "en": "Opens service requests from the chat and shows the status of your requests.",
     },
     # ── Documents ──
     "upload_title": {"tr": "📤 Doküman Yükle", "en": "📤 Upload Document"},
@@ -116,6 +127,11 @@ TEXTS: Dict[str, Dict[str, str]] = {
     "upload_help": {
         "tr": "Yüklenen dosyalar otomatik olarak okunur, parçalara bölünür ve arama indeksine eklenir.",
         "en": "Uploaded files are automatically parsed, chunked, and added to the search index.",
+    },
+    "upload_groups": {"tr": "Erişim grupları (boş: herkes)", "en": "Access groups (empty: everyone)"},
+    "upload_groups_help": {
+        "tr": "Virgülle ayırın, örn. akademik, idari. Sadece bu gruplardaki kullanıcılar dokümanda arama yapabilir.",
+        "en": "Comma-separated, e.g. academic, staff. Only users in these groups can search the document.",
     },
     "upload_button": {"tr": "🚀 Yükle ve İndeksle", "en": "🚀 Upload and Index"},
     "upload_spinner": {"tr": "Doküman işleniyor ve indeksleniyor...", "en": "Parsing and indexing document..."},
@@ -125,6 +141,41 @@ TEXTS: Dict[str, Dict[str, str]] = {
     "delete_help": {"tr": "'{name}' dokümanını sil", "en": "Delete '{name}'"},
     "deleted_toast": {"tr": "'{name}' silindi!", "en": "'{name}' deleted!"},
     "no_documents": {"tr": "İndekslenmiş doküman yok.", "en": "No indexed documents found."},
+    "doc_public": {"tr": "🌐 herkes", "en": "🌐 everyone"},
+    "doc_groups": {"tr": "🔒 {groups}", "en": "🔒 {groups}"},
+    "doc_access_edit": {"tr": "Erişim grupları", "en": "Access groups"},
+    "save": {"tr": "Kaydet", "en": "Save"},
+    "access_saved": {"tr": "Erişim güncellendi.", "en": "Access updated."},
+    # ── Service requests ──
+    "requests_title": {"tr": "📝 Taleplerim", "en": "📝 My Requests"},
+    "requests_all": {"tr": "Tüm kullanıcıların talepleri", "en": "All users' requests"},
+    "requests_empty": {"tr": "Talep yok.", "en": "No requests."},
+    "request_new": {"tr": "➕ Yeni talep", "en": "➕ New request"},
+    "request_category": {"tr": "Kategori", "en": "Category"},
+    "request_title": {"tr": "Başlık", "en": "Title"},
+    "request_description": {"tr": "Açıklama", "en": "Description"},
+    "request_submit": {"tr": "Talep oluştur", "en": "File request"},
+    "request_created_toast": {"tr": "Talep #{id} oluşturuldu.", "en": "Request #{id} filed."},
+    "request_cancel": {"tr": "İptal et", "en": "Cancel"},
+    "request_status": {"tr": "Durum", "en": "Status"},
+    "request_note": {"tr": "Not", "en": "Note"},
+    "request_update": {"tr": "Güncelle", "en": "Update"},
+    "request_updated": {"tr": "Talep güncellendi.", "en": "Request updated."},
+    "request_by": {"tr": "{user} · {date}", "en": "{user} · {date}"},
+    "status_open": {"tr": "Açık", "en": "Open"},
+    "status_in_progress": {"tr": "İşlemde", "en": "In progress"},
+    "status_resolved": {"tr": "Çözüldü", "en": "Resolved"},
+    "status_rejected": {"tr": "Reddedildi", "en": "Rejected"},
+    "status_cancelled": {"tr": "İptal edildi", "en": "Cancelled"},
+    "category_it_support": {"tr": "Bilgi İşlem", "en": "IT support"},
+    "category_facilities": {"tr": "Yapı ve Teknik İşler", "en": "Facilities"},
+    "category_academic": {"tr": "Akademik", "en": "Academic"},
+    "category_administrative": {"tr": "İdari", "en": "Administrative"},
+    "category_other": {"tr": "Diğer", "en": "Other"},
+    # ── User groups (admin) ──
+    "users_title": {"tr": "👥 Kullanıcı Grupları", "en": "👥 User Groups"},
+    "user_groups": {"tr": "{user} ({role}) grupları", "en": "Groups of {user} ({role})"},
+    "user_groups_saved": {"tr": "Gruplar kaydedildi.", "en": "Groups saved."},
     # ── Database ──
     "database": {"tr": "🗄️ Veritabanı", "en": "🗄️ Database"},
     "db_connected": {"tr": "🟢 **{dialect}** bağlı", "en": "🟢 **{dialect}** Connected"},
@@ -154,12 +205,12 @@ TEXTS: Dict[str, Dict[str, str]] = {
     # ── Chat ──
     "welcome": {
         "tr": (
-            "Merhaba! Ben kurum içinde çalışan yapay zekâ asistanınızım. Sorularınızı kurumun dokümanlarına, "
-            "veritabanlarına ve uyum kurallarına dayanarak cevaplarım."
+            "Merhaba! Ben kurum içinde çalışan yapay zekâ asistanınızım. Sorularınızı kurum dokümanlarına ve "
+            "mevzuata dayanarak cevaplarım, bir işlemin kurallara uygunluğunu değerlendiririm ve talep kaydı açarım."
         ),
         "en": (
-            "Hello! I am your enterprise local AI assistant. I can answer questions grounded strictly in your "
-            "internal documents, SQL databases, and corporate compliance regulations."
+            "Hello! I am your on-premise AI assistant. I answer questions from the organization's documents and "
+            "regulations, check whether an action complies with the rules, and open service requests."
         ),
     },
     "clear_conversation": {"tr": "🧹 Konuşmayı Temizle", "en": "🧹 Clear Conversation"},
@@ -168,8 +219,8 @@ TEXTS: Dict[str, Dict[str, str]] = {
         "en": "Conversation history cleared. Ready for new questions!",
     },
     "chat_placeholder": {
-        "tr": "Dokümanlar, veritabanı veya uyum kuralları hakkında bir soru sorun...",
-        "en": "Ask a question about your enterprise documents, database, or compliance...",
+        "tr": "Mevzuat ve dokümanlar hakkında soru sorun, bir işlemin uygunluğunu sorun veya talep açtırın...",
+        "en": "Ask about documents and regulations, whether an action is allowed, or ask me to open a request...",
     },
     "thinking": {"tr": "💭 Uzman ajanlar sorunuzu inceliyor...", "en": "💭 The agent team is preparing a response..."},
     "no_response": {"tr": "Cevap alınamadı.", "en": "No response received."},
@@ -183,19 +234,27 @@ TEXTS: Dict[str, Dict[str, str]] = {
     "badge_doc_agent": {"tr": "📄 Doküman Ajanı", "en": "📄 doc_agent (Document RAG Specialist)"},
     "badge_db_agent": {"tr": "🗄️ Veritabanı Ajanı", "en": "🗄️ db_agent (SQL Database Analyst)"},
     "badge_compliance_agent": {"tr": "🛡️ Uyum Denetçisi", "en": "🛡️ compliance_agent (Compliance Auditor)"},
+    "badge_request_agent": {"tr": "📝 Talep Ajanı", "en": "📝 request_agent (Service Requests)"},
+    "badge_multi_agent": {"tr": "🧩 Birden fazla ajan: {agents}", "en": "🧩 Several agents: {agents}"},
+    "trace_handoff": {
+        "tr": "↪️ `{source}` başarısız oldu, soru `{target}` ajanına devredildi",
+        "en": "↪️ `{source}` failed; handed over to `{target}`",
+    },
+    "trace_plan": {"tr": "🗺️ Plan: {steps}", "en": "🗺️ Plan: {steps}"},
+    "trace_synthesize": {"tr": "🧩 Cevaplar birleştirildi: {agents}", "en": "🧩 Answers combined: {agents}"},
     "trace_title": {"tr": "🔍 Ajan çalışma adımları ({count} adım)", "en": "🔍 Agent Execution Trace ({count} Steps)"},
     "search_query": {"tr": "Arama sorgusu: `{query}`", "en": "Search Query: `{query}`"},
     "audit_refined": {
-        "tr": "✍️ *Cevap şirket dokümanlarına göre yeniden değerlendirildi ve düzeltildi.*",
-        "en": "✍️ *Response re-evaluated and refined according to company documents.*",
+        "tr": "✍️ *Cevap kurum dokümanlarına göre yeniden değerlendirildi ve düzeltildi.*",
+        "en": "✍️ *Response re-evaluated and refined according to the organization's documents.*",
     },
     "audit_verified": {
-        "tr": "🛡️ *Cevap şirket dokümanlarıyla doğrulandı.*",
-        "en": "🛡️ *Verified directly against company documents.*",
+        "tr": "🛡️ *Cevap kurum dokümanlarıyla doğrulandı.*",
+        "en": "🛡️ *Verified directly against the organization's documents.*",
     },
     "audit_unverified": {
-        "tr": "⚠️ *Cevap şirket dokümanlarıyla tam olarak doğrulanamadı.*",
-        "en": "⚠️ *Could not be fully verified against company documents.*",
+        "tr": "⚠️ *Cevap kurum dokümanlarıyla tam olarak doğrulanamadı.*",
+        "en": "⚠️ *Could not be fully verified against the organization's documents.*",
     },
     "feedback_up_help": {"tr": "Bu cevap faydalıydı", "en": "This answer was helpful"},
     "feedback_down_help": {"tr": "Bu cevap faydalı değildi", "en": "This answer was not helpful"},
@@ -234,3 +293,9 @@ def page_label(language: str, source: Dict[str, Any]) -> str:
     if end and end != page:
         return translate(language, "page_range", start=page, end=end)
     return translate(language, "page_single", page=page)
+
+
+def category_label(language: str, category: str) -> str:
+    """Localized name of a built-in request category; custom categories are shown as configured."""
+    key = f"category_{category}"
+    return translate(language, key) if key in TEXTS else category

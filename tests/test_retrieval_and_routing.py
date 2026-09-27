@@ -141,7 +141,9 @@ class TestDatabaseRoutingContext(unittest.TestCase):
 class TestComplianceVerdicts(unittest.TestCase):
     def test_prompt_offers_undetermined_verdict(self):
         self.assertIn("[UNDETERMINED]", COMPLIANCE_SYSTEM_PROMPT)
-        self.assertIn("Base the verdict only on the policies above", COMPLIANCE_SYSTEM_PROMPT)
+        self.assertIn("Base the verdict only on the rules above", COMPLIANCE_SYSTEM_PROMPT)
+        # Organization-neutral: no corporate roles such as CISO are suggested
+        self.assertNotIn("CISO", COMPLIANCE_SYSTEM_PROMPT)
 
     def test_no_relevant_policy_means_undetermined_without_llm_call(self):
         llm = MagicMock()

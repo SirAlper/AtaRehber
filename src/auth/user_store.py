@@ -6,6 +6,7 @@ from typing import Dict, List, Optional
 import bcrypt
 
 from src.auth.models import User, UserResponse, UserRole
+from src.core.document_access import normalize_groups
 from src.core.config import (
     USERS_FILE_PATH,
     ADMIN_DEFAULT_USERNAME,
@@ -110,26 +111,16 @@ class UserStore:
         """List all users without exposing password hashes."""
         with self._lock:
             data = self._load_data()
-            users: List[UserResponse] = []
-            for u in data.values():
-                users.append(
-                    UserResponse(
-                        username=u["username"],
-                        role=u["role"],
-                        disabled=u.get("disabled", False),
-                        created_at=u.get("created_at"),
-                        must_change_password=u.get("must_change_password", False),
-                    )
-                )
-            return users
+            return [UserResponse.from_user(User(**u)) for u in data.values()]
 
-    def create_user(self, username: str, password: str, role: UserRole) -> User:
-        """Create a new user with hashed password after validating password policy."""
+    def create_user(self, username: str, password: str, role: UserRole, groups: Optional[List[str]] = None) -> User:
+        """Create a new user with hashed password after validating password policy and group names."""
         from src.auth.password_policy import password_policy
 
         violations = password_policy.validate(password)
         if violations:
             raise ValueError(f"Password does not meet policy requirements: {'; '.join(violations)}")
+        groups = normalize_groups(groups)
 
         with self._lock:
             data = self._load_data()
@@ -142,6 +133,7 @@ class UserStore:
                 hashed_password=hash_password(password),
                 disabled=False,
                 created_at=datetime.now(timezone.utc).isoformat(),
+                groups=groups,
             )
             data[username] = new_user.model_dump()
             self._save_data(data)
@@ -155,6 +147,7 @@ class UserStore:
         role: Optional[UserRole] = None,
         disabled: Optional[bool] = None,
         must_change_password: Optional[bool] = None,
+        groups: Optional[List[str]] = None,
     ) -> Optional[User]:
         """Update existing user properties.
 
@@ -167,6 +160,8 @@ class UserStore:
             violations = password_policy.validate(password)
             if violations:
                 raise ValueError(f"Password does not meet policy requirements: {'; '.join(violations)}")
+        if groups is not None:
+            groups = normalize_groups(groups)
 
         with self._lock:
             data = self._load_data()
@@ -186,6 +181,8 @@ class UserStore:
                 user_data["disabled"] = disabled
             if must_change_password is not None:
                 user_data["must_change_password"] = must_change_password
+            if groups is not None:
+                user_data["groups"] = groups
             if revoke_tokens:
                 user_data["token_version"] = int(user_data.get("token_version", 0)) + 1
 

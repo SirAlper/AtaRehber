@@ -12,6 +12,7 @@ from src.core.config import (
     RAG_MIN_SIMILARITY,
     RAG_MIN_RERANKER_SCORE,
 )
+from src.core.document_access import search_filter
 from src.core.logger import get_logger
 
 logger = get_logger("RAGEngine")
@@ -104,6 +105,14 @@ class RAGEngine:
             logger.error(f"Error during chunk deletion: {e}")
             return 0
 
+    def update_document_metadata(self, filename: str, metadata: Dict[str, Any]) -> int:
+        """Merge `metadata` into every chunk of a document (e.g. access groups); returns the chunk count."""
+        with self.write_lock:
+            ids = self.collection.get(where={"source": filename}).get("ids", [])
+            if ids:
+                self.collection.update(ids=ids, metadatas=[dict(metadata) for _ in ids])
+        return len(ids)
+
     def get_stats(self) -> dict:
         """Return general index statistics from the vector store.
 
@@ -137,8 +146,12 @@ class RAGEngine:
         min_similarity: Optional[float] = None,
         top_n: Optional[int] = None,
         min_reranker_score: Optional[float] = None,
+        allowed_groups: Optional[List[str]] = None,
     ) -> dict:
         """Retrieve most relevant document chunks and rerank them with Cross-Encoder.
+
+        allowed_groups: None searches every document; a list (possibly empty) limits the search to public
+        documents and documents shared with one of these groups (document-level access control).
 
         Retrieval Workflow:
         1. Query ChromaDB for candidate pool (n_results=10).
@@ -152,10 +165,14 @@ class RAGEngine:
 
         actual_n = min(n_results, self.collection.count())
         q_embedding = self.embedding_model.encode(query, normalize_embeddings=True).tolist()
+        query_args = {}
+        if allowed_groups is not None:
+            query_args["where"] = search_filter(allowed_groups)
         results = self.collection.query(
             query_embeddings=[q_embedding],
             n_results=actual_n,
             include=["documents", "metadatas", "distances"],
+            **query_args,
         )
 
         docs_list = results.get("documents") or []

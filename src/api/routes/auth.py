@@ -141,13 +141,7 @@ async def refresh_token(request: RefreshRequest, http_req: Request):
 @router.get("/me", response_model=UserResponse)
 async def get_my_profile(current_user: User = Depends(get_authenticated_user)):
     """Get profile information of currently authenticated user."""
-    return UserResponse(
-        username=current_user.username,
-        role=current_user.role,
-        disabled=current_user.disabled,
-        created_at=current_user.created_at,
-        must_change_password=current_user.must_change_password,
-    )
+    return UserResponse.from_user(current_user)
 
 
 @router.post("/change-password", response_model=TokenResponse)
@@ -210,20 +204,16 @@ async def register_user(
             username=new_user_data.username,
             password=new_user_data.password,
             role=new_user_data.role,
+            groups=new_user_data.groups,
         )
         await audit_logger.alog(
             username=current_admin.username,
             role=current_admin.role,
             action="register_user",
-            detail=f"Created user '{created.username}' with role '{created.role}'",
+            detail=f"Created user '{created.username}' with role '{created.role}', groups {created.groups}",
             status="success",
         )
-        return UserResponse(
-            username=created.username,
-            role=created.role,
-            disabled=created.disabled,
-            created_at=created.created_at,
-        )
+        return UserResponse.from_user(created)
     except ValueError as e:
         await audit_logger.alog(
             username=current_admin.username,
@@ -247,13 +237,14 @@ async def update_user(
     update_data: UserUpdate,
     current_admin: User = Depends(require_role("admin")),
 ):
-    """Update user status, role, or reset password (Admin only)."""
+    """Update user status, role, document access groups, or reset password (Admin only)."""
     try:
         updated = user_store.update_user(
             username=username,
             password=update_data.password,
             role=update_data.role,
             disabled=update_data.disabled,
+            groups=update_data.groups,
         )
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
@@ -266,15 +257,10 @@ async def update_user(
         username=current_admin.username,
         role=current_admin.role,
         action="update_user",
-        detail=f"Updated user '{username}' (role: {updated.role}, disabled: {updated.disabled})",
+        detail=f"Updated user '{username}' (role: {updated.role}, disabled: {updated.disabled}, groups: {updated.groups})",
         status="success",
     )
-    return UserResponse(
-        username=updated.username,
-        role=updated.role,
-        disabled=updated.disabled,
-        created_at=updated.created_at,
-    )
+    return UserResponse.from_user(updated)
 
 
 @router.delete("/users/{username}")

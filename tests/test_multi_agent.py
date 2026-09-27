@@ -113,15 +113,32 @@ class TestSupervisorAndOrchestrator(unittest.TestCase):
         self.assertEqual(result["next_agent"], "mock_agent")
 
     def test_supervisor_heuristic_fallback(self):
+        for name in ("db_agent", "compliance_agent", "request_agent"):
+            self.registry.register(type(f"Stub_{name}", (MockSubAgent,), {"name": name})())
         supervisor = SupervisorAgent(chat_model=MagicMock(), registry=self.registry)
 
-        target, reason, _ = supervisor._heuristic_routing("Hangi ürünün stok miktarı daha fazla?")
+        target, _ = supervisor._heuristic_routing("Hangi ürünün stok miktarı daha fazla?")
         self.assertEqual(target, "db_agent")
 
-        target, reason, _ = supervisor._heuristic_routing("Bu talep şirket güvenlik politikasına uygun mu?")
+        target, _ = supervisor._heuristic_routing("Bu talep şirket güvenlik politikasına uygun mu?")
         self.assertEqual(target, "compliance_agent")
 
-        target, reason, _ = supervisor._heuristic_routing("Genel şirket bilgisi")
+        target, _ = supervisor._heuristic_routing("Projektör bozuk, arıza kaydı açar mısın?")
+        self.assertEqual(target, "request_agent")
+
+        target, _ = supervisor._heuristic_routing("Genel şirket bilgisi")
+        self.assertEqual(target, "doc_agent")
+
+    def test_heuristic_fallback_skips_unavailable_agents(self):
+        class OfflineDb(MockSubAgent):
+            name = "db_agent"
+
+            def is_available(self):
+                return False
+
+        self.registry.register(OfflineDb())
+        supervisor = SupervisorAgent(chat_model=MagicMock(), registry=self.registry)
+        target, _ = supervisor._heuristic_routing("Hangi ürünün stok miktarı daha fazla?")
         self.assertEqual(target, "doc_agent")
 
     def test_orchestrator_graph_compilation_and_execution(self):

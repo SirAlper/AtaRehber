@@ -4,7 +4,7 @@ Language support has three layers, and a language counts as supported only when 
 
 1. **Search:** finding the right passage. The embedding (`bge-m3`) and reranker (`bge-reranker-v2-m3`) models are multilingual, so questions and documents do not need to be in the same language.
 2. **Answer:** the LLM writes the answer in the language of the question and passes the Self-RAG grounding check.
-3. **Fixed texts:** messages that do not come from the LLM, such as "not found in company documents", the greeting, error messages, and the compliance report headings.
+3. **Fixed texts:** messages that do not come from the LLM, such as "not found in the organization's documents", the greeting, error messages, and the compliance report headings.
 
 ---
 

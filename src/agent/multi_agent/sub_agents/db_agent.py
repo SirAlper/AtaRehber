@@ -46,9 +46,12 @@ class DatabaseAgent(BaseSubAgent):
     name: str = "db_agent"
     display_name: str = "SQL & Database Analyst"
     description: str = (
-        "Used for querying structured relational database tables (products, inventory, sales, "
-        "orders, tickets, etc.) using secure read-only SQL and reporting structured data insights."
+        "Answers questions about the data stored in the connected database tables (counts, totals, lists, "
+        "prices, quantities, statuses of specific records) with secure read-only SQL. Not for questions about "
+        "what a rule, regulation, or document says."
     )
+    # A query that cannot run is retried as a document question: the answer may be written down instead
+    handoff_on = {"rejected": "doc_agent", "error": "doc_agent", "not_connected": "doc_agent"}
 
     def __init__(self, chat_model=None, db_connector: Optional[DatabaseConnector] = None):
         super().__init__(chat_model=chat_model)
@@ -61,6 +64,9 @@ class DatabaseAgent(BaseSubAgent):
 
             self._db_connector = get_db_connector()
         return self._db_connector
+
+    def is_available(self) -> bool:
+        return self._get_connector().is_connected
 
     def get_routing_context(self) -> str:
         """List the connected tables so the supervisor routes questions about their data here.
@@ -164,7 +170,8 @@ class DatabaseAgent(BaseSubAgent):
             duration_ms = int((time.time() - start_time) * 1000)
             err_msg = query_result.get("message", "Unknown database error")
             return {
-                "final_answer": f"{message('db_rejected', language)}\n`{err_msg}`",
+                # The database error stays in the trace; it can reveal schema details and confuses users
+                "final_answer": message("db_rejected", language),
                 "sources": [],
                 "agent_trace": list(state.get("agent_trace", []))
                 + [

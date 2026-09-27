@@ -25,7 +25,7 @@ _TURKISH_WORDS = frozenset(
     ve veya ile bir bu şu neden nasıl nasil kaç kac hangi hangisi hangileri için icin gibi daha çok cok var yok
     olan olarak göre gore ancak değil degil ise tüm tum sonra önce once kadar peki merhaba selam selamlar nedir
     midir mıdır bana beni bunu şunu onu şirket sirket gerekir gerekiyor olmalı uygun lütfen lutfen evet hayır
-    hayir ayrıca ayrica kim nerede zaman neler
+    hayir ayrıca ayrica kim nerede zaman neler kurum talep
     """.split()
 )
 # Verb suffixes that practically never end English words (unlike -ler/-lar: "controller", "smaller")
@@ -114,6 +114,24 @@ def response_language(question: str, chat_history: Iterable[dict] = ()) -> str:
     return DEFAULT_LANGUAGE
 
 
+_CONFIRM_WORDS = frozenset(
+    "evet onaylıyorum onayliyorum onayla onaylı onayli tamam oluştur olustur yes confirm confirmed ok okay sure".split()
+)
+_REJECT_WORDS = frozenset("hayır hayir iptal vazgeç vazgec vazgeçtim vazgectim istemiyorum no cancel nope".split())
+
+
+def confirmation_reply(text: str) -> Optional[str]:
+    """'confirm' or 'reject' for a short yes/no answer ("Evet, oluştur" / "hayır"), None for anything else."""
+    tokens = re.findall(r"\w+", text.replace("İ", "i").casefold())
+    if not tokens or len(tokens) > 4:
+        return None
+    if any(t in _REJECT_WORDS for t in tokens):
+        return "reject"
+    if any(t in _CONFIRM_WORDS for t in tokens):
+        return "confirm"
+    return None
+
+
 def language_name(language: str) -> str:
     """Name to use in prompts ("Turkish"), or a description for unsupported languages."""
     return LANGUAGE_NAMES.get(language, "the language of the user's question")
@@ -133,29 +151,33 @@ def language_instruction(language: str) -> str:
 
 _MESSAGES = {
     "no_context": {
-        "en": "This information is not found in company documents.",
-        "tr": "Bu bilgi şirket dokümanlarında bulunmuyor.",
+        "en": "This information is not found in the organization's documents.",
+        "tr": "Bu bilgi kurum dokümanlarında bulunmuyor.",
     },
     "fallback": {
-        "en": "This information cannot be fully verified against company documents.",
-        "tr": "Bu bilgi şirket dokümanlarıyla tam olarak doğrulanamadı.",
+        "en": "This information cannot be fully verified against the organization's documents.",
+        "tr": "Bu bilgi kurum dokümanlarıyla tam olarak doğrulanamadı.",
     },
     "greeting": {
         "en": (
-            "Hello! I am your Enterprise AI Assistant. I am equipped with specialist agents covering enterprise "
-            "documents (PDF/DOCX), SQL database analysis, and corporate compliance auditing. "
-            "How can I assist you today?"
+            "Hello! I am your AI assistant. My specialist agents answer questions from the organization's "
+            "documents and regulations, check whether an action complies with the rules, open service requests, "
+            "and analyze connected databases. How can I help you today?"
         ),
         "tr": (
-            "Merhaba! Ben kurumsal yapay zekâ asistanınızım. Şirket dokümanları (PDF/DOCX), SQL veritabanı analizi "
-            "ve kurumsal uyum denetimi için uzman ajanlarım var. Size nasıl yardımcı olabilirim?"
+            "Merhaba! Ben yapay zekâ asistanınızım. Uzman ajanlarım kurum dokümanları ve mevzuattan soruları "
+            "cevaplar, bir işlemin kurallara uygunluğunu değerlendirir, talep kaydı açar ve bağlı veritabanlarını "
+            "analiz eder. Size nasıl yardımcı olabilirim?"
         ),
     },
     "direct_fallback": {
-        "en": "How can I help? Ask about company documents, database records, or whether an action complies with policy.",
+        "en": (
+            "How can I help? Ask about the organization's documents and regulations, whether an action complies "
+            "with the rules, or ask me to open a service request."
+        ),
         "tr": (
-            "Size nasıl yardımcı olabilirim? Şirket dokümanları, veritabanı kayıtları veya bir işlemin politikalara "
-            "uygunluğu hakkında soru sorabilirsiniz."
+            "Size nasıl yardımcı olabilirim? Kurum dokümanları ve mevzuat hakkında soru sorabilir, bir işlemin "
+            "kurallara uygunluğunu sorabilir veya talep kaydı açmamı isteyebilirsiniz."
         ),
     },
     "no_agent": {
@@ -181,22 +203,74 @@ _MESSAGES = {
     "compliance_undetermined": {
         "en": (
             "### 📌 1. Audit Verdict\n**[UNDETERMINED]**\n\n"
-            "### 📑 2. Supporting Documents\nNo relevant policy or regulatory document was found matching this "
-            "inquiry in the knowledge base.\n\n"
-            "### 🔍 3. Recommendation\nPlease contact the Legal & Compliance or Information Security department "
-            "directly for guidance."
+            "### 📑 2. Supporting Documents\nNo rule, policy, or regulation matching this inquiry was found in "
+            "the knowledge base.\n\n"
+            "### 🔍 3. Recommendation\nPlease ask the responsible unit (for example legal counsel, the data "
+            "protection officer, or the relevant department) for guidance."
         ),
         "tr": (
             "### 📌 1. Denetim Kararı\n**[UNDETERMINED]**\n\n"
-            "### 📑 2. Dayanak Dokümanlar\nBilgi tabanında bu talebe uyan bir politika veya düzenleme dokümanı "
+            "### 📑 2. Dayanak Dokümanlar\nBilgi tabanında bu talebe uyan bir kural, politika veya mevzuat "
             "bulunamadı.\n\n"
-            "### 🔍 3. Öneri\nLütfen yönlendirme için doğrudan Hukuk ve Uyum ya da Bilgi Güvenliği departmanına "
-            "başvurun."
+            "### 🔍 3. Öneri\nLütfen yönlendirme için ilgili birime (örneğin hukuk müşavirliği, kişisel veri "
+            "koruma sorumlusu veya ilgili daire başkanlığı) başvurun."
         ),
     },
     "compliance_error": {
         "en": "A system error occurred while generating the audit report. Please try again later.",
         "tr": "Denetim raporu oluşturulurken bir sistem hatası oluştu. Lütfen daha sonra tekrar deneyin.",
+    },
+    "request_created": {
+        "en": "✅ Your request has been filed: **#{id}**, {title}\n\nCategory: `{category}` · Status: open",
+        "tr": "✅ Talebiniz oluşturuldu: **#{id}**, {title}\n\nKategori: `{category}` · Durum: açık",
+    },
+    "request_confirm": {
+        "en": (
+            "Shall I file this request?\n\n**Title:** {title}\n**Category:** `{category}`\n**Details:** {description}"
+            "\n\nReply **yes** to file it or **no** to discard it."
+        ),
+        "tr": (
+            "Şu talebi oluşturmamı onaylıyor musunuz?\n\n**Başlık:** {title}\n**Kategori:** `{category}`\n"
+            "**Açıklama:** {description}\n\nOnaylamak için **evet**, vazgeçmek için **hayır** yazın."
+        ),
+    },
+    "request_discarded": {
+        "en": "OK, the request was not filed.",
+        "tr": "Tamam, talep oluşturulmadı.",
+    },
+    "request_notified": {
+        "en": "The responsible unit was notified by e-mail.",
+        "tr": "İlgili birime e-posta ile bildirildi.",
+    },
+    "request_follow_up": {
+        "en": "You can follow its status under “My requests” in the sidebar.",
+        "tr": "Durumunu kenar çubuğundaki “Taleplerim” bölümünden takip edebilirsiniz.",
+    },
+    "request_login_required": {
+        "en": "You need to be logged in to file or list service requests.",
+        "tr": "Talep oluşturmak veya listelemek için giriş yapmış olmanız gerekir.",
+    },
+    "request_unclear": {
+        "en": (
+            "I could not tell what the request is about. Please describe the problem or need in one or two "
+            "sentences, e.g. “Open a request: the projector in room B204 does not work.”"
+        ),
+        "tr": (
+            "Talebin konusunu anlayamadım. Lütfen sorunu veya ihtiyacı bir iki cümleyle yazın, örneğin: "
+            "“Talep aç: B204 dersliğindeki projektör çalışmıyor.”"
+        ),
+    },
+    "request_error": {
+        "en": "The request could not be saved because of a system error. Please try again later.",
+        "tr": "Talep bir sistem hatası nedeniyle kaydedilemedi. Lütfen daha sonra tekrar deneyin.",
+    },
+    "request_list_empty": {
+        "en": "You have no service requests yet.",
+        "tr": "Henüz bir talebiniz yok.",
+    },
+    "request_list_header": {
+        "en": "Your most recent requests:",
+        "tr": "Son talepleriniz:",
     },
 }
 

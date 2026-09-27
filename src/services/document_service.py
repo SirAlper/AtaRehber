@@ -7,12 +7,13 @@ vector indexing, and audit logging.
 import os
 import time
 import asyncio
-from typing import Dict, Any
+from typing import Any, Dict, Iterable, Optional
 from fastapi import HTTPException, UploadFile
 
-from src.agent.llm import check_ollama
+from src.agent.llm import check_ollama, grader_model_name, router_model_name
 from src.api.state import get_rag_engine, get_db_connector, get_document_loader
 from src.core.audit import audit_logger
+from src.core.document_access import access_metadata, document_access_store, normalize_groups
 from src.core.config import (
     DOCS_PATH,
     EMBEDDING_MODEL_NAME,
@@ -31,11 +32,14 @@ class DocumentService:
     """Service handling all document file workflows, vector indexing, and sanitization."""
 
     @staticmethod
-    def get_system_stats() -> Dict[str, Any]:
-        """Aggregate model settings, LLM availability, index, and database stats."""
+    def get_system_stats(role: Optional[str] = None, groups: Optional[Iterable[str]] = None) -> Dict[str, Any]:
+        """Aggregate model settings, LLM availability, index, and database stats.
+
+        role/groups: the caller; documents the caller may not search are left out of the counts.
+        """
         engine = get_rag_engine()
         connector = get_db_connector()
-        db_stats = engine.get_stats()
+        db_stats = _visible_stats(engine.get_stats(), role, groups)
         db_conn_info = connector.test_connection()
         llm_problem = check_ollama(timeout=2.0)
 
@@ -46,6 +50,8 @@ class DocumentService:
             "llm_backend": "ollama",
             "embedding_model": EMBEDDING_MODEL_NAME,
             "llm_model": OLLAMA_MODEL,
+            "router_model": router_model_name(),
+            "grader_model": grader_model_name(),
             "ollama_base_url": OLLAMA_BASE_URL,
             "llm_status": llm_problem or "ok",
             "total_chunks": db_stats.get("total_chunks", 0),
@@ -55,14 +61,15 @@ class DocumentService:
         }
 
     @staticmethod
-    def list_documents() -> Dict[str, Any]:
-        """List all valid enterprise documents in data directory with metadata."""
+    def list_documents(role: Optional[str] = None, groups: Optional[Iterable[str]] = None) -> Dict[str, Any]:
+        """List the documents in the data directory the caller may search, with chunk counts and access groups."""
         if not os.path.exists(DOCS_PATH):
             os.makedirs(DOCS_PATH, exist_ok=True)
 
         engine = get_rag_engine()
         db_stats = engine.get_stats()
         chunk_map = db_stats.get("document_chunks", {})
+        access = document_access_store.all()
 
         files = []
         for filename in sorted(os.listdir(DOCS_PATH)):
@@ -71,7 +78,7 @@ class DocumentService:
                 continue
 
             file_path = os.path.join(DOCS_PATH, filename)
-            if os.path.isfile(file_path):
+            if os.path.isfile(file_path) and document_access_store.can_access(filename, role, groups):
                 stat = os.stat(file_path)
                 files.append(
                     {
@@ -79,6 +86,8 @@ class DocumentService:
                         "size_kb": round(stat.st_size / 1024, 2),
                         "chunk_count": chunk_map.get(filename, 0),
                         "modified_at": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(stat.st_mtime)),
+                        # Empty: visible to everyone
+                        "groups": access.get(filename, []),
                     }
                 )
 
@@ -113,6 +122,8 @@ class DocumentService:
 
         if not file_deleted and deleted_chunks == 0:
             raise HTTPException(status_code=404, detail=f"'{safe_filename}' was not found.")
+        # A later upload under the same name must not inherit the old restrictions
+        document_access_store.remove(safe_filename)
 
         await audit_logger.alog(
             username=username,
@@ -131,8 +142,17 @@ class DocumentService:
         }
 
     @staticmethod
-    async def save_and_index_document(file: UploadFile, username: str, user_role: str) -> Dict[str, Any]:
-        """Validate uploaded file, save securely, extract chunks, and upsert to vector store."""
+    async def save_and_index_document(
+        file: UploadFile, username: str, user_role: str, groups: Optional[Iterable[str]] = None
+    ) -> Dict[str, Any]:
+        """Validate uploaded file, save securely, extract chunks, and upsert to vector store.
+
+        groups: user groups allowed to search the document; empty makes it visible to everyone.
+        """
+        try:
+            groups = normalize_groups(groups)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
         if not os.path.exists(DOCS_PATH):
             os.makedirs(DOCS_PATH, exist_ok=True)
 
@@ -194,16 +214,24 @@ class DocumentService:
                 "chunk_count": 0,
             }
 
+        # Access groups are stored before indexing, so a restricted document is never searchable by everyone
+        document_access_store.set(safe_filename, groups)
+        if groups:
+            for metadata in metadatas:
+                metadata.update(access_metadata(groups))
+
         # Vector index upsert in worker thread
         engine = get_rag_engine()
         await asyncio.to_thread(engine.delete_document, safe_filename)
         await asyncio.to_thread(engine.add_documents, chunks, ids, metadatas)
 
+        visibility = f"groups: {', '.join(groups)}" if groups else "visible to everyone"
         await audit_logger.alog(
             username=username,
             role=user_role,
             action="upload",
-            detail=f"Uploaded and indexed '{safe_filename}' ({len(chunks)} chunks, {round(total_bytes/1024, 1)} KB)",
+            detail=f"Uploaded and indexed '{safe_filename}' ({len(chunks)} chunks, "
+            f"{round(total_bytes / 1024, 1)} KB, {visibility})",
             status="success",
         )
 
@@ -213,4 +241,57 @@ class DocumentService:
             "message": f"'{safe_filename}' successfully uploaded and indexed.",
             "filename": safe_filename,
             "chunk_count": len(chunks),
+            "groups": groups,
         }
+
+    @staticmethod
+    async def set_document_access(
+        filename: str, groups: Iterable[str], username: str, user_role: str
+    ) -> Dict[str, Any]:
+        """Change which user groups may search an indexed document (empty: everyone)."""
+        try:
+            groups = normalize_groups(groups)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        safe_filename = os.path.basename(filename).strip()
+        if not safe_filename or safe_filename != filename or safe_filename.startswith("."):
+            raise HTTPException(status_code=400, detail="Invalid filename format.")
+
+        engine = get_rag_engine()
+        if safe_filename not in engine.get_stats().get("document_chunks", {}):
+            raise HTTPException(status_code=404, detail=f"'{safe_filename}' is not indexed.")
+
+        previous = document_access_store.set(safe_filename, groups)
+        updated_chunks = await asyncio.to_thread(
+            engine.update_document_metadata, safe_filename, access_metadata(groups, previous)
+        )
+        visibility = f"groups: {', '.join(groups)}" if groups else "visible to everyone"
+        await audit_logger.alog(
+            username=username,
+            role=user_role,
+            action="document_access",
+            detail=f"Access of '{safe_filename}' set to {visibility} (was: {', '.join(previous) or 'everyone'})",
+            status="success",
+        )
+        logger.info(f"Access of '{safe_filename}' set to {visibility} ({updated_chunks} chunks updated).")
+        return {
+            "status": "success",
+            "filename": safe_filename,
+            "groups": groups,
+            "updated_chunks": updated_chunks,
+        }
+
+
+def _visible_stats(stats: Dict[str, Any], role: Optional[str], groups: Optional[Iterable[str]]) -> Dict[str, Any]:
+    """Index statistics limited to the documents the caller may search."""
+    chunk_map = {
+        name: count
+        for name, count in stats.get("document_chunks", {}).items()
+        if document_access_store.can_access(name, role, groups)
+    }
+    return {
+        **stats,
+        "document_chunks": chunk_map,
+        "total_documents": len(chunk_map),
+        "total_chunks": sum(chunk_map.values()),
+    }

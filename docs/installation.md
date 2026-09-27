@@ -98,11 +98,34 @@ OLLAMA_BASE_URL=http://localhost:11434
 OLLAMA_MODEL=qwen2.5:7b
 OLLAMA_NUM_CTX=4096
 OLLAMA_NUM_PARALLEL=4
+# Optional separate models for routing and answer grading (empty = OLLAMA_MODEL):
+OLLAMA_ROUTER_MODEL=
+OLLAMA_GRADER_MODEL=
+
+# ─── Organization & Agents ───
+ORGANIZATION_NAME=
+MAX_AGENT_STEPS=3
+MAX_AGENT_HANDOFFS=1
+
+# ─── Service Requests & E-mail (off unless SMTP_HOST is set) ───
+REQUEST_CATEGORIES=it_support,facilities,academic,administrative,other
+REQUEST_NOTIFY_EMAILS=
+REQUEST_NOTIFY_INCLUDE_DETAILS=true
+REQUEST_RETENTION_DAYS=0
+SMTP_HOST=
+SMTP_PORT=587
+SMTP_USERNAME=
+SMTP_PASSWORD=
+SMTP_FROM=
+SMTP_STARTTLS=true
+SMTP_TIMEOUT_SECONDS=10
 
 # ─── Relational Database (Optional) ───
 # Supports PostgreSQL, MSSQL, MySQL, Oracle, SQLite.
-# Leave empty to use the sample SQLite database generated in data/ on first start.
+# Leave empty to use the sample SQLite database generated in data/ on first start,
+# or set SAMPLE_DB_ENABLED=false to run without a database.
 DATABASE_URL=
+SAMPLE_DB_ENABLED=true
 DB_ALLOWED_TABLES=urunler,satislar,destek_talepleri
 DB_MAX_ROWS=50
 DB_QUERY_TIMEOUT_SECONDS=15

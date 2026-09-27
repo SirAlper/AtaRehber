@@ -50,9 +50,10 @@ Write your domain business logic, query execution, or calculations, and return a
 
 | Key | Description |
 | :--- | :--- |
-| `question` | The user's current question. |
+| `question` | The question for your step: the user's question, or the sub-question the supervisor gave your agent in a multi-step plan. |
 | `chat_history` | Previous turns of this session: `[{"question": ..., "answer": ..., "agent": ...}, ...]` (empty for the first turn or session-less requests). Use it to resolve follow-ups such as *"and last month?"*. |
-| `agent_trace` | Trace entries recorded so far this turn (the supervisor's routing entry). |
+| `agent_trace` | Trace entries recorded so far this turn (the supervisor's routing entry and earlier steps). |
+| `user` | The asking user: `{"username", "role", "groups"}` (empty for internal calls such as evaluations). Use `self.search_groups(state)` for document searches. |
 
 **Keys your agent should return:**
 
@@ -62,6 +63,7 @@ Write your domain business logic, query execution, or calculations, and return a
 | `sources` | ✅ | Citation dictionaries (`source`, `chunk_index`, `content`, …); `[]` if none. |
 | `agent_trace` | ✅ | The incoming `agent_trace` **plus** your own entry (the list is replaced, not merged). |
 | `hallucination_grade`, `is_refined` | Optional | Set these if your agent verifies grounding (as `doc_agent` does). |
+| `handoff` | Optional | `{"to": "<agent name>", "reason": "..."}` hands the same question to another agent (once per question, only to available agents). The handoff replaces your answer. |
 
 Do not write `chat_history`: the workflow's `record_turn` step appends the turn after your agent returns. Any new state key must also be declared in `MultiAgentState` (`src/agent/multi_agent/state.py`), because LangGraph silently drops undeclared keys.
 
@@ -186,7 +188,7 @@ agent_registry.register(agent)
 
 # List registered agents
 print(agent_registry.list_agent_names())
-# Output: ['doc_agent', 'db_agent', 'compliance_agent', 'my_custom_agent']
+# Output: ['doc_agent', 'db_agent', 'compliance_agent', 'request_agent', 'my_custom_agent']
 
 # Unregister if needed
 agent_registry.unregister("my_custom_agent")
@@ -202,11 +204,13 @@ agent_registry.unregister("my_custom_agent")
    * *Avoid:* `"Handles financial tasks."`
    * *Recommended:* `"Used for foreign currency exchange rates, currency conversions (USD, EUR, GBP), VAT/tax calculations, budget ratios, and cost analyses."`
 
+   * If your agent cannot work in some deployments (no connection, no license, missing configuration), override `is_available()`: unavailable agents are hidden from the supervisor and the `/api/v1/agents` list, and never receive handoffs.
+
    * If routing depends on live data (for example which tables or systems your agent can reach), override `get_routing_context()` to return a short sentence. The supervisor appends it to your description on every routed question, so cache anything that needs I/O. `db_agent` uses this to list the connected tables; without it, small models sent every database question to `doc_agent`.
 
 2. **Memory Safety & Lazy Loading:**
    * If your agent requires heavy dependencies or external drivers, load them inside `execute()` or behind a cached `@property` rather than during module import.
-   * Leave `chat_model` unset: the orchestrator injects the shared Ollama chat model, so every agent uses the same `OLLAMA_MODEL` and settings. Pass `chat_model=` only in tests.
+   * Leave `chat_model` unset: the orchestrator injects the shared Ollama chat model, so every agent uses the same `OLLAMA_MODEL` and settings. Pass `chat_model=` only in tests. (Routing and `doc_agent`'s grading can use their own models via `OLLAMA_ROUTER_MODEL` / `OLLAMA_GRADER_MODEL`.)
 
 3. **Use the Conversation History:**
    * `state["chat_history"]` holds the session's previous turns. Include the last few in your prompt so follow-up questions resolve correctly.
@@ -214,13 +218,20 @@ agent_registry.unregister("my_custom_agent")
 4. **Transparent Auditing (`agent_trace`):**
    * Always append an `agent_trace` entry in the dictionary returned by `execute()`. This feeds the Streamlit UI trace panel and the audit database.
 
-5. **Graceful Degradation:**
+5. **Graceful Degradation and Handoffs:**
    * Wrap external API or database calls in `try-except` blocks. If an error occurs, return a helpful, generic message with `status: "error"` in the trace entry without crashing the pipeline. Log the exception details; do not put them in `final_answer`, which is shown to users and stored in the audit log.
+   * Map failure statuses to a fallback agent with the class attribute `handoff_on`, e.g. `handoff_on = {"error": "doc_agent"}` (as `db_agent` does for `rejected`, `error`, and `not_connected`). The orchestrator then gives the question to that agent once and drops your failed answer.
 
-6. **Database Access:**
+6. **Respect Document Access Groups:**
+   * If your agent searches documents, pass `allowed_groups=self.search_groups(state)` to `RAGEngine.search()`. It returns `None` (no filter) for admins, editors, and internal calls, and the user's groups for viewers, so viewers never see restricted documents through your agent.
+
+7. **Actions with Side Effects:**
+   * Agents that change something (file a request, send a message) should confirm first, like `request_agent`: return a draft, keep it in a declared state key that `_turn_input` does not reset, and act only on the user's next "yes". Never send data to addresses or systems taken from the conversation.
+
+8. **Database Access:**
    * Query databases through `DatabaseConnector.execute_query()` (or the `sql_db_query` tool) so the read-only guard applies. Get the shared connector with `src.api.state.get_db_connector()`.
 
-7. **Answer in the User's Language:**
+9. **Answer in the User's Language:**
    * Call `response_language(question, chat_history)` from `src.agent.language` and append `language_instruction(language)` to your system prompt; naming the language explicitly works better than "answer in the user's language".
    * For fixed texts, add Turkish and English versions instead of hard-coding English. The built-in ones are available via `message(key, language)`.
 

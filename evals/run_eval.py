@@ -30,6 +30,7 @@ DEFAULT_DATASET = os.path.join(EVALS_DIR, "dataset.jsonl")
 DEFAULT_CORPUS = os.path.join(EVALS_DIR, "corpus")
 DEFAULT_RESULTS_DIR = os.path.join(EVALS_DIR, "results")
 STAGES = ("retrieval", "routing", "e2e")
+EVAL_USER = {"username": "eval", "role": "admin", "groups": []}
 # RAGEngine.search() default candidate pool (n_results)
 PRODUCTION_POOL_SIZE = 10
 # Cross-encoder scores are sigmoid outputs clustered near 0 and 1, so the grid is denser at the low end
@@ -208,6 +209,7 @@ def build_registry(engine, work_dir: str):
     from src.agent.multi_agent.sub_agents.compliance_agent import ComplianceAuditorAgent
     from src.agent.multi_agent.sub_agents.db_agent import DatabaseAgent
     from src.agent.multi_agent.sub_agents.doc_agent import DocumentRagAgent
+    from src.agent.multi_agent.sub_agents.request_agent import ServiceRequestAgent
     from src.connectors.db_connector import DatabaseConnector, create_sample_sqlite_db
 
     db_path = create_sample_sqlite_db(os.path.join(work_dir, "sample_enterprise.db"))
@@ -217,6 +219,8 @@ def build_registry(engine, work_dir: str):
     registry.register(DocumentRagAgent(rag_engine=engine))
     registry.register(DatabaseAgent(db_connector=connector))
     registry.register(ComplianceAuditorAgent(rag_engine=engine))
+    # Requests are filed into the temporary work directory (REQUESTS_DB under DATA_DIR)
+    registry.register(ServiceRequestAgent())
     return registry
 
 
@@ -261,7 +265,9 @@ def run_e2e(chat_model, registry, cases: List[Dict[str, Any]]) -> Dict[str, Any]
     for case in cases:
         start = time.perf_counter()
         try:
-            result = orchestrator.query(case["question"])
+            # Asked like a logged-in admin: documents unfiltered, requests allowed. No session, so requests are
+            # filed without the confirmation turn.
+            result = orchestrator.query(case["question"], user=EVAL_USER)
             error = None
         except Exception as e:  # keep evaluating the remaining cases
             result, error = {"answer": "", "sources": [], "active_agent": "error"}, f"{type(e).__name__}: {e}"

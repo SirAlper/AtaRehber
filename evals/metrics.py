@@ -10,13 +10,14 @@ from typing import Any, Dict, Iterable, List, Optional, Sequence, Union
 
 Fact = Union[str, List[str]]
 
-CATEGORIES = ("document", "compliance", "database", "greeting", "out_of_scope")
+CATEGORIES = ("document", "compliance", "database", "request", "greeting", "out_of_scope")
 # Categories answered from the vector store; their retrieval quality is measured directly
 RETRIEVAL_CATEGORIES = ("document", "compliance", "out_of_scope")
 
 # Phrases that mark an answer as "I don't know" (system fallbacks in English, model answers in Turkish/English)
 REFUSAL_MARKERS = (
     "not found in company documents",
+    "not found in the organization",
     "cannot be fully verified",
     "doğrulanamadı",
     "no written policy",

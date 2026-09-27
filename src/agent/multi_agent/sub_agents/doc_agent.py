@@ -23,16 +23,27 @@ class DocumentRagAgent(BaseSubAgent):
     """Specialist sub-agent for dense vector search and factual grounding over enterprise documents."""
 
     name: str = "doc_agent"
-    display_name: str = "Document & Policy RAG Specialist"
+    display_name: str = "Document & Regulation Specialist"
     # Routing depends mostly on this text: name the question types, not the retrieval technique
     description: str = (
-        "Answers questions about what company documents say: policies, procedures, guidelines, handbooks, "
-        "limits, deadlines, durations, required approvals and steps (PDF, DOCX, TXT)."
+        "Answers questions about what the organization's documents say: laws, regulations, policies, "
+        "procedures, guidelines, handbooks; limits, counts, deadlines, durations, penalties, required approvals "
+        "and steps (PDF, DOCX, TXT)."
     )
 
-    def __init__(self, chat_model=None, rag_engine: Optional[RAGEngine] = None):
+    def __init__(self, chat_model=None, rag_engine: Optional[RAGEngine] = None, grader_model=None):
         super().__init__(chat_model=chat_model)
         self._rag_engine = rag_engine
+        self._grader_model = grader_model
+
+    @property
+    def grader_model(self):
+        """Model that checks answers against the documents (OLLAMA_GRADER_MODEL); defaults to chat_model."""
+        return self._grader_model or self.chat_model
+
+    @grader_model.setter
+    def grader_model(self, value):
+        self._grader_model = value
 
     def _get_engine(self) -> RAGEngine:
         if self._rag_engine is None:
@@ -66,7 +77,7 @@ class DocumentRagAgent(BaseSubAgent):
         # 2. Retrieve documents via BGE-M3 + Cross-Encoder Reranker
         engine = self._get_engine()
         try:
-            search_result = engine.search(search_query)
+            search_result = engine.search(search_query, allowed_groups=self.search_groups(state))
         except Exception as e:
             logger.error(f"[{self.name}] Retrieval error: {e}")
             search_result = {"context": "", "sources": []}
@@ -141,7 +152,7 @@ class DocumentRagAgent(BaseSubAgent):
     def _grade(self, context: str, question: str, answer: str) -> str:
         """Ask the LLM whether the answer is supported by the context; fails closed on errors."""
         try:
-            response = self.chat_model.invoke(build_grader_messages(context, question, answer))
+            response = self.grader_model.invoke(build_grader_messages(context, question, answer))
             return response.content.strip()
         except Exception as e:
             logger.error(f"[{self.name}] Grading error, treating answer as unverified: {e}")

@@ -30,6 +30,7 @@ from src.api.routes import (
     database_router,
     auth_router,
     admin_router,
+    requests_router,
 )
 
 logger = get_logger("API")
@@ -144,6 +145,7 @@ app.include_router(admin_router)
 app.include_router(documents_router)
 app.include_router(query_router)
 app.include_router(database_router)
+app.include_router(requests_router)
 
 __all__ = [
     "app",

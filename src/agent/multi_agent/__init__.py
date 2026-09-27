@@ -7,6 +7,7 @@ from src.agent.multi_agent.sub_agents import (
     DocumentRagAgent,
     DatabaseAgent,
     ComplianceAuditorAgent,
+    ServiceRequestAgent,
 )
 
 __all__ = [
@@ -21,4 +22,5 @@ __all__ = [
     "DocumentRagAgent",
     "DatabaseAgent",
     "ComplianceAuditorAgent",
+    "ServiceRequestAgent",
 ]

@@ -7,7 +7,7 @@ import streamlit as st
 
 # The UI modules live next to this script (streamlit run ui/app.py)
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from i18n import DEFAULT_UI_LANGUAGE, LANGUAGES, page_label, translate  # noqa: E402
+from i18n import DEFAULT_UI_LANGUAGE, LANGUAGES, category_label, page_label, translate  # noqa: E402
 
 API_BASE_URL = os.getenv("API_BASE_URL", "http://127.0.0.1:8000").rstrip("/")
 
@@ -187,16 +187,104 @@ def fetch_documents():
     return []
 
 
-def upload_document(uploaded_file):
+def upload_document(uploaded_file, groups=""):
     try:
         files = {"file": (uploaded_file.name, uploaded_file.getvalue(), uploaded_file.type)}
         res = requests.post(
             f"{API_BASE_URL}/api/v1/upload-file",
             headers=get_auth_headers(),
             files=files,
-            timeout=60,
+            data={"groups": groups},
+            timeout=600,
         )
-        return res.status_code == 200, res.json().get("message", t("unknown_response"))
+        body = res.json()
+        return res.status_code == 200, body.get("message") or body.get("detail") or t("unknown_response")
+    except Exception as e:
+        return False, str(e)
+
+
+def api_error_detail(res):
+    try:
+        return res.json().get("detail") or res.text
+    except Exception:
+        return res.text
+
+
+def set_document_access_api(filename, groups):
+    try:
+        res = requests.put(
+            f"{API_BASE_URL}/api/v1/documents/{filename}/access",
+            headers=get_auth_headers(),
+            json={"groups": [g.strip() for g in groups.split(",") if g.strip()]},
+            timeout=30,
+        )
+        return res.status_code == 200, t("access_saved") if res.status_code == 200 else api_error_detail(res)
+    except Exception as e:
+        return False, str(e)
+
+
+def fetch_requests_api(all_users=False):
+    try:
+        res = requests.get(
+            f"{API_BASE_URL}/api/v1/requests",
+            headers=get_auth_headers(),
+            params={"all_users": str(all_users).lower(), "limit": 30},
+            timeout=5,
+        )
+        if res.status_code == 200:
+            return res.json()
+    except Exception:
+        pass
+    return {"requests": [], "categories": []}
+
+
+def create_request_api(category, title, description):
+    try:
+        res = requests.post(
+            f"{API_BASE_URL}/api/v1/requests",
+            headers=get_auth_headers(),
+            json={"category": category, "title": title, "description": description},
+            timeout=30,
+        )
+        if res.status_code == 201:
+            return True, t("request_created_toast", id=res.json()["request"]["id"])
+        return False, api_error_detail(res)
+    except Exception as e:
+        return False, str(e)
+
+
+def update_request_api(request_id, status, note=""):
+    try:
+        res = requests.patch(
+            f"{API_BASE_URL}/api/v1/requests/{request_id}",
+            headers=get_auth_headers(),
+            json={"status": status, "resolution_note": note},
+            timeout=10,
+        )
+        return res.status_code == 200, t("request_updated") if res.status_code == 200 else api_error_detail(res)
+    except Exception as e:
+        return False, str(e)
+
+
+def fetch_users_api():
+    try:
+        res = requests.get(f"{API_BASE_URL}/api/v1/auth/users", headers=get_auth_headers(), timeout=5)
+        if res.status_code == 200:
+            return res.json()
+    except Exception:
+        pass
+    return []
+
+
+def update_user_groups_api(username, groups):
+    try:
+        res = requests.patch(
+            f"{API_BASE_URL}/api/v1/auth/users/{username}",
+            headers=get_auth_headers(),
+            json={"groups": [g.strip() for g in groups.split(",") if g.strip()]},
+            timeout=10,
+        )
+        return res.status_code == 200, t("user_groups_saved") if res.status_code == 200 else api_error_detail(res)
     except Exception as e:
         return False, str(e)
 
@@ -260,7 +348,7 @@ def sync_table_api(table_name):
         return False, str(e)
 
 
-BUILT_IN_AGENTS = ("auto", "doc_agent", "db_agent", "compliance_agent")
+BUILT_IN_AGENTS = ("auto", "doc_agent", "db_agent", "compliance_agent", "request_agent")
 
 
 def fetch_agents_api():
@@ -323,12 +411,20 @@ AGENT_BADGE_STYLES = {
     "doc_agent": "background-color: #e0f2fe; color: #0369a1; border: 1px solid #bae6fd;",
     "db_agent": "background-color: #f3e8ff; color: #6b21a8; border: 1px solid #e9d5ff;",
     "compliance_agent": "background-color: #fee2e2; color: #991b1b; border: 1px solid #fecaca;",
+    "request_agent": "background-color: #dcfce7; color: #166534; border: 1px solid #bbf7d0;",
+    "multi_agent": "background-color: #ede9fe; color: #5b21b6; border: 1px solid #ddd6fe;",
 }
+REQUEST_STATUSES = ("open", "in_progress", "resolved", "rejected", "cancelled")
 DEFAULT_BADGE_STYLE = "background-color: #f1f5f9; color: #334155; border: 1px solid #cbd5e1;"
 
 
-def render_agent_badge(agent_name):
-    label = t(f"badge_{agent_name}") if agent_name in AGENT_BADGE_STYLES else f"🤖 {agent_name}"
+def render_agent_badge(agent_name, agents=None):
+    if agent_name == "multi_agent":
+        label = t("badge_multi_agent", agents=", ".join(agents or []))
+    elif agent_name in AGENT_BADGE_STYLES:
+        label = t(f"badge_{agent_name}")
+    else:
+        label = f"🤖 {agent_name}"
     style = AGENT_BADGE_STYLES.get(agent_name, DEFAULT_BADGE_STYLE)
     st.markdown(f'<span class="agent-badge" style="{style}">{label}</span>', unsafe_allow_html=True)
 
@@ -336,6 +432,17 @@ def render_agent_badge(agent_name):
 def render_trace(trace):
     with st.expander(t("trace_title", count=len(trace))):
         for index, step in enumerate(trace, 1):
+            if step.get("action") == "handoff":
+                st.markdown(
+                    f"**{index}.** "
+                    + t("trace_handoff", source=step.get("from_agent"), target=step.get("target_agent"))
+                )
+                continue
+            if step.get("action") == "synthesize":
+                st.markdown(f"**{index}.** " + t("trace_synthesize", agents=", ".join(step.get("combined_agents", []))))
+                continue
+            if step.get("plan"):
+                st.caption(t("trace_plan", steps=" → ".join(f"`{p['agent']}`" for p in step["plan"])))
             st.markdown(
                 f"**{index}. ⚙️ `{step.get('agent', 'agent')}`** — *{step.get('action', '')}* "
                 f"(`{step.get('status', 'done')}`, `{step.get('duration_ms', 0)}ms`)"
@@ -472,9 +579,10 @@ with st.sidebar:
         if user_role in ["admin", "editor"]:
             st.subheader(t("upload_title"))
             uploaded_file = st.file_uploader(t("upload_label"), type=["pdf", "docx", "txt"], help=t("upload_help"))
+            upload_groups = st.text_input(t("upload_groups"), key="upload_groups", help=t("upload_groups_help"))
             if uploaded_file is not None and st.button(t("upload_button"), use_container_width=True):
                 with st.spinner(t("upload_spinner")):
-                    success, msg = upload_document(uploaded_file)
+                    success, msg = upload_document(uploaded_file, upload_groups)
                     if success:
                         st.success(msg)
                         st.rerun()
@@ -490,7 +598,9 @@ with st.sidebar:
                 col_info, col_del = st.columns([4, 1])
                 with col_info:
                     meta = t("doc_meta", size=doc["size_kb"], chunks=doc["chunk_count"])
-                    st.markdown(f"**{doc['filename']}**  \n<small>{meta}</small>", unsafe_allow_html=True)
+                    groups = doc.get("groups") or []
+                    access = t("doc_groups", groups=", ".join(groups)) if groups else t("doc_public")
+                    st.markdown(f"**{doc['filename']}**  \n<small>{meta} | {access}</small>", unsafe_allow_html=True)
                 with col_del:
                     if user_role in ["admin", "editor"] and st.button(
                         "🗑️", key=f"del_{doc['filename']}", help=t("delete_help", name=doc["filename"])
@@ -501,9 +611,75 @@ with st.sidebar:
                             st.rerun()
                         else:
                             st.error(msg)
+                if user_role in ["admin", "editor"] and doc.get("chunk_count"):
+                    with st.expander(t("doc_access_edit")):
+                        new_groups = st.text_input(
+                            t("upload_groups"),
+                            value=", ".join(doc.get("groups") or []),
+                            key=f"acl_{doc['filename']}",
+                            help=t("upload_groups_help"),
+                        )
+                        if st.button(t("save"), key=f"acl_save_{doc['filename']}"):
+                            ok, msg = set_document_access_api(doc["filename"], new_groups)
+                            (st.success if ok else st.error)(msg)
                 st.write("---")
         else:
             st.caption(t("no_documents"))
+        st.divider()
+
+        # ──── Service requests (everyone; staff can work off all requests) ────
+        st.subheader(t("requests_title"))
+        is_staff = user_role in ["admin", "editor"]
+        show_all = is_staff and st.checkbox(t("requests_all"), key="requests_all")
+        request_data = fetch_requests_api(all_users=show_all)
+        categories = request_data.get("categories") or ["other"]
+        with st.expander(t("request_new")):
+            category_labels = [category_label(st.session_state.ui_language, c) for c in categories]
+            chosen_category = st.selectbox(t("request_category"), category_labels, key="new_request_category")
+            new_category = categories[category_labels.index(chosen_category)]
+            new_title = st.text_input(t("request_title"), key="new_request_title")
+            new_description = st.text_area(t("request_description"), key="new_request_description")
+            if st.button(t("request_submit"), key="new_request_submit", use_container_width=True):
+                ok, msg = create_request_api(new_category, new_title, new_description)
+                if ok:
+                    st.toast(msg, icon="📝")
+                    st.rerun()
+                else:
+                    st.error(msg)
+        requests_list = request_data.get("requests", [])
+        if not requests_list:
+            st.caption(t("requests_empty"))
+        for req in requests_list:
+            status_text = t(f"status_{req['status']}") if req["status"] in REQUEST_STATUSES else req["status"]
+            category_text = category_label(st.session_state.ui_language, req["category"])
+            with st.expander(f"#{req['id']} · {status_text} · {req['title'][:40]}"):
+                st.caption(f"{category_text} · " + t("request_by", user=req["username"], date=req["created_at"][:16]))
+                if req.get("description"):
+                    st.markdown(req["description"])
+                if req.get("resolution_note"):
+                    st.info(req["resolution_note"])
+                if is_staff:
+                    status_labels = [t(f"status_{s}") for s in REQUEST_STATUSES]
+                    chosen_status = st.selectbox(
+                        t("request_status"),
+                        status_labels,
+                        index=REQUEST_STATUSES.index(req["status"]) if req["status"] in REQUEST_STATUSES else 0,
+                        key=f"req_status_{req['id']}",
+                    )
+                    new_status = REQUEST_STATUSES[status_labels.index(chosen_status)]
+                    note = st.text_input(
+                        t("request_note"), value=req.get("resolution_note", ""), key=f"req_note_{req['id']}"
+                    )
+                    if st.button(t("request_update"), key=f"req_update_{req['id']}"):
+                        ok, msg = update_request_api(req["id"], new_status, note)
+                        (st.success if ok else st.error)(msg)
+                elif req["status"] in ("open", "in_progress") and st.button(
+                    t("request_cancel"), key=f"req_cancel_{req['id']}"
+                ):
+                    ok, msg = update_request_api(req["id"], "cancelled")
+                    if ok:
+                        st.rerun()
+                    st.error(msg)
         st.divider()
 
         # ──── 5. Database Management (Admin only) ────
@@ -532,6 +708,21 @@ with st.sidebar:
                 st.info(t("db_config_hint"))
             else:
                 st.caption(t("db_offline"))
+            st.divider()
+
+            # ──── User groups for document access (Admin only) ────
+            st.subheader(t("users_title"))
+            with st.expander(t("users_title")):
+                for user in fetch_users_api():
+                    groups_value = st.text_input(
+                        t("user_groups", user=user["username"], role=user["role"]),
+                        value=", ".join(user.get("groups") or []),
+                        key=f"user_groups_{user['username']}",
+                        help=t("upload_groups_help"),
+                    )
+                    if st.button(t("save"), key=f"user_groups_save_{user['username']}"):
+                        ok, msg = update_user_groups_api(user["username"], groups_value)
+                        (st.success if ok else st.error)(msg)
             st.divider()
 
             # ──── 6. Audit Trail (Admin only) ────
@@ -582,7 +773,7 @@ else:
     for msg_idx, msg in enumerate(st.session_state.messages):
         with st.chat_message(msg["role"]):
             if msg["role"] == "assistant" and msg.get("active_agent"):
-                render_agent_badge(msg["active_agent"])
+                render_agent_badge(msg["active_agent"], msg.get("agents"))
             st.markdown(t(msg["text_key"]) if msg.get("text_key") else msg["content"])
             if msg["role"] == "assistant":
                 render_assistant_extras(msg)
@@ -621,9 +812,10 @@ else:
                 "verified": ("evet" in grade or "yes" in grade) or is_refined,
                 "is_refined": is_refined,
                 "active_agent": res.get("active_agent", "supervisor"),
+                "agents": res.get("agents", []),
                 "agent_trace": res.get("agent_trace", []),
             }
-            render_agent_badge(message["active_agent"])
+            render_agent_badge(message["active_agent"], message["agents"])
             st.markdown(message["content"])
             render_assistant_extras(message)
             if message["sources"]:

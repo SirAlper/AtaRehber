@@ -67,6 +67,20 @@ class AgentRegistry:
         """Return list of all registered agent instances."""
         return list(self._agents.values())
 
+    def list_available_agents(self) -> List[BaseSubAgent]:
+        """Registered agents that can currently do their job (see BaseSubAgent.is_available)."""
+        return [agent for name, agent in self._agents.items() if self.is_available(name)]
+
+    def is_available(self, name: str) -> bool:
+        agent = self._agents.get(name)
+        if agent is None:
+            return False
+        try:
+            return bool(agent.is_available())
+        except Exception as e:
+            logger.warning(f"Availability check of agent '{name}' failed: {e}")
+            return False
+
     def list_agent_names(self) -> List[str]:
         """Return list of all registered agent names."""
         return list(self._agents.keys())
@@ -78,11 +92,12 @@ class AgentRegistry:
             - **doc_agent**: Searches company policies, PDFs, and operational documentation.
             - **db_agent**: Executes read-only SQL queries on relational databases.
         """
-        if not self._agents:
+        available = {agent.name: agent for agent in self.list_available_agents()}
+        if not available:
             return "No specialized agents registered."
 
         lines = []
-        for name, agent in self._agents.items():
+        for name, agent in available.items():
             desc = agent.description.strip() if agent.description else "No description provided."
             display = f" ({agent.display_name})" if agent.display_name else ""
             line = f"- **`{name}`**{display}: {desc}"
