@@ -43,3 +43,23 @@ class FeedbackRequest(BaseModel):
     question: str = Field("", max_length=4000)
     feedback: Literal["positive", "negative"]
     comment: str = Field("", max_length=2000)
+
+
+class DocumentAccessRequest(BaseModel):
+    groups: List[str] = Field(
+        default_factory=list, description="User groups allowed to search the document; empty: everyone"
+    )
+
+
+RequestStatus = Literal["open", "in_progress", "resolved", "rejected", "cancelled"]
+
+
+class ServiceRequestCreate(BaseModel):
+    category: str = Field(..., min_length=1, max_length=40)
+    title: str = Field(..., min_length=3, max_length=200)
+    description: str = Field("", max_length=4000)
+
+
+class ServiceRequestUpdate(BaseModel):
+    status: RequestStatus
+    resolution_note: str = Field("", max_length=2000)

@@ -18,6 +18,7 @@ from src.api.state import get_multi_agent_orchestrator, query_concurrency_gate
 from src.agent.multi_agent.registry import agent_registry
 from src.auth.dependencies import require_role
 from src.auth.models import User
+from src.core import config
 from src.core.audit import audit_logger
 from src.core.logger import get_logger
 
@@ -28,8 +29,25 @@ QUERY_FAILED_DETAIL = "Query processing failed due to an internal error."
 STREAM_FAILED_MESSAGE = "An internal error occurred while processing the query."
 
 
+def _question_detail(question: str, agent: str | None = None) -> str:
+    """Audit detail for a question; with AUDIT_STORE_QUESTIONS=false only its length is recorded."""
+    prefix = f"[{agent}] " if agent else ""
+    if config.AUDIT_STORE_QUESTIONS:
+        return f"{prefix}{question}"
+    return f"{prefix}(question not stored, {len(question)} chars)"
+
+
+def _answer_preview(answer: str | None) -> str | None:
+    return answer if config.AUDIT_STORE_QUESTIONS else None
+
+
 def _resolve_forced_agent(request: QueryRequest) -> str | None:
     return request.agent if (request.agent and request.agent not in ("auto", "none")) else None
+
+
+def _user_context(user: User) -> dict:
+    """What the agents may know about the asking user: document access groups and request ownership."""
+    return {"username": user.username, "role": user.role, "groups": list(user.groups)}
 
 
 @router.get(
@@ -49,7 +67,8 @@ async def list_available_agents(
             version="2.0.0",
         )
     ]
-    for sub_agent in agent_registry.list_agents():
+    # Agents that cannot work right now (e.g. no database connected) are not offered
+    for sub_agent in agent_registry.list_available_agents():
         info = sub_agent.get_info()
         agents.append(
             AgentInfo(
@@ -86,6 +105,7 @@ async def query_rag(
                 request.question,
                 thread_id=thread_id,
                 forced_agent=forced_agent,
+                user=_user_context(current_user),
             )
 
         duration_ms = int((time.time() - start_time) * 1000)
@@ -96,9 +116,9 @@ async def query_rag(
             username=current_user.username,
             role=current_user.role,
             action="query",
-            detail=f"[{active_agent}] {request.question}",
+            detail=_question_detail(request.question, active_agent),
             sources=source_names,
-            answer_preview=result.get("answer", ""),
+            answer_preview=_answer_preview(result.get("answer", "")),
             ip_address=ip_addr,
             duration_ms=duration_ms,
             status="success",
@@ -109,6 +129,7 @@ async def query_rag(
             "answer": result["answer"],
             "sources": result["sources"],
             "active_agent": active_agent,
+            "agents": result.get("agents", []),
             "agent_trace": result.get("agent_trace", []),
             "hallucination_grade": result.get("hallucination_grade", ""),
             "is_refined": result.get("is_refined", False),
@@ -119,7 +140,7 @@ async def query_rag(
             username=current_user.username,
             role=current_user.role,
             action="query",
-            detail=request.question,
+            detail=_question_detail(request.question),
             ip_address=ip_addr,
             duration_ms=duration_ms,
             status="error",
@@ -154,7 +175,7 @@ async def query_rag_stream(
             username=current_user.username,
             role=current_user.role,
             action="query_stream",
-            detail=request.question,
+            detail=_question_detail(request.question),
             ip_address=ip_addr,
             duration_ms=int((time.time() - start_time) * 1000),
             status="error",
@@ -179,6 +200,7 @@ async def query_rag_stream(
                     request.question,
                     thread_id=thread_id,
                     forced_agent=forced_agent,
+                    user=_user_context(current_user),
                 )
                 try:
                     for ev in events:
@@ -233,9 +255,9 @@ async def query_rag_stream(
                         username=current_user.username,
                         role=current_user.role,
                         action="query_stream",
-                        detail=f"[{active_agent}] {request.question}",
+                        detail=_question_detail(request.question, active_agent),
                         sources=source_names,
-                        answer_preview=final_answer,
+                        answer_preview=_answer_preview(final_answer),
                         ip_address=ip_addr,
                         duration_ms=duration_ms,
                         status=status,
@@ -257,8 +279,9 @@ async def submit_feedback(
         username=current_user.username,
         role=current_user.role,
         action="feedback",
-        detail=f"[{body.feedback.upper()}] Q: {body.question[:200]}",
-        answer_preview=body.comment[:500] if body.comment else None,
+        detail=f"[{body.feedback.upper()}] "
+        + (f"Q: {body.question[:200]}" if config.AUDIT_STORE_QUESTIONS else "(question not stored)"),
+        answer_preview=_answer_preview(body.comment[:500] if body.comment else None),
         ip_address=ip_addr,
         status="success",
     )

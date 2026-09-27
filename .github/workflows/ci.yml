@@ -22,10 +22,10 @@ jobs:
         run: pip install "ruff>=0.5.0,<0.6"
 
       - name: Run Ruff linter
-        run: ruff check src/ tests/ evals/ --output-format=github
+        run: ruff check src/ tests/ evals/ ui/ --output-format=github
 
       - name: Run Ruff formatter check
-        run: ruff format --check src/ tests/ evals/
+        run: ruff format --check src/ tests/ evals/ ui/
 
   test:
     name: Test Suite
@@ -143,3 +143,22 @@ jobs:
           file: Dockerfile.frontend
           push: false
           tags: openlocalragagents-ui:ci
+
+      - name: Validate compose files
+        run: |
+          docker compose -f docker-compose.yml config --quiet
+          docker compose -f docker-compose.yml -f docker-compose.gpu.yml config --quiet
+          docker compose -f docker-compose.yml -f docker-compose.https.yml config --quiet
+          # In HTTPS mode only the proxy may be published on the host
+          https_config=$(docker compose -f docker-compose.yml -f docker-compose.https.yml config --format json)
+          test "$(echo "$https_config" | jq '[.services.backend.ports, .services.frontend.ports] | map(. // [] | length) | add')" = "0"
+
+      - name: Validate nginx configuration
+        run: |
+          mkdir -p /tmp/certs
+          openssl req -x509 -nodes -newkey rsa:2048 -days 1 -subj "/CN=localhost" \
+            -keyout /tmp/certs/privkey.pem -out /tmp/certs/fullchain.pem
+          docker run --rm --add-host backend:127.0.0.1 --add-host frontend:127.0.0.1 \
+            -v "$PWD/deploy/nginx/nginx.conf:/etc/nginx/nginx.conf:ro" \
+            -v /tmp/certs:/etc/nginx/certs:ro \
+            nginx:1.27-alpine nginx -t

@@ -16,19 +16,22 @@
 
 ## ✨ Key Capabilities
 
-* 🤖 **Pluggable Multi-Agent Ecosystem:** Dynamic Supervisor Orchestrator with runtime intent analysis, routing to specialist Sub-Agents (Document RAG, SQL Database Analyst, Compliance Auditor) with millisecond-precision execution tracing.
+* 🤖 **Collaborating Multi-Agent Ecosystem:** A supervisor plans which specialists answer a question (Document & Regulation, SQL Database Analyst, Compliance Auditor, Service Requests, or your own agents). Composite questions run several agents and combine their answers, a failing agent hands the question to another one (e.g. a rejected SQL query goes to the documents), and agents that cannot work (no database connected) are never chosen. Every step is traced.
+* 📝 **Service Requests with Confirmation:** Users open requests from the chat ("the projector in B204 is broken, open a ticket"). The assistant shows the draft and files it only after the user says yes; staff work requests off in the UI, and the responsible unit can be e-mailed through the organization's own mail server. No internet access, no other side effects.
+* 🗂️ **Document Access Groups:** Documents can be restricted to user groups (e.g. academic staff). The vector search itself filters by the user's groups, so restricted content never reaches the model for users outside those groups.
 * 🔒 **100% Local & Air-Gapped:** All embeddings, Cross-Encoder reranking, and LLM inferences execute strictly on your local GPU/CPU. Zero data egress, zero cloud telemetry, and zero token costs.
-* 🎯 **Two-Stage Retrieval with a Relevance Gate:** Combines `BAAI/bge-m3` dense vector search with `BAAI/bge-reranker-v2-m3` Cross-Encoder scoring. Passages the reranker scores below `RAG_MIN_RERANKER_SCORE` are dropped, so questions the documents do not answer get "not found in company documents" instead of a guess.
+* 🎯 **Two-Stage Retrieval with a Relevance Gate:** Combines `BAAI/bge-m3` dense vector search with `BAAI/bge-reranker-v2-m3` Cross-Encoder scoring. Passages the reranker scores below `RAG_MIN_RERANKER_SCORE` are dropped, so questions the documents do not answer get "not found in the organization's documents" instead of a guess.
 * 🛡️ **Self-Correcting Hallucination Guard (Self-RAG):** `doc_agent` grades each draft answer against the retrieved sources. Unsupported claims are pruned by a refine step; if the answer still cannot be verified, a safe fallback is returned instead of a guess.
 * 🔐 **Enterprise Authentication & RBAC:** JWT access/refresh tokens with revocation on password change, bcrypt password hashing, mandatory replacement of the default password, per-account login lockout, and three access tiers (`admin`, `editor`, `viewer`).
 * 📜 **Tamper-Evident Compliance Audit Trail:** SQLite-backed audit logging (`data/audit.db`) recording all queries, document uploads/deletions, SQL queries, user logins, and errors with IP tracking and execution latency (ms). Entries form a SHA-256 hash chain verifiable via `GET /api/v1/admin/audit-verify`; export the returned `head_hash` periodically to also detect truncation.
 * 🧠 **Multi-Turn Conversational Memory:** Persistent LangGraph SQLite checkpointer (`data/multi_agent_conversations.db`) with user-isolated session threads (`{username}_{session_id}`). The supervisor, document search, and SQL generation all use recent turns, so follow-up questions work.
-* 🚀 **LLM Served by Ollama:** The LLM runs in a local [Ollama](https://ollama.com) server (default `qwen2.5:7b`), so the API process loads no LLM weights and switching models is one setting (`OLLAMA_MODEL`). Parallel requests are capped by `OLLAMA_NUM_PARALLEL`.
+* 🚀 **LLM Served by Ollama:** The LLM runs in a local [Ollama](https://ollama.com) server (default `qwen2.5:7b`), so the API process loads no LLM weights and switching models is one setting (`OLLAMA_MODEL`). Routing and answer checking can use their own models (`OLLAMA_ROUTER_MODEL`, `OLLAMA_GRADER_MODEL`). Parallel requests are capped by `OLLAMA_NUM_PARALLEL`.
 * 🗄️ **Universal Database Connector:** Connects to **PostgreSQL, MSSQL, MySQL, Oracle, and SQLite** via an SQLAlchemy abstraction layer with token-level SQL validation, database-enforced read-only sessions (SQLite/PostgreSQL/MySQL), and automated table vectorization. For production, connect with a SELECT-only database account.
 * ⚡ **Thinking Indicator & Trace UX:** Streamlined user experience featuring interactive thinking indicators and collapsible multi-agent execution traces showing internal actions, durations, and SQL queries.
 * 🌐 **Multilingual, Answers in the User's Language:** Multilingual search across enterprise corpora with BGE-M3 dense vectors. Every agent answers in the language of the question (Turkish or English), including fixed messages such as "not found" and error texts, even when the documents or table data are in another language. Mandarin Chinese, Hindi, and Spanish are coming next (see [Language Support](docs/language_support.md)).
 * 📏 **Measured Quality:** A labeled evaluation harness (`python -m evals.run_eval`) measures retrieval, routing, and answer accuracy with the real models and compares runs before and after a change (see [Measured Quality](#-measured-quality)).
-* 🖥️ **Full-Stack Suite:** Ready-to-use FastAPI REST gateway (with Swagger OpenAPI docs) paired with a modern Streamlit enterprise control panel.
+* 🏛️ **Pilot-Ready Operations:** HTTPS reverse proxy, configurable retention for audit entries and conversations, an option to keep question text out of the audit log, scheduled full backups, and no telemetry (see [Data Protection](docs/data_protection.md)).
+* 🖥️ **Full-Stack Suite:** Ready-to-use FastAPI REST gateway (with Swagger OpenAPI docs) paired with a Streamlit control panel in Turkish and English, with an AI disclaimer and page-level source citations.
 
 ---
 
@@ -66,6 +69,7 @@ Explore our detailed architectural, operational, and development guides:
 | 🗄️ [**Database Connectors**](docs/database_connectors.md) | Universal SQLAlchemy configurations, Text-to-SQL security, and ETL table vectorization |
 | 🔌 [**REST API Reference**](docs/api_reference.md) | FastAPI endpoint documentation, JWT auth, NDJSON event streaming, and cURL examples |
 | 🐳 [**Docker Deployment**](docs/docker_deployment.md) | Production multi-service containerization (Backend, Frontend, Ollama), NVIDIA GPU passthrough |
+| 🔏 [**Data Protection (KVKK/GDPR)**](docs/data_protection.md) | Personal data stored, retention settings, backups, and recommended pilot settings |
 | 🌍 [**Language Support**](docs/language_support.md) | Supported languages (Turkish, English), behavior for other languages, and languages coming soon (Mandarin Chinese, Hindi, Spanish) |
 | 📏 [**Evaluation Guide**](docs/evaluation.md) | Labeled question set, harness, current results, and how each change was measured |
 | 🗺️ [**Roadmap**](docs/roadmap.md) | Hybrid search (BM25 + Dense), GraphRAG, observability, SSO, and multi-tenant isolation |
@@ -123,6 +127,9 @@ docker compose up -d
 
 # NVIDIA GPU Mode (GPU for Ollama):
 docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d
+
+# HTTPS for shared deployments (certificates in deploy/certs/):
+docker compose -f docker-compose.yml -f docker-compose.https.yml up -d
 ```
 See the full [Docker Deployment Guide](docs/docker_deployment.md) for Container Toolkit setup.
 
@@ -139,21 +146,21 @@ pytest tests/ -v
 
 ```text
 OpenLocalRagAgents/
-├── data/                  # Documents (PDF, DOCX, TXT), sample DB, audit.db, multi_agent_conversations.db, users.json
+├── data/                  # Documents (PDF, DOCX, TXT), sample DB, audit.db, conversations, requests.db, users.json
 ├── models/                # Local retrieval model weights (BGE-M3, BGE-Reranker); the LLM lives in Ollama
 ├── vector_db/             # ChromaDB persistent vector collection
 ├── backups/               # Vector DB snapshots and staged restores
 ├── tests/                 # Automated unit, end-to-end, and security test suite
-├── evals/                 # Quality evaluation harness (labeled dataset, corpus, run_eval.py)
+├── evals/                 # Quality evaluation harness (labeled datasets, corpora incl. a university law, run_eval.py)
 │
 ├── ui/
 │   └── app.py             # Streamlit enterprise management dashboard, RBAC chat & audit UI
 ├── src/
-│   ├── core/              # System configurations, audit logger, environment settings, and logger
+│   ├── core/              # Settings, audit logger, document access groups, service requests, e-mail notifier
 │   ├── auth/              # Enterprise JWT handler, user store, password hashing, and RBAC dependencies
 │   ├── rag/               # Contextual document loader and Two-Stage ChromaDB/Reranker engine
 │   ├── agent/             # Single-agent & Multi-Agent workflows, LLM loader, memory, prompts
-│   │   └── multi_agent/   # Supervisor orchestrator, agent registry, and specialist sub-agents
+│   │   └── multi_agent/   # Supervisor (plans), orchestrator (handoffs, synthesis), registry, specialist sub-agents
 │   ├── connectors/        # SQLAlchemy universal database connector and table vectorizer
 │   ├── services/          # Decoupled business logic (DocumentService, DatabaseService)
 │   ├── api/               # Modular FastAPI REST API gateway (routes/, schemas, state)
@@ -165,6 +172,8 @@ OpenLocalRagAgents/
 ├── Dockerfile.frontend    # Lightweight Streamlit UI image
 ├── docker-compose.yml     # Multi-service compose definition (Backend + Frontend + Ollama)
 ├── docker-compose.gpu.yml # NVIDIA GPU passthrough override
+├── docker-compose.https.yml # HTTPS reverse proxy override (nginx)
+├── deploy/                # nginx configuration and TLS certificate folder
 ├── download_model.py      # Downloads the embedding and reranker models to ./models
 ├── requirements.txt       # Backend runtime dependencies
 ├── requirements-ui.txt    # Streamlit UI dependencies

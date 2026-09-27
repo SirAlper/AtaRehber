@@ -56,6 +56,9 @@ services:
       - "8501:8501"
     environment:
       - API_BASE_URL=http://backend:8000
+      # UI language ("tr" or "en"; users can switch in the sidebar) and an optional custom disclaimer
+      - UI_LANGUAGE=${UI_LANGUAGE:-tr}
+      - UI_DISCLAIMER=${UI_DISCLAIMER:-}
     depends_on:
       backend:
         condition: service_healthy

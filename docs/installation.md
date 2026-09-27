@@ -98,11 +98,34 @@ OLLAMA_BASE_URL=http://localhost:11434
 OLLAMA_MODEL=qwen2.5:7b
 OLLAMA_NUM_CTX=4096
 OLLAMA_NUM_PARALLEL=4
+# Optional separate models for routing and answer grading (empty = OLLAMA_MODEL):
+OLLAMA_ROUTER_MODEL=
+OLLAMA_GRADER_MODEL=
+
+# ─── Organization & Agents ───
+ORGANIZATION_NAME=
+MAX_AGENT_STEPS=3
+MAX_AGENT_HANDOFFS=1
+
+# ─── Service Requests & E-mail (off unless SMTP_HOST is set) ───
+REQUEST_CATEGORIES=it_support,facilities,academic,administrative,other
+REQUEST_NOTIFY_EMAILS=
+REQUEST_NOTIFY_INCLUDE_DETAILS=true
+REQUEST_RETENTION_DAYS=0
+SMTP_HOST=
+SMTP_PORT=587
+SMTP_USERNAME=
+SMTP_PASSWORD=
+SMTP_FROM=
+SMTP_STARTTLS=true
+SMTP_TIMEOUT_SECONDS=10
 
 # ─── Relational Database (Optional) ───
 # Supports PostgreSQL, MSSQL, MySQL, Oracle, SQLite.
-# Leave empty to use the sample SQLite database generated in data/ on first start.
+# Leave empty to use the sample SQLite database generated in data/ on first start,
+# or set SAMPLE_DB_ENABLED=false to run without a database.
 DATABASE_URL=
+SAMPLE_DB_ENABLED=true
 DB_ALLOWED_TABLES=urunler,satislar,destek_talepleri
 DB_MAX_ROWS=50
 DB_QUERY_TIMEOUT_SECONDS=15
@@ -121,6 +144,17 @@ RAG_MIN_RERANKER_SCORE=0.005
 
 # ─── Conversation Memory ───
 CHAT_HISTORY_MAX_TURNS=20
+
+# ─── Data Protection & Backups (see docs/data_protection.md) ───
+AUDIT_STORE_QUESTIONS=true
+AUDIT_RETENTION_DAYS=0
+SESSION_RETENTION_DAYS=0
+BACKUP_INTERVAL_HOURS=0
+BACKUP_KEEP=7
+
+# ─── Web UI ───
+UI_LANGUAGE=tr
+# UI_DISCLAIMER=Answers are AI-generated. For official information contact the Registrar's Office.
 
 # ─── Logging Settings ───
 LOG_LEVEL=INFO
@@ -173,8 +207,8 @@ pytest tests/ -v
 pytest tests/ --cov=src --cov-report=term-missing
 
 # Lint and formatting checks (same as CI; settings in ruff.toml):
-ruff check src/ tests/ evals/
-ruff format --check src/ tests/ evals/
+ruff check src/ tests/ evals/ ui/
+ruff format --check src/ tests/ evals/ ui/
 ```
 
 Tests run against an isolated temporary data directory (see `tests/conftest.py`) and never touch your `data/` folder. LLM calls are stubbed, so tests do not need Ollama; the memory-profiling tests load the real embedding models and are skipped when the weights have not been downloaded.

@@ -96,7 +96,7 @@ class TestDbAgent(unittest.TestCase):
         connector.execute_query.return_value = query_result
         return connector
 
-    def test_guard_error_message_is_reported(self):
+    def test_guard_error_stays_in_the_trace(self):
         connector = self._connector(
             {
                 "status": "error",
@@ -108,7 +108,10 @@ class TestDbAgent(unittest.TestCase):
         chat = MagicMock()
         chat.invoke.return_value = MagicMock(content="SELECT * FROM secret")
         out = DatabaseAgent(chat_model=chat, db_connector=connector).execute({"question": "q"})
-        self.assertIn("Security Guard: nope", out["final_answer"])
+        # Database errors can reveal schema details: users get a generic message, the trace keeps the cause
+        self.assertNotIn("Security Guard: nope", out["final_answer"])
+        self.assertEqual(out["agent_trace"][-1]["error"], "Security Guard: nope")
+        self.assertEqual(out["agent_trace"][-1]["status"], "rejected")
 
     def test_row_count_and_first_statement(self):
         rows = [{"id": 1}, {"id": 2}]

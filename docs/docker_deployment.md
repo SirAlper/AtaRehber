@@ -6,7 +6,7 @@ This guide details how to deploy `OpenLocalRagAgents` using **Docker** and **Doc
 
 ## 🏗️ Architecture Overview
 
-The containerized deployment runs three services on an internal Docker bridge network, plus a one-shot `ollama-pull` job that downloads the LLM on the first start:
+The containerized deployment runs three services on an internal Docker bridge network, plus a one-shot `ollama-pull` job that downloads the LLM on the first start. For shared deployments, add the [HTTPS reverse proxy](#-https-reverse-proxy):
 
 ```text
 ┌──────────────────────────────────────────────────────────────────────────────────┐
@@ -106,6 +106,37 @@ On the first start (options A and B), `ollama-pull` downloads `OLLAMA_MODEL` (~4
 
 ---
 
+## 🔒 HTTPS Reverse Proxy
+
+Use HTTPS for every deployment that other people access. `docker-compose.https.yml` adds an nginx proxy that terminates TLS on port 443 (port 80 redirects to it) and stops publishing the backend (8000) and UI (8501) ports on the host, so only the proxy is reachable from the network.
+
+1. Put the certificate files in `deploy/certs/` (git-ignored):
+   * `fullchain.pem`: the certificate followed by the intermediate certificates
+   * `privkey.pem`: the private key
+
+   Use the certificate issued by your IT department. For a test setup, create a self-signed one (browsers will show a warning):
+   ```bash
+   openssl req -x509 -nodes -newkey rsa:2048 -days 365 -subj "/CN=rag.example.edu" \
+     -keyout deploy/certs/privkey.pem -out deploy/certs/fullchain.pem
+   ```
+2. Start with the override (add `-f docker-compose.gpu.yml` for GPU):
+   ```bash
+   docker compose -f docker-compose.yml -f docker-compose.https.yml up -d --build
+   ```
+3. Open `https://<server-name>/`.
+
+What the proxy serves (`deploy/nginx/nginx.conf`):
+
+| Path | Target | Notes |
+| :--- | :--- | :--- |
+| `/` | Streamlit UI | WebSocket upgrade enabled |
+| `/api/` | REST API | For API clients and portal integrations; every endpoint needs a JWT. Remove the block to serve only the UI. |
+| `/health` | Backend liveness probe | |
+
+The proxy also sets HSTS and other security headers, allows uploads up to 50 MB (keep in sync with `MAX_UPLOAD_SIZE_MB`), and passes the client IP to the backend (`FORWARDED_ALLOW_IPS=*` is safe only because the backend port is not published). If browser-based clients call the API directly, add the HTTPS origin to `CORS_ORIGINS`. CI validates the nginx configuration and checks that the override publishes no backend or UI ports.
+
+---
+
 ## ⚙️ Custom Configuration (`.env`)
 
 Copy `.env.example` to `.env` in the project root (next to `docker-compose.yml`). The backend service loads the whole file via `env_file`. The few variables with defaults in `docker-compose.yml` (`OLLAMA_BASE_URL`, `OLLAMA_MODEL`, `RAG_DEVICE`, `CORS_ORIGINS`, …) use `${VAR:-default}` syntax, so values from `.env` always win.
@@ -202,6 +233,23 @@ docker compose down
 docker compose down -v
 ```
 *(Host bind mounts such as `./data` and `./vector_db` are not deleted by this command.)*
+
+---
+
+## 💾 Backups & Restore
+
+**Creating backups.** `POST /api/v1/admin/backup` creates `backups/full_backup_<timestamp>/` with:
+* `vector_db/`: the search index
+* `data/`: documents, `users.json`, `audit.db`, `multi_agent_conversations.db`, the sample database. SQLite files are copied with the SQLite backup API, so backups taken while the server runs are consistent. The JWT secret is not included; after a restore users simply log in again.
+
+For automatic backups set `BACKUP_INTERVAL_HOURS` (e.g. `24`) and `BACKUP_KEEP` (default `7`) in `.env`. Backups contain personal data (see [Data Protection](data_protection.md)): restrict access to `./backups` and copy it to a second location regularly.
+
+**Restoring only the search index** (e.g. after a bad bulk upload): `POST /api/v1/admin/restore?backup_name=<name>`, then restart the backend.
+
+**Full restore** (e.g. a new server):
+1. Stop the services: `docker compose down`
+2. Replace the contents of `./data` with `backups/<name>/data/` and the contents of `./vector_db` with `backups/<name>/vector_db/`. Keep the old directories until the restore is verified.
+3. Start the services and log in. Check `GET /api/v1/admin/audit-verify`: the audit chain must be valid.
 
 ---
 

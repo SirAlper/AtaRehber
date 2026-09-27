@@ -24,6 +24,18 @@ RATE_LIMIT_PER_MINUTE = int(os.getenv("RATE_LIMIT_PER_MINUTE", "30"))
 LOGIN_MAX_FAILED_ATTEMPTS = int(os.getenv("LOGIN_MAX_FAILED_ATTEMPTS", "5"))
 LOGIN_LOCKOUT_WINDOW_SECONDS = int(os.getenv("LOGIN_LOCKOUT_WINDOW_SECONDS", "900"))
 
+# ──────────────────────────── DATA PROTECTION & BACKUPS ────────────────────────────
+# Store the text of user questions, answer previews, and feedback comments in the audit log. With false,
+# the log keeps who asked, when, which agent answered, and how long it took (data minimization, KVKK/GDPR).
+AUDIT_STORE_QUESTIONS = os.getenv("AUDIT_STORE_QUESTIONS", "true").lower() == "true"
+# Delete audit entries / conversation sessions older than N days; 0 keeps them. Applied hourly.
+AUDIT_RETENTION_DAYS = int(os.getenv("AUDIT_RETENTION_DAYS", "0"))
+SESSION_RETENTION_DAYS = int(os.getenv("SESSION_RETENTION_DAYS", "0"))
+# Automatic full backups (vector index + data directory) every N hours; 0 disables them.
+# Only the newest BACKUP_KEEP full backups are kept.
+BACKUP_INTERVAL_HOURS = int(os.getenv("BACKUP_INTERVAL_HOURS", "0"))
+BACKUP_KEEP = int(os.getenv("BACKUP_KEEP", "7"))
+
 # ──────────────────────────── LOGGING CONFIGURATION ────────────────────────────
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
 LOG_FILE = os.getenv("LOG_FILE", os.path.join(BASE_DIR, "app.log"))
@@ -51,6 +63,49 @@ OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen2.5:7b")
 OLLAMA_NUM_CTX = int(os.getenv("OLLAMA_NUM_CTX", "4096"))
 # Maximum number of LLM requests the API sends to Ollama at once
 OLLAMA_NUM_PARALLEL = int(os.getenv("OLLAMA_NUM_PARALLEL", "4"))
+# Optional separate models per task; empty uses OLLAMA_MODEL (see src/agent/llm.py). A stronger grader catches
+# more wrong answers, a small router model keeps routing fast. Every configured model must be pulled.
+OLLAMA_ROUTER_MODEL = os.getenv("OLLAMA_ROUTER_MODEL", "").strip()
+OLLAMA_GRADER_MODEL = os.getenv("OLLAMA_GRADER_MODEL", "").strip()
+
+# ──────────────────────────── ORGANIZATION ────────────────────────────
+# Name used in prompts and fixed answers, e.g. "Example University". Empty: "the organization".
+ORGANIZATION_NAME = os.getenv("ORGANIZATION_NAME", "").strip()
+
+# ──────────────────────────── MULTI-AGENT WORKFLOW ────────────────────────────
+# Maximum number of agent steps the supervisor may plan for one question (composite questions)
+MAX_AGENT_STEPS = int(os.getenv("MAX_AGENT_STEPS", "3"))
+# Maximum number of times per question a failing agent may hand the task to another agent
+MAX_AGENT_HANDOFFS = int(os.getenv("MAX_AGENT_HANDOFFS", "1"))
+
+# ──────────────────────────── SERVICE REQUESTS & NOTIFICATIONS ────────────────────────────
+# Categories the request agent files requests under
+REQUEST_CATEGORIES = [
+    c.strip().lower()
+    for c in os.getenv("REQUEST_CATEGORIES", "it_support,facilities,academic,administrative,other").split(",")
+    if c.strip()
+]
+# Who is e-mailed about new requests: "category=address,...", "default=address" for the rest. Empty: no e-mail.
+REQUEST_NOTIFY_EMAILS = {
+    key.strip().lower(): value.strip()
+    for key, _, value in (
+        item.partition("=") for item in os.getenv("REQUEST_NOTIFY_EMAILS", "").split(",") if "=" in item
+    )
+    if key.strip() and value.strip()
+}
+# Put the requester, title, and description into notification e-mails. With false the e-mail only says that
+# request #N of a category was filed, and staff read the details in the application (data minimization).
+REQUEST_NOTIFY_INCLUDE_DETAILS = os.getenv("REQUEST_NOTIFY_INCLUDE_DETAILS", "true").lower() == "true"
+# Delete resolved, rejected, and cancelled requests older than N days; 0 keeps them. Applied hourly.
+REQUEST_RETENTION_DAYS = int(os.getenv("REQUEST_RETENTION_DAYS", "0"))
+# Internal mail server for request notifications. Empty SMTP_HOST disables e-mail.
+SMTP_HOST = os.getenv("SMTP_HOST", "").strip()
+SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
+SMTP_USERNAME = os.getenv("SMTP_USERNAME", "")
+SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "")
+SMTP_FROM = os.getenv("SMTP_FROM", "").strip()
+SMTP_STARTTLS = os.getenv("SMTP_STARTTLS", "true").lower() == "true"
+SMTP_TIMEOUT_SECONDS = int(os.getenv("SMTP_TIMEOUT_SECONDS", "10"))
 
 # ──────────────────────────── RETRIEVAL MODELS (LOCAL) ────────────────────────────
 # Embedding and reranker models run in this process (Ollama has no reranking support).
@@ -71,6 +126,9 @@ RAG_MIN_RERANKER_SCORE = float(os.getenv("RAG_MIN_RERANKER_SCORE", "0.005"))
 
 # ──────────────────────────── CONVERSATION MEMORY ────────────────────────────
 MULTI_AGENT_CONVERSATIONS_DB = os.path.join(DOCS_PATH, "multi_agent_conversations.db")
+REQUESTS_DB = os.path.join(DOCS_PATH, "requests.db")
+# Which user groups may search each restricted document (documents not listed are visible to everyone)
+DOCUMENT_ACCESS_FILE = os.path.join(DOCS_PATH, "document_access.json")
 CHAT_HISTORY_MAX_TURNS = int(os.getenv("CHAT_HISTORY_MAX_TURNS", "20"))
 
 # ──────────────────────────── CHUNKING CONFIGURATION ────────────────────────────
@@ -96,11 +154,16 @@ RAG_DEVICE = os.getenv("RAG_DEVICE", "cpu")
 # - MSSQL: "mssql+pyodbc://user:pass@host:1433/db?driver=ODBC+Driver+17+for+SQL+Server"
 # - MySQL: "mysql+pymysql://user:pass@localhost:3306/db"
 # - SQLite: "sqlite:///./data/sample_enterprise.db"
-# If left empty, database features are disabled and the system operates purely on file RAG.
+# If left empty, the demo database below is used (SAMPLE_DB_ENABLED=true) or database features are disabled.
 SAMPLE_DB_PATH = os.path.join(DOCS_PATH, "sample_enterprise.db")
 DEFAULT_SQLITE_URL = f"sqlite:///{SAMPLE_DB_PATH}"
+# Demo database with fictitious products, sales, and support tickets. Disable it in real deployments without a
+# database: otherwise questions such as "how many ..." can be answered from the demo data.
+SAMPLE_DB_ENABLED = os.getenv("SAMPLE_DB_ENABLED", "true").lower() == "true"
 
-DATABASE_URL = os.getenv("DATABASE_URL", DEFAULT_SQLITE_URL if os.path.exists(SAMPLE_DB_PATH) else "")
+DATABASE_URL = os.getenv(
+    "DATABASE_URL", DEFAULT_SQLITE_URL if SAMPLE_DB_ENABLED and os.path.exists(SAMPLE_DB_PATH) else ""
+)
 DB_ALLOWED_TABLES = [t.strip() for t in os.getenv("DB_ALLOWED_TABLES", "").split(",") if t.strip()]
 DB_MAX_ROWS = int(os.getenv("DB_MAX_ROWS", "50"))
 DB_QUERY_TIMEOUT_SECONDS = int(os.getenv("DB_QUERY_TIMEOUT_SECONDS", "15"))

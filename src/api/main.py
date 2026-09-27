@@ -1,3 +1,5 @@
+import asyncio
+import contextlib
 import time
 from collections import defaultdict, deque
 from contextlib import asynccontextmanager
@@ -28,6 +30,7 @@ from src.api.routes import (
     database_router,
     auth_router,
     admin_router,
+    requests_router,
 )
 
 logger = get_logger("API")
@@ -37,7 +40,14 @@ logger = get_logger("API")
 async def lifespan(app: FastAPI):
     """FastAPI Lifespan context manager to initialize models on startup and cleanup on shutdown."""
     init_services()
+    # Retention policy and scheduled backups (all off unless configured)
+    from src.api.maintenance import maintenance_loop
+
+    maintenance_task = asyncio.create_task(maintenance_loop())
     yield
+    maintenance_task.cancel()
+    with contextlib.suppress(asyncio.CancelledError):
+        await maintenance_task
     cleanup_services()
 
 
@@ -135,6 +145,7 @@ app.include_router(admin_router)
 app.include_router(documents_router)
 app.include_router(query_router)
 app.include_router(database_router)
+app.include_router(requests_router)
 
 __all__ = [
     "app",

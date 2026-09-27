@@ -15,16 +15,20 @@ The interactive OpenAPI Swagger UI is available at `http://localhost:8000/docs` 
 | `GET` | `/api/v1/auth/me` | Authenticated | View current authenticated user profile |
 | `POST` | `/api/v1/auth/register` | `admin` | Register new user account with password policy enforcement |
 | `GET` | `/api/v1/auth/users` | `admin` | List all registered enterprise user accounts |
-| `PATCH` | `/api/v1/auth/users/{username}` | `admin` | Update user status (disable/enable), role, or reset password |
+| `PATCH` | `/api/v1/auth/users/{username}` | `admin` | Update user status (disable/enable), role, document access groups, or reset password |
 | `DELETE` | `/api/v1/auth/users/{username}` | `admin` | Permanently delete a registered user account |
 | `GET` | `/api/v1/stats` | Authenticated | Hardware acceleration, active models, backend info, and index counts |
-| `GET` | `/api/v1/documents` | Authenticated | List uploaded and indexed enterprise documents with chunk stats |
-| `POST` | `/api/v1/upload-file` | `admin`, `editor` | Upload new PDF, DOCX, or TXT document and auto-index into ChromaDB |
+| `GET` | `/api/v1/documents` | Authenticated | List the documents the caller may search, with chunk counts and access groups |
+| `POST` | `/api/v1/upload-file` | `admin`, `editor` | Upload new PDF, DOCX, or TXT document (optionally restricted to user groups) and auto-index into ChromaDB |
 | `DELETE` | `/api/v1/documents/{filename}` | `admin`, `editor` | Permanently delete document from disk and purge chunks from vector store |
-| `GET` | `/api/v1/agents` | Authenticated | List the supervisor (`auto`) and all registered specialist sub-agents |
+| `PUT` | `/api/v1/documents/{filename}/access` | `admin`, `editor` | Restrict a document to user groups, or make it visible to everyone |
+| `GET` | `/api/v1/agents` | Authenticated | List the supervisor (`auto`) and the specialist sub-agents that are currently available |
 | `POST` | `/api/v1/query` | Authenticated | Multi-agent question answering with multi-turn session memory |
 | `POST` | `/api/v1/query-stream` | Authenticated | Same workflow as `/query`, streamed as NDJSON events |
 | `POST` | `/api/v1/feedback` | Authenticated | Submit thumbs-up/down evaluation on agent answers |
+| `GET` | `/api/v1/requests` | Authenticated | List own service requests (staff: all with `all_users=true`) |
+| `POST` | `/api/v1/requests` | Authenticated | File a service request without the chat (form) |
+| `PATCH` | `/api/v1/requests/{request_id}` | Authenticated | Staff change a request's status; requesters cancel their own open requests |
 | `GET` | `/api/v1/database/status` | Authenticated | Database connection status, dialect type, and schema summary |
 | `POST` | `/api/v1/database/test-query` | `admin` | Execute safe read-only SELECT queries |
 | `POST` | `/api/v1/database/sync-table` | `admin` | Convert database table rows into ChromaDB vector chunks |
@@ -32,9 +36,10 @@ The interactive OpenAPI Swagger UI is available at `http://localhost:8000/docs` 
 | `GET` | `/api/v1/admin/audit-stats` | `admin` | Metrics summary (queries, uploads, logins, errors, feedback) |
 | `GET` | `/api/v1/admin/audit-verify` | `admin` | Verify the audit trail hash chain and return its head hash |
 | `POST` | `/api/v1/admin/cleanup-sessions`| `admin` | Prune conversation sessions older than specified age |
-| `POST` | `/api/v1/admin/backup` | `admin` | Create timestamped ChromaDB vector database snapshot |
-| `GET` | `/api/v1/admin/backups` | `admin` | List available ChromaDB backup snapshots |
-| `POST` | `/api/v1/admin/restore` | `admin` | Stage a ChromaDB restore from a snapshot (applied on next restart) |
+| `POST` | `/api/v1/admin/backup` | `admin` | Create a full backup: vector index plus data directory (documents, users, audit log, conversations) |
+| `GET` | `/api/v1/admin/backups` | `admin` | List full and vector-index backups |
+| `POST` | `/api/v1/admin/maintenance/run` | `admin` | Apply the retention periods and take a scheduled backup now (also runs hourly) |
+| `POST` | `/api/v1/admin/restore` | `admin` | Stage a vector index restore from a backup (applied on next restart) |
 | `POST` | `/api/v1/auth/change-password` | Authenticated | Change own password (required after first login with the default password) |
 | `GET` | `/health` | Public | Liveness probe for container healthchecks |
 
@@ -133,7 +138,8 @@ curl -X GET "http://localhost:8000/api/v1/auth/me" \
   "role": "admin",
   "disabled": false,
   "created_at": "2026-09-18T10:00:00",
-  "must_change_password": false
+  "must_change_password": false,
+  "groups": []
 }
 ```
 
@@ -143,6 +149,7 @@ curl -X GET "http://localhost:8000/api/v1/auth/me" \
 Registers a new enterprise user. Restricted to `admin` role.
 
 * **Roles Available:** `admin`, `editor`, `viewer`
+* **`groups`** *(optional)*: document access groups, e.g. `["akademik"]` (1-32 lowercase letters, digits, or underscores; names are lowercased). Viewers can search restricted documents only if they share a group with them.
 * **Password Policy:** Passwords must meet configurable enterprise security rules (minimum 8 characters, uppercase, lowercase, and digit required by default). Violations return HTTP 400 with the list of unmet rules.
 
 ```bash
@@ -152,7 +159,8 @@ curl -X POST "http://localhost:8000/api/v1/auth/register" \
      -d '{
        "username": "jane_analyst",
        "password": "SecurePassword123!",
-       "role": "editor"
+       "role": "viewer",
+       "groups": ["akademik"]
      }'
 ```
 
@@ -160,9 +168,11 @@ curl -X POST "http://localhost:8000/api/v1/auth/register" \
 ```json
 {
   "username": "jane_analyst",
-  "role": "editor",
+  "role": "viewer",
   "disabled": false,
-  "created_at": "2026-09-18T11:20:00"
+  "created_at": "2026-09-18T11:20:00",
+  "must_change_password": false,
+  "groups": ["akademik"]
 }
 ```
 
@@ -179,8 +189,9 @@ curl -X GET "http://localhost:8000/api/v1/auth/users" \
 ---
 
 ### 1.6 Update User (`PATCH /api/v1/auth/users/{username}`)
-Modifies a user's role, status (enable/disable), or resets their password. Restricted to `admin` role.
+Modifies a user's role, status (enable/disable), document access groups, or resets their password. Restricted to `admin` role.
 
+* `groups` replaces the user's groups (`[]` removes all); invalid group names return HTTP 400.
 * New passwords are validated against the password policy (HTTP 400 on violation).
 * Resetting the password or disabling the account revokes all of the user's existing tokens.
 
@@ -189,8 +200,9 @@ curl -X PATCH "http://localhost:8000/api/v1/auth/users/jane_analyst" \
      -H "Authorization: Bearer <token>" \
      -H "Content-Type: application/json" \
      -d '{
-       "role": "admin",
-       "disabled": false
+       "role": "editor",
+       "disabled": false,
+       "groups": ["akademik", "idari"]
      }'
 ```
 
@@ -209,7 +221,7 @@ curl -X DELETE "http://localhost:8000/api/v1/auth/users/jane_analyst" \
 ## 📄 2. Document & System Endpoints
 
 ### 2.1 System Statistics (`GET /api/v1/stats`)
-Returns the embedding and LLM models, whether Ollama is ready (`llm_status`: `"ok"` or a problem with the fix, e.g. `"... Run: ollama pull qwen2.5:7b"`), the retrieval device, and vector collection statistics.
+Returns the embedding and LLM models (answers, routing, grading), whether Ollama is ready (`llm_status`: `"ok"` or a problem with the fix, e.g. `"... Run: ollama pull qwen2.5:7b"`; every configured model must be pulled), the retrieval device, and vector collection statistics. Document counts only include documents the caller may search.
 
 ```bash
 curl -X GET "http://localhost:8000/api/v1/stats" \
@@ -224,6 +236,8 @@ curl -X GET "http://localhost:8000/api/v1/stats" \
   "llm_backend": "ollama",
   "embedding_model": ".../models/bge-m3",
   "llm_model": "qwen2.5:7b",
+  "router_model": "qwen2.5:7b",
+  "grader_model": "qwen2.5:7b",
   "ollama_base_url": "http://localhost:11434",
   "llm_status": "ok",
   "total_chunks": 42,
@@ -246,7 +260,7 @@ curl -X GET "http://localhost:8000/api/v1/stats" \
 ---
 
 ### 2.2 List Documents (`GET /api/v1/documents`)
-Returns file metadata and vector chunk counts for all uploaded files in `data/`.
+Returns file metadata, vector chunk counts, and access groups (`[]`: visible to everyone) for the uploaded files in `data/`. Viewers only see public documents and documents shared with one of their groups; admins and editors see all.
 
 ```bash
 curl -X GET "http://localhost:8000/api/v1/documents" \
@@ -263,7 +277,8 @@ curl -X GET "http://localhost:8000/api/v1/documents" \
       "filename": "NovaTech_Security_Policy.pdf",
       "size_kb": 124.5,
       "chunk_count": 14,
-      "modified_at": "2026-09-18 10:15:22"
+      "modified_at": "2026-09-18 10:15:22",
+      "groups": ["idari"]
     }
   ]
 }
@@ -280,11 +295,13 @@ Accepts multipart file upload, applies contextual chunking, and persists vectors
 * **Security:** Enforces filename sanitization (`os.path.basename`) and prevents path traversal.
 * **Re-upload:** Uploading a file with an existing name replaces the file and its indexed chunks.
 * If no text can be extracted (e.g. a scanned PDF), the file is kept and the response has `"status": "warning"` with `chunk_count: 0`.
+* **`groups`** *(form field, optional)*: comma-separated user groups allowed to search the document, e.g. `idari, akademik`. Empty: visible to everyone. Invalid group names return HTTP 400.
 
 ```bash
 curl -X POST "http://localhost:8000/api/v1/upload-file" \
      -H "Authorization: Bearer <token>" \
-     -F "file=@NovaTech_Security_Policy.pdf"
+     -F "file=@NovaTech_Security_Policy.pdf" \
+     -F "groups=idari"
 ```
 
 **Example Response (HTTP 200):**
@@ -293,7 +310,8 @@ curl -X POST "http://localhost:8000/api/v1/upload-file" \
   "status": "success",
   "message": "'NovaTech_Security_Policy.pdf' successfully uploaded and indexed.",
   "filename": "NovaTech_Security_Policy.pdf",
-  "chunk_count": 14
+  "chunk_count": 14,
+  "groups": ["idari"]
 }
 ```
 
@@ -309,12 +327,34 @@ curl -X DELETE "http://localhost:8000/api/v1/documents/NovaTech_Security_Policy.
      -H "Authorization: Bearer <token>"
 ```
 
+Deleting a document also removes its access groups, so a later upload with the same name starts out public.
+
+---
+
+### 2.5 Set Document Access (`PUT /api/v1/documents/{filename}/access`)
+Restricts an indexed document to user groups, or makes it visible to everyone with an empty list. The chunks are updated in place; groups that lose access are revoked explicitly. The change is audited as `document_access`.
+
+* **Required Role:** `admin` or `editor`
+* HTTP 404 if the document is not indexed, HTTP 400 for invalid group names.
+
+```bash
+curl -X PUT "http://localhost:8000/api/v1/documents/NovaTech_Security_Policy.pdf/access" \
+     -H "Authorization: Bearer <token>" \
+     -H "Content-Type: application/json" \
+     -d '{"groups": ["idari", "akademik"]}'
+```
+
+**Example Response:**
+```json
+{"status": "success", "filename": "NovaTech_Security_Policy.pdf", "groups": ["akademik", "idari"], "updated_chunks": 14}
+```
+
 ---
 
 ## 🤖 3. AI Query Endpoints
 
 ### 3.0 List Agents (`GET /api/v1/agents`)
-Returns the routing options for the `agent` query parameter: `auto` (supervisor routing) plus every registered specialist.
+Returns the routing options for the `agent` query parameter: `auto` (supervisor routing) plus every specialist that is currently available. `db_agent` is only listed when a database is connected.
 
 ```bash
 curl -X GET "http://localhost:8000/api/v1/agents" \
@@ -326,9 +366,10 @@ curl -X GET "http://localhost:8000/api/v1/agents" \
 {
   "agents": [
     {"name": "auto", "display_name": "👑 Auto (Supervisor Orchestrator)", "description": "Automatically analyzes question intent and delegates to the best specialist sub-agent or responds directly.", "version": "2.0.0"},
-    {"name": "doc_agent", "display_name": "Document & Policy RAG Specialist", "description": "Answers questions about what company documents say: policies, procedures, ...", "version": "1.0.0"},
-    {"name": "db_agent", "display_name": "SQL & Database Analyst", "description": "Used for querying structured relational database tables ...", "version": "1.0.0"},
-    {"name": "compliance_agent", "display_name": "Enterprise Compliance Auditor", "description": "Gives a formal verdict [COMPLIANT / WARNING / VIOLATION] on a specific action ...", "version": "1.0.0"}
+    {"name": "doc_agent", "display_name": "Document & Regulation Specialist", "description": "Answers questions about what the organization's documents say: laws, regulations, policies, ...", "version": "1.0.0"},
+    {"name": "db_agent", "display_name": "SQL & Database Analyst", "description": "Answers questions about the data stored in the connected database tables ...", "version": "1.0.0"},
+    {"name": "compliance_agent", "display_name": "Compliance Auditor", "description": "Gives a formal verdict [COMPLIANT / WARNING / VIOLATION] on a specific action ...", "version": "1.0.0"},
+    {"name": "request_agent", "display_name": "Service Request Agent", "description": "Opens a service request / ticket when the user explicitly asks to open, file, or report something ...", "version": "1.0.0"}
   ]
 }
 ```
@@ -336,12 +377,12 @@ curl -X GET "http://localhost:8000/api/v1/agents" \
 ---
 
 ### 3.1 Batch Query (`POST /api/v1/query`)
-Runs the multi-agent LangGraph workflow: the supervisor routes the question to a specialist (or answers greetings directly), the specialist produces the answer, and the turn is saved to the session history. See [Architecture](architecture.md#-multi-agent-workflow-srcagentmulti_agent) for details.
+Runs the multi-agent LangGraph workflow: the supervisor plans one or more specialist steps (or answers greetings directly), the specialists produce the answer (a failing step is handed to another agent once, several answers are combined), and the turn is saved to the session history. Documents are searched with the caller's access groups. See [Architecture](architecture.md#-multi-agent-workflow-srcagentmulti_agent) for details.
 
 * **Request Parameters:**
   * `question` *(string, required)*: The user question (1-4000 characters).
   * `session_id` *(string, optional)*: Up to 64 characters of `[a-zA-Z0-9_-]`. Turns with the same `session_id` share conversation memory, stored per user in `data/multi_agent_conversations.db`. Without it, the query is single-turn and nothing is persisted.
-  * `agent` *(string, optional)*: `auto` (default) for supervisor routing, or a registered agent name from `GET /api/v1/agents` (e.g. `doc_agent`, `db_agent`, `compliance_agent`) to bypass routing. Unknown names fall back to supervisor routing.
+  * `agent` *(string, optional)*: `auto` (default) for supervisor routing, or a registered agent name from `GET /api/v1/agents` (e.g. `doc_agent`, `db_agent`, `compliance_agent`, `request_agent`) to bypass routing. Unknown names fall back to supervisor routing.
 
 ```bash
 curl -X POST "http://localhost:8000/api/v1/query" \
@@ -364,11 +405,13 @@ curl -X POST "http://localhost:8000/api/v1/query" \
       "source": "NovaTech_Security_Policy.pdf",
       "chunk_index": 2,
       "content": "[Document: NovaTech Information Security | CODE: SEC-04]\nClause 3: User passwords must be updated every 90 days...",
+      "page": 2,
       "distance": 0.421,
       "reranker_score": 0.9871
     }
   ],
   "active_agent": "doc_agent",
+  "agents": ["doc_agent"],
   "agent_trace": [
     {"agent": "supervisor", "action": "intent_routing", "target_agent": "doc_agent", "reason": "Question about company policy", "duration_ms": 612, "status": "success", "timestamp": "2026-09-18T10:30:14+00:00"},
     {"agent": "doc_agent", "action": "retrieval_and_generation", "search_query": "workstation password rotation policy", "sources_count": 3, "hallucination_grade": "yes", "is_refined": false, "duration_ms": 2710, "status": "success", "timestamp": "2026-09-18T10:30:17+00:00"}
@@ -378,11 +421,15 @@ curl -X POST "http://localhost:8000/api/v1/query" \
 }
 ```
 
-* **`active_agent`:** the agent that produced the answer (`supervisor` for direct answers).
+* **`active_agent`:** the agent that produced the answer (`supervisor` for direct answers, `multi_agent` when the answers of several agents were combined). **`agents`** lists every agent whose answer is part of the final answer.
+* **Composite questions:** the supervisor may plan up to `MAX_AGENT_STEPS` steps; the trace then contains the plan (`intent_routing` entry with `plan`), one entry per agent, and a `synthesize` entry. If the combined text is not supported by the partial answers, the partial answers are returned one after another.
+* **Handoffs:** when a step fails (for example `db_agent`'s query is rejected, or no database is connected), the question is given to `doc_agent` once; the trace contains a `handoff` entry with `from_agent`, `target_agent`, and `reason`. Database errors are never included in the answer.
+* **Service requests:** asking to open a request (e.g. *"B204'teki projektör çalışmıyor, arıza kaydı açar mısın?"*) makes `request_agent` show a draft and ask for confirmation; the next message *"evet"* files it (see [Service Requests](#-5b-service-request-endpoints)), *"hayır"* or any other message discards it. Without `session_id` the request is filed directly.
+* **`sources[].page` / `page_end`:** PDF page the passage starts on, and the page it ends on if different. Absent for DOCX/TXT files and for documents indexed before page tracking (re-upload them to add pages).
 * **`sources[].reranker_score`:** cross-encoder relevance from 0 to 1. Chunks below `RAG_MIN_RERANKER_SCORE` (default `0.005`) are never used or returned.
-* **Response language:** answers follow the language of the question (Turkish or English; other languages on a best-effort basis with English fixed texts, see [Language Support](language_support.md)); a question without language cues, such as a bare ticket code, inherits the language of the session's earlier questions. The fixed texts below are shown in English; Turkish questions get the Turkish versions (e.g. *"Bu bilgi şirket dokümanlarında bulunmuyor."*). Compliance verdict labels such as `[VIOLATION / PROHIBITED]` stay in English in both languages.
-* **No relevant documents:** if no chunk passes the relevance gate, `doc_agent` answers *"This information is not found in company documents."* with empty `sources`, and `compliance_agent` returns an `[UNDETERMINED]` verdict. The LLM is not called in either case.
-* **`hallucination_grade` / `is_refined`:** set by `doc_agent`'s Self-RAG guard. An unverifiable answer is replaced by *"This information cannot be fully verified against company documents."* Other agents leave `hallucination_grade` empty.
+* **Response language:** answers follow the language of the question (Turkish or English; other languages on a best-effort basis with English fixed texts, see [Language Support](language_support.md)); a question without language cues, such as a bare ticket code, inherits the language of the session's earlier questions. The fixed texts below are shown in English; Turkish questions get the Turkish versions (e.g. *"Bu bilgi kurum dokümanlarında bulunmuyor."*). Compliance verdict labels such as `[VIOLATION / PROHIBITED]` stay in English in both languages.
+* **No relevant documents:** if no chunk passes the relevance gate (among the documents the caller may search), `doc_agent` answers *"This information is not found in the organization's documents."* with empty `sources`, and `compliance_agent` returns an `[UNDETERMINED]` verdict. The LLM is not called in either case.
+* **`hallucination_grade` / `is_refined`:** set by `doc_agent`'s Self-RAG guard. An unverifiable answer is replaced by *"This information cannot be fully verified against the organization's documents."* Other agents leave `hallucination_grade` empty; a combined answer is `yes` only if every graded part passed.
 * **`db_agent` traces** include the executed `sql` and `row_count`.
 * **LLM unavailable:** if Ollama cannot be reached, the request still returns HTTP 200 with a fallback answer (for `doc_agent` the same *"cannot be fully verified"* text). Check `llm_status` in `GET /api/v1/stats` when answers suddenly degrade.
 
@@ -404,13 +451,15 @@ curl -N -X POST "http://localhost:8000/api/v1/query-stream" \
 **Delivered NDJSON Event Sequence (specialist answer):**
 ```json
 {"type": "status", "message": "👑 Supervisor: Analyzing query and routing to the optimal specialist agent...", "node": "supervisor"}
-{"type": "agent_selected", "agent": "doc_agent", "display_name": "Document & Policy RAG Specialist", "reason": "Task delegated to specialist: 'Document & Policy RAG Specialist'."}
-{"type": "status", "message": "🤖 Document & Policy RAG Specialist: Executing specialized task...", "node": "doc_agent"}
+{"type": "agent_selected", "agent": "doc_agent", "display_name": "Document & Regulation Specialist", "reason": "Task delegated to specialist: 'Document & Regulation Specialist'."}
+{"type": "status", "message": "🤖 Document & Regulation Specialist: Executing specialized task...", "node": "doc_agent"}
 {"type": "sources", "sources": [{"source": "IT_Support_Runbook.docx", "chunk_index": 1, "...": "..."}]}
-{"type": "done", "answer": "...", "sources": [], "agent_trace": [], "active_agent": "doc_agent", "hallucination_grade": "yes", "is_refined": false}
+{"type": "done", "answer": "...", "sources": [], "agent_trace": [], "active_agent": "doc_agent", "agents": ["doc_agent"], "hallucination_grade": "yes", "is_refined": false}
 ```
 
 * For greetings answered by the supervisor, `agent_selected` has `"agent": "supervisor"` and no `sources` event is sent.
+* Multi-step plans start with `{"type": "plan", "steps": [{"agent": "...", "question": "..."}]}`; every step sends its own `agent_selected`, `status`, and `sources` events.
+* A handoff sends `{"type": "handoff", "from": "db_agent", "to": "doc_agent", "reason": "..."}` followed by the new agent's `agent_selected` event.
 * On failure, an `{"type": "error", "message": "An internal error occurred while processing the query."}` event is sent before the stream ends.
 * If the client disconnects, processing stops before the next workflow step and the query is audited with status `cancelled`.
 
@@ -625,9 +674,12 @@ Recomputes the SHA-256 hash chain over all audit entries. Editing or deleting a 
   "checked_entries": 1284,
   "unverifiable_legacy_entries": 0,
   "first_invalid_id": null,
-  "head_hash": "3f5c...e91a"
+  "head_hash": "3f5c...e91a",
+  "purged_before": "2026-03-01T00:00:00+00:00"
 }
 ```
+
+`purged_before` is set when the retention policy (`AUDIT_RETENTION_DAYS`) has deleted older entries; verification then starts from the hash of the newest deleted entry, so the remaining chain is still checked end to end.
 
 ---
 
@@ -654,8 +706,8 @@ curl -X POST "http://localhost:8000/api/v1/admin/cleanup-sessions?max_age_days=1
 
 ---
 
-### 5.4 Create Vector Database Backup (`POST /api/v1/admin/backup`)
-Creates a timestamped snapshot of the ChromaDB vector database directory. Index writes are paused while copying.
+### 5.4 Create Full Backup (`POST /api/v1/admin/backup`)
+Creates `backups/full_backup_<timestamp>/` with `vector_db/` (the search index, copied while index writes are paused) and `data/` (documents, `users.json`, audit log, conversation memory, sample database). SQLite databases are copied with the SQLite backup API, so the snapshot is consistent while the server is running. The JWT signing secret is not included. Restoring `data/` requires stopping the server (see [Docker Deployment](docker_deployment.md#-backups--restore)).
 
 * **Required Role:** `admin`
 
@@ -668,15 +720,15 @@ curl -X POST "http://localhost:8000/api/v1/admin/backup" \
 ```json
 {
   "status": "success",
-  "message": "Vector database backup created successfully.",
-  "backup_path": "backups/vector_db_backup_20260925_220000"
+  "message": "Full backup created (vector index, documents, users, audit log, conversations).",
+  "backup_path": "backups/full_backup_20260925_220000"
 }
 ```
 
 ---
 
-### 5.5 List Vector Database Backups (`GET /api/v1/admin/backups`)
-Lists all available ChromaDB backup snapshot archives with timestamp and size metadata.
+### 5.5 List Backups (`GET /api/v1/admin/backups`)
+Lists full backups (`type: "full"`) and vector-index-only backups from earlier versions (`type: "vector_db"`), newest first.
 
 * **Required Role:** `admin`
 
@@ -692,12 +744,14 @@ curl -X GET "http://localhost:8000/api/v1/admin/backups" \
   "count": 2,
   "backups": [
     {
-      "name": "vector_db_backup_20260925_220000",
-      "path": "backups/vector_db_backup_20260925_220000",
+      "name": "full_backup_20260925_220000",
+      "type": "full",
+      "path": "backups/full_backup_20260925_220000",
       "created_at": "2026-09-25T22:00:00+00:00"
     },
     {
       "name": "vector_db_backup_20260924_180000",
+      "type": "vector_db",
       "path": "backups/vector_db_backup_20260924_180000",
       "created_at": "2026-09-24T18:00:00+00:00"
     }
@@ -707,8 +761,8 @@ curl -X GET "http://localhost:8000/api/v1/admin/backups" \
 
 ---
 
-### 5.6 Restore Vector Database (`POST /api/v1/admin/restore`)
-Stages a restore of the ChromaDB vector database from an existing named snapshot. The live database is never modified while the server has it open: the swap is applied on the next server start.
+### 5.6 Restore Vector Index (`POST /api/v1/admin/restore`)
+Stages a restore of the vector index from a backup (for a full backup, its `vector_db/` part). Users, the audit log, conversations, and documents are not changed; restore those by following the [full restore procedure](docker_deployment.md#-backups--restore). The live database is never modified while the server has it open: the swap is applied on the next server start.
 
 > [!CAUTION]
 > After the restart, the restored snapshot completely replaces the active vector database. The replaced database is preserved as `backups/pre_restore_<timestamp>`.
@@ -718,7 +772,7 @@ Stages a restore of the ChromaDB vector database from an existing named snapshot
   * `backup_name` *(string, required)*: Directory name of the backup to restore (from `/api/v1/admin/backups`).
 
 ```bash
-curl -X POST "http://localhost:8000/api/v1/admin/restore?backup_name=vector_db_backup_20260925_220000" \
+curl -X POST "http://localhost:8000/api/v1/admin/restore?backup_name=full_backup_20260925_220000" \
      -H "Authorization: Bearer <admin_token>"
 ```
 
@@ -726,8 +780,78 @@ curl -X POST "http://localhost:8000/api/v1/admin/restore?backup_name=vector_db_b
 ```json
 {
   "status": "success",
-  "message": "Restore from 'vector_db_backup_20260925_220000' staged. Restart the server to apply it."
+  "message": "Restore from 'full_backup_20260925_220000' staged. Restart the server to apply it."
 }
+```
+
+---
+
+### 5.7 Run Maintenance Now (`POST /api/v1/admin/maintenance/run`)
+Applies `AUDIT_RETENTION_DAYS` and `SESSION_RETENTION_DAYS` and creates a full backup if `BACKUP_INTERVAL_HOURS` is set and the last full backup is older than that (then prunes to `BACKUP_KEEP`). The same job runs automatically at startup and every hour; with all settings at their defaults it does nothing. See [Data Protection](data_protection.md).
+
+* **Required Role:** `admin`
+
+```bash
+curl -X POST "http://localhost:8000/api/v1/admin/maintenance/run" \
+     -H "Authorization: Bearer <admin_token>"
+```
+
+**Example Response (HTTP 200):**
+```json
+{
+  "status": "success",
+  "results": {
+    "audit_entries_deleted": 312,
+    "sessions_deleted": 4,
+    "backup_path": "backups/full_backup_20260927_030000",
+    "backups_pruned": 1
+  }
+}
+```
+
+---
+
+## 📝 5b. Service Request Endpoints
+
+Requests are filed through the chat (`request_agent`, after the user confirms the draft) or with the form endpoint below, and stored in `data/requests.db`. Statuses: `open`, `in_progress`, `resolved`, `rejected`, `cancelled`. If `SMTP_HOST` and `REQUEST_NOTIFY_EMAILS` are configured, the unit responsible for the category is e-mailed. All changes are audited (`request_create`, `request_update`).
+
+### 5b.1 List Requests (`GET /api/v1/requests`)
+* **Query parameters:** `status` (optional filter), `all_users` (staff only: everyone's requests), `limit` (1-500, default 50).
+* Viewers always get their own requests. The response also contains the configured `categories`.
+
+```bash
+curl "http://localhost:8000/api/v1/requests?all_users=true&status=open" -H "Authorization: Bearer <token>"
+```
+
+**Example Response:**
+```json
+{
+  "status": "success",
+  "count": 1,
+  "requests": [
+    {"id": 12, "created_at": "2026-09-27T10:02:11+00:00", "updated_at": "2026-09-27T10:02:11+00:00", "username": "ayse",
+     "category": "it_support", "title": "B204 projektör çalışmıyor", "description": "…", "status": "open",
+     "resolution_note": "", "updated_by": null, "notified": true}
+  ],
+  "categories": ["it_support", "facilities", "academic", "administrative", "other"]
+}
+```
+
+### 5b.2 File a Request (`POST /api/v1/requests`)
+* **Body:** `category` (mapped onto `REQUEST_CATEGORIES`; unknown values become `other`), `title` (3-200 characters), `description` (optional). Returns HTTP 201 with the stored request.
+
+```bash
+curl -X POST "http://localhost:8000/api/v1/requests" -H "Authorization: Bearer <token>" -H "Content-Type: application/json" \
+     -d '{"category": "facilities", "title": "Klima çalışmıyor", "description": "A blok 3. kat toplantı odası"}'
+```
+
+### 5b.3 Update a Request (`PATCH /api/v1/requests/{request_id}`)
+* **Body:** `status` and optional `resolution_note`.
+* `admin` and `editor` can set any status. Requesters can only set `cancelled` on their own `open` or `in_progress` request (HTTP 403 otherwise); other users' requests return HTTP 404.
+
+```bash
+curl -X PATCH "http://localhost:8000/api/v1/requests/12" -H "Authorization: Bearer <token>" -H "Content-Type: application/json" \
+     -d '{"status": "resolved", "resolution_note": "Projektör lambası değiştirildi."}'
 ```
 
 ---

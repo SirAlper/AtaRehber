@@ -75,7 +75,7 @@ def test_unsupported_languages_are_mirrored_not_forced_to_english():
 
 
 def test_messages_are_localized_and_english_constants_stay_compatible():
-    assert message("no_context", "tr") == "Bu bilgi şirket dokümanlarında bulunmuyor."
+    assert message("no_context", "tr") == "Bu bilgi kurum dokümanlarında bulunmuyor."
     assert message("no_context", "en") == NO_CONTEXT_RESPONSE
     assert FALLBACK_RESPONSE in message_variants("fallback")
     assert message("db_rows_fallback", "tr", count=3) == "Sorgu başarıyla çalıştı (3 kayıt bulundu):"

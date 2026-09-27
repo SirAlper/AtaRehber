@@ -12,10 +12,11 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from src.auth.dependencies import require_role
 from src.auth.models import User
 from src.core.audit import audit_logger
+from src.api.maintenance import run_maintenance_once
 from src.api.state import (
     BACKUP_DIR,
     cleanup_expired_sessions,
-    backup_vector_db,
+    backup_all,
     is_valid_backup_name,
     restore_vector_db,
     list_backups,
@@ -130,28 +131,47 @@ async def cleanup_sessions(
 # ──────────────────────────── VECTOR DB BACKUP/RESTORE ────────────────────────────
 
 
-@router.post("/backup", summary="Create Vector Database Backup")
+@router.post("/backup", summary="Create Full Backup")
 async def create_backup(current_admin: User = Depends(require_role("admin"))):
-    """Create a timestamped backup of the ChromaDB vector database (Admin only)."""
+    """Create a timestamped full backup: vector index plus data directory (Admin only)."""
     try:
-        backup_path = await asyncio.to_thread(backup_vector_db)
+        backup_path = await asyncio.to_thread(backup_all)
         await audit_logger.alog(
             username=current_admin.username,
             role=current_admin.role,
             action="backup_create",
-            detail=f"Vector database backed up to: {backup_path}",
+            detail=f"Full backup created at: {backup_path}",
             status="success",
         )
         return {
             "status": "success",
-            "message": "Vector database backup created successfully.",
+            "message": "Full backup created (vector index, documents, users, audit log, conversations).",
             "backup_path": backup_path,
         }
-    except FileNotFoundError:
-        raise HTTPException(status_code=404, detail="Vector database directory not found.")
     except Exception:
-        logger.exception("Vector database backup failed")
+        logger.exception("Backup failed")
         raise HTTPException(status_code=500, detail="Backup failed due to an internal error.")
+
+
+@router.post("/maintenance/run", summary="Run Retention Policy and Scheduled Backup Now")
+async def run_maintenance(current_admin: User = Depends(require_role("admin"))):
+    """Apply the configured retention periods and take a backup if one is due (Admin only).
+
+    The same job runs automatically every hour; this endpoint runs it immediately.
+    """
+    try:
+        results = await asyncio.to_thread(run_maintenance_once)
+    except Exception:
+        logger.exception("Maintenance run failed")
+        raise HTTPException(status_code=500, detail="Maintenance failed due to an internal error.")
+    await audit_logger.alog(
+        username=current_admin.username,
+        role=current_admin.role,
+        action="maintenance_run",
+        detail=str(results) if results else "Nothing to do (retention and scheduled backups disabled or not due)",
+        status="success",
+    )
+    return {"status": "success", "results": results}
 
 
 @router.get("/backups", summary="List Available Backups")

@@ -105,7 +105,7 @@ LLM output varies slightly between runs, so treat differences of one or two ques
 | Field | Required | Description |
 | :--- | :---: | :--- |
 | `id` | ✅ | Unique identifier. |
-| `category` | ✅ | `document`, `compliance`, `database`, `greeting`, or `out_of_scope`. |
+| `category` | ✅ | `document`, `compliance`, `database`, `request`, `greeting`, or `out_of_scope`. |
 | `question` | ✅ | The user question. |
 | `expected_agent` | ✅ | Agent name or list of acceptable agents; `supervisor` means a direct answer. |
 | `expected_sources` | | Corpus file names that contain the answer. Required for `document` and `compliance`. |
@@ -113,6 +113,16 @@ LLM output varies slightly between runs, so treat differences of one or two ques
 | `expect_refusal` | | The system should say it does not know. Defaults to `true` for `out_of_scope`. |
 
 The bundled set has 51 questions over six fictional NovaTech policy documents (`evals/corpus/`) and the sample database. The documents deliberately overlap (several numbers, approval rules, and "30 days" appear in more than one document), so retrieval has to pick the right one.
+
+### University dataset (a real law)
+
+`evals/dataset_university.jsonl` has 48 questions over the full text of the Turkish Higher Education Law No. 2547 (`evals/corpus_university/`, about 420,000 characters, 1,000 chunks): 35 document questions (8 of them `-inf-` questions that need a small inference, e.g. whether 4 days of absence fall into the 3–9 day penalty range, and 2 in English), 5 compliance scenarios, 1 service request, 1 greeting, and 6 questions the law does not answer.
+
+```bash
+python -m evals.run_eval --dataset evals/dataset_university.jsonl --corpus evals/corpus_university --stages routing,e2e
+```
+
+Skip the `retrieval` stage for this corpus: it scores every chunk with the cross-encoder for every question (about 40,000 pairs), which takes longer than 45 minutes on a laptop, and with a single document every chunk counts as the right source. Routing and end-to-end use the production path (10 candidates per question) and take about 25 minutes.
 
 ### Using your own documents
 
@@ -148,6 +158,26 @@ On the 13 held-out questions (see below): routing 12/13 and 9/10 correct answers
 Remaining failures:
 * `db-04` filters on `durum = 'çözüldü'`, but the column stores `'Resolved'`. The SQL prompt shows column names, not the values stored in them.
 * `db-10` (a support ticket code) is routed to `doc_agent`, which correctly answers that the information is not in the documents instead of guessing.
+
+### University dataset
+
+Same machine; the model partly ran on the CPU in the second run (only 4.2 of 5.1 GB fit into the GPU next to other applications), so its latency is not comparable. The e2e evaluation asks as a logged-in admin without a session (documents unfiltered, requests filed without the confirmation turn).
+
+| Metric | Before (single agent per question) | Collaborating agents, organization-neutral prompts |
+| :--- | :---: | :---: |
+| Routing accuracy | 93.6% | 97.9% |
+| Answer accuracy | 70.0% | 78.0% |
+| ↳ documents / compliance | 65.7% / 100% | 74.3% / 100% |
+| Answers citing the right document | 95% | 100% |
+| Off-topic questions refused | 83% | 100% |
+| Answerable questions refused | 15% | 15% |
+| Latency p50 / p95 | 7.4 s / 21.8 s | 10.9 s / 46.2 s (partial CPU offload) |
+
+What changed the results:
+* **Routing:** "Rektörlerin yaş haddi kaçtır?" had been answered by the supervisor from general knowledge and "YÖK kaç üyeden oluşur?" went to the demo sales database and showed a raw SQL error. The routing rules now send every question about what a law says to `doc_agent`, and a rejected SQL query is handed to `doc_agent`.
+* **General rule before exceptions:** "Rektör en fazla kaç rektör yardımcısı seçebilir?" was answered with the exception for open-education universities (five) instead of the rule (three); now correct.
+* **Still wrong or refused:** the model still takes the superseded "65 points" from a transitional article for the associate-professor language exam (the article in force says 55), confuses the penalties for cheating (one semester's suspension) and attempted cheating (reprimand) and the grader accepts both mistakes, and the grader rejects six correct answers (15% false refusals). The right article was in the retrieved context in all but one of these cases, so the remaining errors come from the 7B model's reading and grading. Next steps: a stronger grading model (`OLLAMA_GRADER_MODEL`) and article-aware chunking.
+* After switching the router to Ollama's JSON mode, a routing-only run had no malformed routing decisions (before: 2–3 per run, caught by the keyword fallback); the two routing misses left are off-topic questions sent to the demo database, which does not exist with `SAMPLE_DB_ENABLED=false`.
 
 ---
 

@@ -141,7 +141,9 @@ class TestDatabaseRoutingContext(unittest.TestCase):
 class TestComplianceVerdicts(unittest.TestCase):
     def test_prompt_offers_undetermined_verdict(self):
         self.assertIn("[UNDETERMINED]", COMPLIANCE_SYSTEM_PROMPT)
-        self.assertIn("Base the verdict only on the policies above", COMPLIANCE_SYSTEM_PROMPT)
+        self.assertIn("Base the verdict only on the rules above", COMPLIANCE_SYSTEM_PROMPT)
+        # Organization-neutral: no corporate roles such as CISO are suggested
+        self.assertNotIn("CISO", COMPLIANCE_SYSTEM_PROMPT)
 
     def test_no_relevant_policy_means_undetermined_without_llm_call(self):
         llm = MagicMock()
@@ -157,3 +159,29 @@ class TestComplianceVerdicts(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestSourcePages(unittest.TestCase):
+    def test_page_numbers_are_passed_through_to_sources(self):
+        engine = make_engine([("madde 12", 0.7, 0.9), ("madde 13", 0.6, 0.8)])
+        engine.collection.query.return_value["metadatas"] = [
+            [
+                {"source": "yonetmelik.pdf", "chunk_index": 0, "page": 4},
+                {"source": "yonetmelik.pdf", "chunk_index": 1, "page": 4, "page_end": 5},
+            ]
+        ]
+        sources = engine.search("q", min_reranker_score=0.0)["sources"]
+        self.assertEqual(sources[0]["page"], 4)
+        self.assertNotIn("page_end", sources[0])
+        self.assertEqual((sources[1]["page"], sources[1]["page_end"]), (4, 5))
+
+
+class TestNoTelemetry(unittest.TestCase):
+    def test_chroma_client_disables_anonymized_telemetry(self):
+        with (
+            patch("src.rag.rag_engine.SentenceTransformer"),
+            patch("src.rag.rag_engine.CrossEncoder"),
+            patch("src.rag.rag_engine.chromadb.PersistentClient") as client,
+        ):
+            RAGEngine(vector_db_path="unused")
+        self.assertFalse(client.call_args.kwargs["settings"].anonymized_telemetry)
