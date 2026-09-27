@@ -149,22 +149,21 @@ OpenLocalRagAgents/
 ├── data/                  # Documents (PDF, DOCX, TXT), sample DB, audit.db, conversations, requests.db, users.json
 ├── models/                # Local retrieval model weights (BGE-M3, BGE-Reranker); the LLM lives in Ollama
 ├── vector_db/             # ChromaDB persistent vector collection
-├── backups/               # Vector DB snapshots and staged restores
-├── tests/                 # Automated unit, end-to-end, and security test suite
+├── backups/               # Full backups (index + data) and staged index restores
+├── tests/                 # Tests by topic: agents/, rag/, api/, security/, data/, frontend/, quality/, performance/
 ├── evals/                 # Quality evaluation harness (labeled datasets, corpora incl. a university law, run_eval.py)
 │
-├── ui/
-│   └── app.py             # Streamlit enterprise management dashboard, RBAC chat & audit UI
+├── ui/                    # Streamlit UI: app.py (chat), sidebar.py, components.py, api_client.py, session.py, i18n.py
 ├── src/
-│   ├── core/              # Settings, audit logger, document access groups, service requests, e-mail notifier
-│   ├── auth/              # Enterprise JWT handler, user store, password hashing, and RBAC dependencies
-│   ├── rag/               # Contextual document loader and Two-Stage ChromaDB/Reranker engine
-│   ├── agent/             # Single-agent & Multi-Agent workflows, LLM loader, memory, prompts
+│   ├── core/              # Infrastructure: settings (config), logging, hash-chained audit trail
+│   ├── auth/              # JWT tokens, user store, roles, password policy, login throttling, document access groups
+│   ├── rag/               # Document loader (contextual chunks, page numbers) and two-stage retrieval engine
+│   ├── agent/             # LLM access (Ollama), prompts, response language, answer grading
 │   │   └── multi_agent/   # Supervisor (plans), orchestrator (handoffs, synthesis), registry, specialist sub-agents
-│   ├── connectors/        # SQLAlchemy universal database connector and table vectorizer
-│   ├── services/          # Decoupled business logic (DocumentService, DatabaseService)
-│   ├── api/               # Modular FastAPI REST API gateway (routes/, schemas, state)
-│   └── main.py            # Backward-compatible launch entrypoint (uvicorn src.main:app)
+│   ├── connectors/        # Read-only database connector, SQL guard, sample database, table vectorizer
+│   ├── services/          # Documents, databases, backups, service requests, e-mail notifications
+│   ├── api/               # FastAPI app: routes/, schemas, shared state, scheduled maintenance
+│   └── main.py            # Launch target (uvicorn src.main:app)
 ├── docs/                  # Comprehensive Technical Guides (docs/)
 ├── .github/workflows/     # CI: lint, tests (Python 3.12-3.14), PostgreSQL/MySQL integration, Docker builds
 ├── examples/              # Developer examples (custom sub-agents)

@@ -22,7 +22,8 @@ from src.agent.multi_agent.sub_agents.db_agent import DatabaseAgent
 from src.agent.multi_agent.sub_agents.doc_agent import DocumentRagAgent
 from src.agent.multi_agent.supervisor import SupervisorAgent
 from src.agent.prompts import FALLBACK_RESPONSE, NO_CONTEXT_RESPONSE, build_rag_messages, build_refine_messages
-from src.connectors.db_connector import DatabaseConnector, create_sample_sqlite_db
+from src.connectors.db_connector import DatabaseConnector
+from src.connectors.sample_db import create_sample_sqlite_db
 
 
 @pytest.mark.parametrize(

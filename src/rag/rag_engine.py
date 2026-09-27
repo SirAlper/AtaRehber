@@ -12,7 +12,7 @@ from src.core.config import (
     RAG_MIN_SIMILARITY,
     RAG_MIN_RERANKER_SCORE,
 )
-from src.core.document_access import search_filter
+from src.auth.document_access import search_filter
 from src.core.logger import get_logger
 
 logger = get_logger("RAGEngine")

@@ -14,8 +14,8 @@ from src.auth.dependencies import require_role
 from src.auth.models import User
 from src.core import config
 from src.core.audit import audit_logger
-from src.core.notifier import notify_new_request
-from src.core.service_requests import OPEN_STATUSES, get_request_store
+from src.services.notifier import notify_new_request
+from src.services.service_requests import OPEN_STATUSES, get_request_store
 
 router = APIRouter(prefix="/api/v1/requests", tags=["Service Requests"])
 

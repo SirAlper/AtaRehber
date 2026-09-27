@@ -1,11 +1,3 @@
-from src.agent.multi_agent.sub_agents.doc_agent import DocumentRagAgent
-from src.agent.multi_agent.sub_agents.db_agent import DatabaseAgent
-from src.agent.multi_agent.sub_agents.compliance_agent import ComplianceAuditorAgent
-from src.agent.multi_agent.sub_agents.request_agent import ServiceRequestAgent
+"""Built-in specialist agents; importing this package registers them with the agent registry."""
 
-__all__ = [
-    "DocumentRagAgent",
-    "DatabaseAgent",
-    "ComplianceAuditorAgent",
-    "ServiceRequestAgent",
-]
+from src.agent.multi_agent.sub_agents import compliance_agent, db_agent, doc_agent, request_agent  # noqa: F401

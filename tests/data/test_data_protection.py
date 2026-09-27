@@ -11,7 +11,7 @@ from unittest.mock import MagicMock, patch
 
 from fastapi.testclient import TestClient
 
-import src.api.state as state
+from src.services import backups
 from src.api import maintenance
 from src.api.main import app
 from src.auth.jwt_handler import create_access_token
@@ -152,15 +152,14 @@ class TestFullBackup(unittest.TestCase):
             ("VECTOR_DB_PATH", self.vdb),
             ("BACKUP_DIR", self.backups),
             ("PENDING_RESTORE_PATH", os.path.join(self.backups, ".restore_pending")),
-            ("rag_engine", None),
         ):
-            patcher = patch.object(state, name, value)
+            patcher = patch.object(backups, name, value)
             patcher.start()
             self.addCleanup(patcher.stop)
 
     def test_full_backup_contains_index_and_data_but_not_the_secret(self):
-        path = state.backup_all()
-        self.assertTrue(os.path.basename(path).startswith(state.FULL_BACKUP_PREFIX))
+        path = backups.backup_all()
+        self.assertTrue(os.path.basename(path).startswith(backups.FULL_BACKUP_PREFIX))
         self.assertTrue(os.path.isfile(os.path.join(path, "vector_db", "chroma.sqlite3")))
         for rel in ("yonetmelik.pdf", "users.json", os.path.join("archive", "old.txt")):
             self.assertTrue(os.path.isfile(os.path.join(path, "data", rel)), rel)
@@ -171,26 +170,26 @@ class TestFullBackup(unittest.TestCase):
             self.assertEqual(copy.execute("SELECT x FROM t").fetchone()[0], 42)
 
     def test_full_backup_is_listed_and_its_index_can_be_restored(self):
-        path = state.backup_all()
-        listed = state.list_backups()
+        path = backups.backup_all()
+        listed = backups.list_backups()
         self.assertEqual((listed[0]["name"], listed[0]["type"]), (os.path.basename(path), "full"))
-        self.assertTrue(state.is_valid_backup_name(os.path.basename(path)))
+        self.assertTrue(backups.is_valid_backup_name(os.path.basename(path)))
 
-        self.assertTrue(state.restore_vector_db(path))
-        staged = os.listdir(state.PENDING_RESTORE_PATH)
+        self.assertTrue(backups.restore_vector_db(path))
+        staged = os.listdir(backups.PENDING_RESTORE_PATH)
         self.assertEqual(staged, ["chroma.sqlite3"])  # the index only, not the data directory
 
     def test_prune_keeps_the_newest_full_backups(self):
         os.makedirs(self.backups)
         for stamp in ("20260101_000000", "20260102_000000", "20260103_000000"):
-            os.makedirs(os.path.join(self.backups, f"{state.FULL_BACKUP_PREFIX}{stamp}"))
-        os.makedirs(os.path.join(self.backups, f"{state.BACKUP_PREFIX}20260101_000000"))
+            os.makedirs(os.path.join(self.backups, f"{backups.FULL_BACKUP_PREFIX}{stamp}"))
+        os.makedirs(os.path.join(self.backups, f"{backups.BACKUP_PREFIX}20260101_000000"))
 
-        self.assertEqual(state.prune_full_backups(keep=2), 1)
+        self.assertEqual(backups.prune_full_backups(keep=2), 1)
         names = sorted(os.listdir(self.backups))
-        self.assertNotIn(f"{state.FULL_BACKUP_PREFIX}20260101_000000", names)
-        self.assertIn(f"{state.BACKUP_PREFIX}20260101_000000", names)  # vector-only backups untouched
-        self.assertEqual(state.latest_full_backup_time(), datetime(2026, 1, 3, tzinfo=timezone.utc))
+        self.assertNotIn(f"{backups.FULL_BACKUP_PREFIX}20260101_000000", names)
+        self.assertIn(f"{backups.BACKUP_PREFIX}20260101_000000", names)  # vector-only backups untouched
+        self.assertEqual(backups.latest_full_backup_time(), datetime(2026, 1, 3, tzinfo=timezone.utc))
 
     def test_scheduled_maintenance(self):
         audit = MagicMock()
@@ -200,7 +199,7 @@ class TestFullBackup(unittest.TestCase):
             patch.object(config, "AUDIT_RETENTION_DAYS", 180),
             patch.object(config, "SESSION_RETENTION_DAYS", 30),
             patch.object(maintenance, "audit_logger", audit),
-            patch.object(state, "cleanup_expired_sessions", return_value=2) as sessions,
+            patch.object(maintenance, "cleanup_expired_sessions", return_value=2) as sessions,
         ):
             audit.purge_older_than_days.return_value = 5
             first = maintenance.run_maintenance_once()

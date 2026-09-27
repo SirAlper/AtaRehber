@@ -1,4 +1,4 @@
-"""Reranker relevance gate, routing context for the supervisor, and the compliance verdict rules."""
+"""Routing context for the supervisor (live database tables) and the compliance verdict rules."""
 
 import os
 import tempfile
@@ -11,7 +11,8 @@ from src.agent.multi_agent.sub_agents import db_agent as db_agent_module
 from src.agent.multi_agent.sub_agents.compliance_agent import COMPLIANCE_SYSTEM_PROMPT, ComplianceAuditorAgent
 from src.agent.multi_agent.sub_agents.db_agent import DatabaseAgent
 from src.agent.multi_agent.supervisor import SupervisorAgent
-from src.connectors.db_connector import DatabaseConnector, create_sample_sqlite_db
+from src.connectors.db_connector import DatabaseConnector
+from src.connectors.sample_db import create_sample_sqlite_db
 from src.rag.rag_engine import RAGEngine
 
 
@@ -33,26 +34,6 @@ def make_engine(chunks):
         next(score for text, _, score in chunks if text == pair[1]) for pair in pairs
     ]
     return engine
-
-
-class TestRerankerGate(unittest.TestCase):
-    def test_chunks_below_reranker_threshold_are_dropped(self):
-        engine = make_engine([("relevant", 0.6, 0.9), ("weak", 0.55, 0.001)])
-        result = engine.search("q", min_reranker_score=0.005)
-        self.assertEqual([s["content"] for s in result["sources"]], ["relevant"])
-        self.assertEqual(result["context"], "relevant")
-
-    def test_off_topic_question_gets_no_context(self):
-        # High bi-encoder similarity is not enough: the cross-encoder decides relevance
-        engine = make_engine([("parking rules?", 0.59, 0.0036), ("other", 0.5, 0.0003)])
-        self.assertEqual(engine.search("q", min_reranker_score=0.005), {"context": "", "sources": []})
-
-    def test_default_threshold_comes_from_config(self):
-        engine = make_engine([("a", 0.6, 0.02), ("b", 0.6, 0.004)])
-        with patch("src.rag.rag_engine.RAG_MIN_RERANKER_SCORE", 0.01):
-            self.assertEqual([s["content"] for s in engine.search("q")["sources"]], ["a"])
-        with patch("src.rag.rag_engine.RAG_MIN_RERANKER_SCORE", 0.0):
-            self.assertEqual(len(engine.search("q")["sources"]), 2)
 
 
 class ContextAgent(BaseSubAgent):
@@ -155,33 +136,3 @@ class TestComplianceVerdicts(unittest.TestCase):
         self.assertIn("[UNDETERMINED]", result["final_answer"])
         self.assertEqual(result["sources"], [])
         llm.invoke.assert_not_called()
-
-
-if __name__ == "__main__":
-    unittest.main()
-
-
-class TestSourcePages(unittest.TestCase):
-    def test_page_numbers_are_passed_through_to_sources(self):
-        engine = make_engine([("madde 12", 0.7, 0.9), ("madde 13", 0.6, 0.8)])
-        engine.collection.query.return_value["metadatas"] = [
-            [
-                {"source": "yonetmelik.pdf", "chunk_index": 0, "page": 4},
-                {"source": "yonetmelik.pdf", "chunk_index": 1, "page": 4, "page_end": 5},
-            ]
-        ]
-        sources = engine.search("q", min_reranker_score=0.0)["sources"]
-        self.assertEqual(sources[0]["page"], 4)
-        self.assertNotIn("page_end", sources[0])
-        self.assertEqual((sources[1]["page"], sources[1]["page_end"]), (4, 5))
-
-
-class TestNoTelemetry(unittest.TestCase):
-    def test_chroma_client_disables_anonymized_telemetry(self):
-        with (
-            patch("src.rag.rag_engine.SentenceTransformer"),
-            patch("src.rag.rag_engine.CrossEncoder"),
-            patch("src.rag.rag_engine.chromadb.PersistentClient") as client,
-        ):
-            RAGEngine(vector_db_path="unused")
-        self.assertFalse(client.call_args.kwargs["settings"].anonymized_telemetry)

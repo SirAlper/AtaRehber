@@ -60,7 +60,7 @@ The strategic development roadmap for `OpenLocalRagAgents` is structured below t
 - [x] **Universal Relational Database Connector & Text-to-SQL Tools:**
   - SQLAlchemy-based connector layer supporting PostgreSQL, MSSQL, MySQL, Oracle, and SQLite.
   - Token-level read-only query guardrails, database-enforced read-only sessions, row capping (`DB_MAX_ROWS`), and table allowlisting.
-  - Table-to-vector ETL pipeline (`DatabaseTableLoader`) and agent tools (`sql_db_query`, `sql_db_schema`).
+  - Table-to-vector ETL pipeline (`DatabaseTableLoader`).
 - [x] **Multi-Agent Supervisor Teams:**
   - Supervisor pattern routing queries dynamically across specialized agents (`doc_agent`, `db_agent`, `compliance_agent`) with a pluggable registry for custom agents.
 - [x] **Answers in the User's Language:**
@@ -152,14 +152,14 @@ The strategic development roadmap for `OpenLocalRagAgents` is structured below t
 
 > **Priority: Ongoing** — Improvements to maintainability, developer onboarding, and open-source readiness.
 
-- [ ] **Legacy Single-Agent Cleanup:**
-  - Remove the unused `EnterpriseRAGAgent` graph (`agent_graph.py`, `query_service.py`, `tools.py`) and move the grading helpers that `doc_agent` still imports out of `nodes.py`.
+- [x] **Legacy Single-Agent Cleanup:**
+  - Removed the unused `EnterpriseRAGAgent` graph (`agent_graph.py`, `nodes.py`, `query_service.py`, `tools.py`); the grading helpers live in `src/agent/grading.py`. Package `__init__` files no longer import eagerly (torch, the user store), the Streamlit UI and the database connector are split into focused modules, and tests are grouped by topic.
 - [ ] **Explicit LLM-Outage Answers:**
   - When Ollama is unreachable, `doc_agent` returns the "cannot be fully verified" fallback, which reads like a document problem. Return a clear "language model unavailable" message instead.
 - [ ] **Streamlit Multi-Page Refactoring:**
-  - Refactor the monolithic `ui/app.py` into Streamlit multi-page architecture (`pages/` directory) with dedicated pages for Chat, Documents, Database, Audit, and Admin.
+  - `ui/app.py` is split into modules (session, API client, components, sidebar); moving the admin sections to Streamlit pages (`pages/`) is still open.
 - [x] **Specific Exception Handling:**
-  - Replaced broad `except Exception as e` blocks in `nodes.py`, `jwt_handler.py` with specific exception types (`ConnectionError`, `TimeoutError`, `IOError`, `OSError`, `RuntimeError`).
+  - Replaced broad `except Exception as e` blocks in the Self-RAG nodes and `jwt_handler.py` with specific exception types (`ConnectionError`, `TimeoutError`, `IOError`, `OSError`, `RuntimeError`).
 - [ ] **Async Node Migration:**
   - Evaluate and document the sync-to-async migration path for LangGraph agent nodes to eliminate `asyncio.to_thread()` overhead.
 - [x] **Real Database Integration Tests:**

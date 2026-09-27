@@ -1,33 +1,10 @@
-"""OpenLocalRagAgents Package.
+"""OpenLocalRagAgents backend.
 
-Modular Architecture:
-- src.core: System configuration and environment settings
-- src.rag: Contextual document loader and vector search engine
-- src.agent: LLM pipeline, prompts, LangGraph workflow, and query service
-- src.connectors: Universal database connector and table vectorizer
-- src.api: FastAPI REST API gateway
+- src.core: settings, logging, audit trail
+- src.auth: users, tokens, roles, document access groups
+- src.rag: document loading and two-stage retrieval
+- src.agent: LLM access, prompts, languages, and the multi-agent workflow
+- src.connectors: read-only database access
+- src.services: documents, databases, backups, service requests, notifications
+- src.api: FastAPI application
 """
-
-from src.core.config import (
-    BASE_DIR,
-    MODELS_DIR,
-    VECTOR_DB_PATH,
-    DOCS_PATH,
-    EMBEDDING_MODEL_NAME,
-    RERANKER_MODEL_NAME,
-)
-from src.rag.document_loader import DocumentLoader
-from src.rag.rag_engine import RAGEngine
-from src.agent.agent_graph import EnterpriseRAGAgent
-
-__all__ = [
-    "BASE_DIR",
-    "MODELS_DIR",
-    "VECTOR_DB_PATH",
-    "DOCS_PATH",
-    "EMBEDDING_MODEL_NAME",
-    "RERANKER_MODEL_NAME",
-    "DocumentLoader",
-    "RAGEngine",
-    "EnterpriseRAGAgent",
-]

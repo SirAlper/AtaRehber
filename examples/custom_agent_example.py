@@ -7,6 +7,7 @@ register it with the central AgentRegistry, and execute it within the MultiAgent
 Execution:
     python examples/custom_agent_example.py
 """
+
 import os
 import sys
 import time
@@ -21,7 +22,6 @@ if hasattr(sys.stdout, "reconfigure"):
 
 from src.agent.multi_agent.base import BaseSubAgent
 from src.agent.multi_agent.registry import agent_registry, register_agent
-from src.agent.multi_agent.orchestrator_graph import MultiAgentOrchestrator
 
 
 @register_agent
@@ -69,11 +69,13 @@ class CurrencyConverterAgent(BaseSubAgent):
 
         return {
             "final_answer": reply,
-            "sources": [{
-                "source": "Corporate: Central Bank Exchange Rates",
-                "chunk_index": 0,
-                "content": "Daily corporate benchmark exchange rate table.",
-            }],
+            "sources": [
+                {
+                    "source": "Corporate: Central Bank Exchange Rates",
+                    "chunk_index": 0,
+                    "content": "Daily corporate benchmark exchange rate table.",
+                }
+            ],
             "agent_trace": list(state.get("agent_trace", [])) + [trace_entry],
         }
 

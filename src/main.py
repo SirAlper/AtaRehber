@@ -1,15 +1,9 @@
-"""Enterprise Local RAG API Entry Point.
+"""API launch target: `uvicorn src.main:app` or `python -m src.main`."""
 
-Backward compatibility bridge and Uvicorn launch target:
-    uvicorn src.main:app --reload
-or directly via the modular path:
-    uvicorn src.api.main:app --reload
-"""
-
-from src.api.main import app  # noqa: F401  Re-exported as the `uvicorn src.main:app` launch target
+from src.api.main import app  # noqa: F401  (uvicorn loads `app` from this module)
 
 if __name__ == "__main__":
     import uvicorn
 
-    # Use reload=False to avoid re-loading LLM weights into memory on file uploads
+    # reload=False: reloading would load the embedding and reranker models again on every file change
     uvicorn.run("src.main:app", host="0.0.0.0", port=8000, reload=False)

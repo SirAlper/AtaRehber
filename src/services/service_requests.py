@@ -2,7 +2,7 @@
 
 Requests are stored in a local SQLite database (REQUESTS_DB, part of full backups). Staff (admin/editor) work
 them off by changing their status; the requester can follow them and cancel open ones. The responsible unit can
-be notified by e-mail through the organization's own mail server (see src/core/notifier.py).
+be notified by e-mail through the organization's own mail server (see src/services/notifier.py).
 """
 
 import os

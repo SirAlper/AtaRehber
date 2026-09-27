@@ -6,6 +6,14 @@ This document provides a comprehensive log of new features, architectural upgrad
 
 ## 🧭 Unreleased
 
+### Changed: code cleanup and module layout
+* **Removed unused code:** the single-agent Self-RAG graph the API no longer used (`src/agent/agent_graph.py`, `nodes.py`, `query_service.py`), the unused LangChain SQL tools (`src/agent/tools.py`, which opened its own database connection on import), the `src/config.py` bridge, `AgentResponse`, the `tools` attribute of sub-agents, and the vector-only backup function. The grading helpers moved to `src/agent/grading.py`.
+* **No eager package imports:** `src/**/__init__.py` files only document their package. Before, `from src.core import config` loaded torch and created the user store; the test suite now starts in about half the time.
+* **Clearer layout:** `src/core/` holds infrastructure only (settings, logging, audit trail); document access groups moved to `src/auth/document_access.py`; service requests, e-mail notifications, and backups (`src/services/backups.py`, out of `src/api/state.py`) live in `src/services/`. The database connector is split into `db_connector.py`, `sql_guard.py`, and `sample_db.py`.
+* **Web UI split into modules:** `ui/app.py` (chat) plus `sidebar.py`, `components.py`, `api_client.py` (one request helper with token refresh instead of 15 copies of the same error handling), and `session.py`. Fixed: an answer whose grade merely contained "yes" (e.g. "no, not yes") was shown as verified.
+* **Tests by topic:** `tests/agents/`, `rag/`, `api/`, `security/`, `data/`, `frontend/`, `quality/`, `performance/`. Tests of removed code were deleted; the resource profiling tests are opt-in (`RUN_PROFILE_TESTS=1`) and now measure the models rather than the library import.
+* One launch target: `uvicorn src.main:app` (`src/api/main.py` no longer re-exports internal functions).
+
 ### Added: collaborating agents, service requests, document access groups
 * **Several agents per question:** the supervisor returns a plan of up to `MAX_AGENT_STEPS` (default 3) steps, each an agent with its own sub-question. Composite questions run the agents one after another and a `synthesize` step combines their answers; the grading model checks the combined text against the parts and falls back to showing the parts when it adds anything. Results list the contributing agents (`agents`, `active_agent: "multi_agent"`); streaming sends `plan` events.
 * **Handoffs:** an agent can map failure statuses to another agent (`handoff_on`) or request a handoff (`{"handoff": {"to": ...}}`). `db_agent` hands rejected queries, errors, and missing database connections to `doc_agent`, so "YÖK kaç üyeden oluşur?" no longer ends in an SQL error. Limited by `MAX_AGENT_HANDOFFS` (default 1); streaming sends `handoff` events.
@@ -189,9 +197,9 @@ The enterprise web dashboard delivers transparent multi-agent visibility:
 
 ### 6. 🧪 Comprehensive Test Suite
 
-* **[`tests/test_multi_agent.py`](tests/test_multi_agent.py)**:
+* **[`tests/test_multi_agent.py`](tests/agents/test_multi_agent.py)**:
   * Unit tests validating `BaseSubAgent`, `AgentRegistry`, `SupervisorAgent`, state handling, and LangGraph workflow orchestration.
-* **[`tests/test_api_multi_agent.py`](tests/test_api_multi_agent.py)**:
+* **[`tests/test_api_multi_agent.py`](tests/api/test_api_multi_agent.py)**:
   * Integration tests for `/api/v1/agents` authentication, response contracts, supervisor routing, and streaming output.
 
 ---

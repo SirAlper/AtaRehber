@@ -1,3 +1,1 @@
-from src.api.main import app
-
-__all__ = ["app"]
+"""FastAPI application: src.api.main (app), state (shared services), routes/, maintenance."""
