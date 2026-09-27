@@ -75,7 +75,7 @@ def build_engine(corpus_dir: str, work_dir: str):
 
 
 def run_retrieval(engine, cases: List[Dict[str, Any]]) -> Dict[str, Any]:
-    from src.core.config import RAG_MIN_SIMILARITY, RERANKER_TOP_N
+    from src.core.config import RAG_MIN_RERANKER_SCORE, RAG_MIN_SIMILARITY, RERANKER_TOP_N
     from src.rag.rag_engine import distance_to_similarity
 
     total_chunks = engine.collection.count()
@@ -84,7 +84,9 @@ def run_retrieval(engine, cases: List[Dict[str, Any]]) -> Dict[str, Any]:
         if case["category"] not in metrics.RETRIEVAL_CATEGORIES:
             continue
         # Score every chunk once; production selection is then replayed without extra model calls
-        result = engine.search(case["question"], n_results=total_chunks, min_similarity=-2.0, top_n=total_chunks)
+        result = engine.search(
+            case["question"], n_results=total_chunks, min_similarity=-2.0, top_n=total_chunks, min_reranker_score=-1.0
+        )
         candidates = [
             {
                 "source": s["source"],
@@ -95,7 +97,11 @@ def run_retrieval(engine, cases: List[Dict[str, Any]]) -> Dict[str, Any]:
             for s in result["sources"]
         ]
         selected = metrics.select_like_production(
-            candidates, RAG_MIN_SIMILARITY, pool_size=PRODUCTION_POOL_SIZE, top_n=RERANKER_TOP_N
+            candidates,
+            RAG_MIN_SIMILARITY,
+            pool_size=PRODUCTION_POOL_SIZE,
+            top_n=RERANKER_TOP_N,
+            min_reranker_score=RAG_MIN_RERANKER_SCORE,
         )
         unfiltered = metrics.select_like_production(
             candidates, -2.0, pool_size=PRODUCTION_POOL_SIZE, top_n=RERANKER_TOP_N
@@ -129,7 +135,7 @@ def run_retrieval(engine, cases: List[Dict[str, Any]]) -> Dict[str, Any]:
         [r["max_similarity"] for r in out_of_scope if r["max_similarity"] is not None],
         metrics.frange(0.20, 0.70, 0.025),
     )
-    # Same trade-off for the cross-encoder score (not an application setting yet; informs whether one would help)
+    # Same trade-off for the cross-encoder score (RAG_MIN_RERANKER_SCORE)
     reranker_sweep = metrics.threshold_sweep(
         [r["relevant_reranker_score"] for r in in_scope],
         [r["max_reranker_score"] for r in out_of_scope if r["max_reranker_score"] is not None],
@@ -143,6 +149,7 @@ def run_retrieval(engine, cases: List[Dict[str, Any]]) -> Dict[str, Any]:
         "hit_rate_without_threshold": metrics.mean(float(r["hit_without_threshold"]) for r in in_scope),
         "out_of_scope_rejection": metrics.mean(float(r["rejected"]) for r in out_of_scope),
         "min_similarity": RAG_MIN_SIMILARITY,
+        "min_reranker_score": RAG_MIN_RERANKER_SCORE,
         "top_n": RERANKER_TOP_N,
         "recommended_min_similarity": sweep["recommended_threshold"],
         "recommended_min_reranker_score": reranker_sweep["recommended_threshold"],
@@ -167,13 +174,18 @@ def print_retrieval(section: Dict[str, Any]) -> None:
     )
     print(f"  RAG_MIN_SIMILARITY current    : {s['min_similarity']}")
     print(f"  RAG_MIN_SIMILARITY suggested  : {s['recommended_min_similarity']}")
+    print(f"  RAG_MIN_RERANKER_SCORE current: {s['min_reranker_score']}")
+    print(f"  RAG_MIN_RERANKER_SCORE suggested: {s['recommended_min_reranker_score']}")
     misses = [r for r in section["cases"] if r["expected_sources"] and not r["hit"]]
     for r in misses:
         reason = "dropped by threshold" if r["hit_without_threshold"] else "ranked out"
         print(f"  MISS {r['id']:<12} ({reason}; relevant sim={r['relevant_similarity']}) -> {r['retrieved']}")
     leaks = [r for r in section["cases"] if r["category"] == "out_of_scope" and not r["rejected"]]
     for r in leaks:
-        print(f"  LEAK {r['id']:<12} (max sim={r['max_similarity']}) -> {r['retrieved']}")
+        print(
+            f"  LEAK {r['id']:<12} (max sim={r['max_similarity']}, max rerank={r['max_reranker_score']})"
+            f" -> {r['retrieved']}"
+        )
     print("  similarity threshold sweep (in-scope recall / out-of-scope rejection):")
     for row in section["threshold_sweep"]:
         marker = " <- current" if abs(row["threshold"] - s["min_similarity"]) < 1e-6 else ""
@@ -182,7 +194,7 @@ def print_retrieval(section: Dict[str, Any]) -> None:
         )
     print("  reranker score sweep (in-scope recall / out-of-scope rejection):")
     for row in section["reranker_threshold_sweep"]:
-        marker = " <- suggested" if row["threshold"] == s["recommended_min_reranker_score"] else ""
+        marker = " <- current" if abs(row["threshold"] - s["min_reranker_score"]) < 1e-9 else ""
         print(
             f"    {row['threshold']:.3f}  {_fmt(row['in_scope_recall'])} / {_fmt(row['out_of_scope_rejection'])}{marker}"
         )
@@ -391,6 +403,7 @@ def main(argv=None) -> int:
                 if config.LLM_BACKEND == "ollama"
                 else os.path.basename(config.LLM_MODEL_NAME),
                 "rag_min_similarity": config.RAG_MIN_SIMILARITY,
+                "rag_min_reranker_score": config.RAG_MIN_RERANKER_SCORE,
                 "reranker_top_n": config.RERANKER_TOP_N,
                 "chunk_size": config.CHUNK_SIZE,
                 "chunk_overlap": config.CHUNK_OVERLAP,
@@ -400,9 +413,12 @@ def main(argv=None) -> int:
         }
         print(f"Evaluating {len(cases)} cases, stages: {', '.join(args.stages)}")
 
-        print("Indexing corpus...")
-        engine, chunk_count = build_engine(args.corpus, work_dir)
-        report["config"]["corpus_chunks"] = chunk_count
+        # Routing only needs the agents' descriptions, not the vector store
+        engine = None
+        if "retrieval" in args.stages or "e2e" in args.stages:
+            print("Indexing corpus...")
+            engine, chunk_count = build_engine(args.corpus, work_dir)
+            report["config"]["corpus_chunks"] = chunk_count
 
         if "retrieval" in args.stages:
             section = run_retrieval(engine, cases)

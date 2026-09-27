@@ -19,6 +19,8 @@ REFUSAL_MARKERS = (
     "not found in company documents",
     "cannot be fully verified",
     "no written policy",
+    "no relevant policy",
+    "[undetermined]",
     "no matching records",
     "bulunmamaktadır",
     "bulunmuyor",
@@ -85,15 +87,22 @@ def first_relevant_rank(ranked_sources: Sequence[str], expected_sources: Iterabl
 
 
 def select_like_production(
-    candidates: Sequence[Dict[str, Any]], min_similarity: float, pool_size: int, top_n: int
+    candidates: Sequence[Dict[str, Any]],
+    min_similarity: float,
+    pool_size: int,
+    top_n: int,
+    min_reranker_score: Optional[float] = None,
 ) -> List[Dict[str, Any]]:
     """Reproduce RAGEngine.search() selection from fully scored candidates.
 
     candidates: dicts with 'similarity' and 'reranker_score'. Production takes the `pool_size` most
-    similar chunks, drops those below `min_similarity`, reranks the rest and keeps `top_n`.
+    similar chunks, drops those below `min_similarity`, reranks the rest, drops those below
+    `min_reranker_score` (None = no reranker threshold) and keeps `top_n`.
     """
     pool = sorted(candidates, key=lambda c: c["similarity"], reverse=True)[:pool_size]
     kept = [c for c in pool if c["similarity"] >= min_similarity]
+    if min_reranker_score is not None:
+        kept = [c for c in kept if c["reranker_score"] >= min_reranker_score]
     return sorted(kept, key=lambda c: c["reranker_score"], reverse=True)[:top_n]
 
 

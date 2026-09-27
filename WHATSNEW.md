@@ -7,14 +7,18 @@ This document provides a comprehensive log of new features, architectural upgrad
 ## 🧭 Unreleased
 
 ### Added
-* **Evaluation harness (`evals/`):** a labeled set of 38 questions over six policy documents and the sample database, and `python -m evals.run_eval`, which measures retrieval (hit rate, MRR, off-topic rejection, threshold sweeps), supervisor routing, and end-to-end answers (fact accuracy, refusals, Self-RAG grounding, latency). Reports can be compared run to run. See the [Evaluation Guide](docs/evaluation.md).
+* **Evaluation harness (`evals/`):** a labeled set of 51 questions over six policy documents and the sample database, and `python -m evals.run_eval`, which measures retrieval (hit rate, MRR, off-topic rejection, threshold sweeps), supervisor routing, and end-to-end answers (fact accuracy, refusals, Self-RAG grounding, latency). Reports can be compared run to run. See the [Evaluation Guide](docs/evaluation.md).
 * **Database integration tests:** read-only enforcement is tested against real PostgreSQL and MySQL servers in CI.
-* `RAGEngine` accepts `vector_db_path`, and `RAGEngine.search()` accepts `top_n`.
+* `RAGEngine` accepts `vector_db_path`, and `RAGEngine.search()` accepts `top_n` and `min_reranker_score`.
+* **Relevance gate (`RAG_MIN_RERANKER_SCORE`, default `0.005`):** chunks the cross-encoder scores below the threshold are dropped. Off-topic questions now get no context, so `doc_agent` answers "not found" and `compliance_agent` returns `[UNDETERMINED]` instead of inventing an answer or a verdict (off-topic questions refused: 50% → 100% on the evaluation set).
+* **Routing context for sub-agents:** `BaseSubAgent.get_routing_context()` lets an agent add live information to the supervisor prompt. `db_agent` lists the connected tables and columns (cached for 5 minutes), so database questions reach it (database routing: 0% → 70%).
 
 ### Changed
 * **Python 3.12 or newer is required.** CI tests Python 3.12, 3.13, and 3.14, and the Docker images use `python:3.12-slim`. Python 3.10 and 3.11 are no longer supported.
 * PyTorch installation instructions install only `torch`; the project never used `torchvision` or `torchaudio`.
 * CI runs every Python version to completion and reports failing tests as GitHub annotations.
+* **Routing:** narrower `doc_agent` and `compliance_agent` descriptions and ordered supervisor rules. Plain policy questions stay with `doc_agent`, and `compliance_agent` handles verdicts on a described action (overall routing accuracy: 67% → 82%).
+* `compliance_agent` can return `[UNDETERMINED]` when the retrieved policies do not address the scenario, instead of choosing between compliant and violation.
 
 ### Security
 * MySQL/MariaDB sessions are now read-only at session scope (`SET SESSION TRANSACTION READ ONLY`). The previous transaction-scoped mode could be ended by the implicit commit that DDL statements perform. The SQL guard already blocked DDL, so this hardens the second layer only.

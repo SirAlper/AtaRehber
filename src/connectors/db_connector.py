@@ -357,6 +357,19 @@ class DatabaseConnector:
 
         return sorted(tables)
 
+    def get_table_overview(self, max_tables: int = 20, max_columns: int = 12) -> Dict[str, List[str]]:
+        """Return {table: [column names]} for accessible tables; a compact schema for routing prompts."""
+        if not self.is_connected or not self.engine:
+            return {}
+
+        from sqlalchemy import inspect
+
+        inspector = inspect(self.engine)
+        return {
+            table: [col["name"] for col in inspector.get_columns(table)][:max_columns]
+            for table in self.get_tables()[:max_tables]
+        }
+
     def get_schema_summary(self) -> str:
         """Generate schema summary (tables, columns, types) as text for LLM prompts."""
         if not self.is_connected or not self.engine:

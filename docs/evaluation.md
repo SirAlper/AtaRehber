@@ -38,9 +38,9 @@ The harness runs in a temporary directory. It indexes `evals/corpus/` into its o
 | `hit_rate` | Share of answerable questions where a chunk from an expected source is among the chunks passed to the LLM (`RERANKER_TOP_N`). |
 | `mrr` | Mean reciprocal rank of the first relevant chunk (1.0 = always first). |
 | `hit_rate_without_threshold` | Hit rate if `RAG_MIN_SIMILARITY` were disabled. A gap to `hit_rate` means the threshold drops relevant chunks. |
-| `out_of_scope_rejection` | Share of off-topic questions for which no chunk passes the threshold, so `doc_agent` answers "not found" without calling the LLM. |
+| `out_of_scope_rejection` | Share of off-topic questions for which no chunk passes the thresholds, so `doc_agent` answers "not found" without calling the LLM. |
 | `recommended_min_similarity` | From the threshold sweep: the value that keeps the best recall and rejects the most off-topic questions. |
-| `recommended_min_reranker_score` | The same analysis for the cross-encoder score (informational; there is no such setting yet). |
+| `recommended_min_reranker_score` | The same analysis for the cross-encoder score (`RAG_MIN_RERANKER_SCORE`). |
 
 Retrieval scores every chunk once, then replays the production selection (top 10 by similarity → threshold → rerank → top N). The sweeps therefore cost no extra model calls. The `MISS` and `LEAK` lines list the questions that failed and why.
 
@@ -75,7 +75,7 @@ Only changed metrics are printed, for example `retrieval.out_of_scope_rejection 
 Settings are read from the environment, like the application itself, so you can compare configurations without editing code:
 
 ```bash
-RAG_MIN_SIMILARITY=0.5 python -m evals.run_eval
+RAG_MIN_RERANKER_SCORE=0.01 python -m evals.run_eval
 RERANKER_TOP_N=5 CHUNK_SIZE=400 python -m evals.run_eval --stages all
 LLM_BACKEND=ollama OLLAMA_MODEL=qwen2.5:7b python -m evals.run_eval --stages e2e
 ```
@@ -102,7 +102,7 @@ LLM output varies slightly between runs, so treat differences of one or two ques
 | `expected_facts` | | Strings that must appear in the answer. A list inside the list gives alternatives: `[["Salı", "Tuesday"], "10:00"]`. |
 | `expect_refusal` | | The system should say it does not know. Defaults to `true` for `out_of_scope`. |
 
-The bundled set has 38 questions over six fictional NovaTech policy documents (`evals/corpus/`) and the sample database. The documents deliberately overlap (several numbers, approval rules, and "30 days" appear in more than one document), so retrieval has to pick the right one.
+The bundled set has 51 questions over six fictional NovaTech policy documents (`evals/corpus/`) and the sample database. The documents deliberately overlap (several numbers, approval rules, and "30 days" appear in more than one document), so retrieval has to pick the right one.
 
 ### Using your own documents
 
@@ -116,26 +116,34 @@ Keep private datasets and documents out of the repository.
 
 ---
 
-## 📊 Baseline
+## 📊 Results
 
-Default settings, bundled dataset, `qwen2.5-1.5b` (HuggingFace backend) on an RTX 3060 Laptop GPU, embedding and reranker on CPU:
+Default settings, bundled dataset (51 questions), `qwen2.5-1.5b` (HuggingFace backend) on an RTX 3060 Laptop GPU, embedding and reranker on CPU. "Before" is the code before the reranker gate and the routing changes.
 
-| Metric | Value | Notes |
-| :--- | :---: | :--- |
-| Retrieval hit rate / MRR | 100% / 1.00 | The six-document corpus is small; your own documents will be harder. |
-| Off-topic rejection at `RAG_MIN_SIMILARITY=0.325` | 0% | Every off-topic question retrieves chunks. |
-| Suggested `RAG_MIN_SIMILARITY` | 0.50 | 60% rejection, but relevant chunks start dropping at 0.525: thin margin. |
-| Suggested reranker score threshold | 0.01 | 100% rejection with no recall loss: a much clearer separation. |
-| Routing accuracy | 76% | Documents 95%, compliance 40%, **database 0%**. |
-| Answer accuracy | 71% | Documents 95%, compliance 40%, database 0%. |
-| Off-topic questions refused | 60% | `compliance_agent` issued verdicts on off-topic questions. |
-| Latency p50 / p95 | 7.8 s / 26.3 s | Compliance reports are the slowest. |
+| Metric | Before | After |
+| :--- | :---: | :---: |
+| Retrieval hit rate / MRR | 100% / 1.00 | 100% / 1.00 |
+| Off-topic questions that retrieve no context | 0% | **100%** |
+| Routing accuracy | 67% | **82%** |
+| ↳ documents / compliance / database | 91% / 38% / **0%** | 83% / 88% / **70%** |
+| Answer accuracy | 59% | **73%** |
+| ↳ documents / compliance / database | 96% / 25% / 0% | 91% / 63% / 40% |
+| Off-topic questions refused | 50% | **100%** |
+| Answerable questions refused | 17% | 7% |
 
-What this baseline shows:
-1. **Database questions never reach `db_agent`.** The supervisor only sees generic agent descriptions. The 1.5B model does not know that stock or prices live in the database, so it routes them to `doc_agent`.
-2. **The similarity threshold does not reject off-topic questions**, while the reranker score separates them cleanly.
-3. **`compliance_agent` has no grounding check.** With irrelevant context it still returns a verdict (for example `[COMPLIANT]` for a parking question).
-4. The Self-RAG grader passed at least one wrong answer (26 instead of 20 leave days), so grading does not catch reasoning errors over correct context.
+The 13 questions added before tuning (`db-06`–`db-10`, `cmp-06`–`cmp-08`, `oos-06`–`oos-08`, `doc-hr-05`, `doc-kvkk-03`) were not used to choose the prompt wording. On them, routing went from 5/13 to 9/13 and correct answers from 2/10 to 6/10, so the gains are not limited to the questions used during tuning.
+
+What changed and why:
+1. **Relevance gate (`RAG_MIN_RERANKER_SCORE=0.005`).** Bi-encoder similarity could not separate off-topic questions from answerable ones: off-topic questions reached 0.59 while one answerable question scored only 0.48. The cross-encoder score separates them: the highest off-topic score is 0.0036 and the lowest answerable score is 0.0065. The margin is narrow, so re-run the sweep on your own documents before relying on the default. With no context left, `doc_agent` says the information is not in the documents and `compliance_agent` returns `[UNDETERMINED]`, both without calling the LLM. 0.01 would have been too strict: it drops one of the held-out questions.
+2. **Database routing.** `db_agent` now tells the supervisor which tables and columns exist (`get_routing_context()`). Before that, the 1.5B model could not know that stock or prices live in the database.
+3. **Agent descriptions.** Routing depends more on the agents' descriptions than on the supervisor rules. The old `compliance_agent` description ("policies, privacy regulations, HR rules") pulled plain policy questions away from `doc_agent`, and the table list alone made this worse. Narrow descriptions fixed both: rewriting only the rules left routing at 66%, while rewriting the descriptions raised it to 87% on the tuning questions.
+
+Remaining weaknesses, all limits of the 1.5B model rather than of retrieval or routing:
+* `db_agent` reaches the right agent in 70% of cases but answers only 40% correctly. The generated SQL sometimes uses non-existent columns, and summaries misstate numbers (170,000 TL reported as 17,000 TL).
+* A few policy questions phrased with "can"/"must" (`-ebilir`, `-meli`) still go to `compliance_agent`, and "Bu sistem neler yapabilir?" goes to `doc_agent` instead of a direct answer.
+* The Self-RAG grader still passes one wrong answer (26 instead of 20 leave days).
+
+A larger model (for example `LLM_BACKEND=ollama` with `qwen2.5:7b`) is the next thing to measure.
 
 ---
 
