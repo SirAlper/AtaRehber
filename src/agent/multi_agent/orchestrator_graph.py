@@ -12,7 +12,7 @@ from src.agent.multi_agent.base import BaseSubAgent
 from src.agent.multi_agent.state import MultiAgentState
 from src.agent.multi_agent.registry import AgentRegistry, agent_registry
 from src.agent.multi_agent.supervisor import SupervisorAgent
-from src.agent.nodes import is_grade_passed
+from src.agent.grading import is_grade_passed
 from src.agent.prompts import build_grader_messages, build_synthesis_messages
 import src.agent.multi_agent.sub_agents  # noqa: F401  Ensures built-in sub-agents are loaded & registered
 from src.core.config import (

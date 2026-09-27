@@ -211,7 +211,7 @@ ruff check src/ tests/ evals/ ui/
 ruff format --check src/ tests/ evals/ ui/
 ```
 
-Tests run against an isolated temporary data directory (see `tests/conftest.py`) and never touch your `data/` folder. LLM calls are stubbed, so tests do not need Ollama; the memory-profiling tests load the real embedding models and are skipped when the weights have not been downloaded.
+Tests run against an isolated temporary data directory (see `tests/conftest.py`) and never touch your `data/` folder. LLM calls are stubbed, so tests do not need Ollama. Tests are grouped by topic (`tests/agents/`, `rag/`, `api/`, `security/`, `data/`, `frontend/`, `quality/`, `performance/`). The memory-profiling tests in `tests/performance/` load the real embedding models and run only with `RUN_PROFILE_TESTS=1`.
 
 ---
 
@@ -219,12 +219,8 @@ Tests run against an isolated temporary data directory (see `tests/conftest.py`)
 
 ### Backend (FastAPI Gateway):
 ```bash
-# Recommended production launch (without --reload):
-uvicorn src.api.main:app --host 0.0.0.0 --port 8000
-
-# Or via the backward-compatible entry point:
 uvicorn src.main:app --host 0.0.0.0 --port 8000
-python -m src.main
+# or: python -m src.main
 ```
 * **Interactive Swagger Documentation:** `http://localhost:8000/docs`
 

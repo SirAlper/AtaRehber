@@ -88,7 +88,7 @@ Traditional naive RAG implementations rely solely on vector similarity, which fr
 
 Index writes are serialized with a write lock (also used by backups), and per-document chunk statistics are cached and recomputed only after the index changes.
 
-### Document Access Control (`src/core/document_access.py`)
+### Document Access Control (`src/auth/document_access.py`)
 Documents are visible to everyone unless they are restricted to user groups (for example `akademik`, `idari`). The groups of each restricted document are stored in `data/document_access.json` and mirrored into the metadata of its chunks (`acl_public=False`, `acl_<group>=True`), so the vector store filters **before** similarity search and reranking: a user never receives context from a document outside their groups. Chunks without the key (everything indexed before access control existed, and synced database tables) count as public, so no migration is needed. `admin` and `editor` manage documents and search all of them; `viewer` accounts search public documents and those shared with one of their groups, and restricted documents they cannot search are also left out of their document list and statistics. Changing a document's groups updates its chunks in place and explicitly revokes groups that lost access.
 
 ---
@@ -139,7 +139,7 @@ supervisor ──► plan: step 1 ──► step 2 ──► … (≤ MAX_AGENT_
 | **`doc_agent`** | Query rewrite (for follow-ups) → two-stage retrieval → grounded generation → **Self-RAG guard** (below). |
 | **`db_agent`** | Schema inspection → SQL generation (with recent conversation for follow-ups) → first statement extracted with `sqlparse` → guarded read-only execution → LLM summary of the rows. |
 | **`compliance_agent`** | Rule retrieval → structured audit report with a `[COMPLIANT]` / `[WARNING]` / `[VIOLATION]` / `[UNDETERMINED]` verdict. If no rule passes the relevance gate, it returns `[UNDETERMINED]` without calling the LLM; the prompt also requires `[UNDETERMINED]` when the retrieved rules do not address the scenario. The prompt is organization-neutral: it cites articles or policy codes and names approving units only as the documents do. |
-| **`request_agent`** | Service requests: extracts category, title, and details from the message, shows the draft, and files it in `data/requests.db` only after the user replies yes (the draft is kept as `pending_request` in the conversation state; any other message discards it). Without a session there is no next message, so the request is filed directly. Also lists the user's own requests. See [Service Requests](#5b-service-requests-srccoreservice_requests). |
+| **`request_agent`** | Service requests: extracts category, title, and details from the message, shows the draft, and files it in `data/requests.db` only after the user replies yes (the draft is kept as `pending_request` in the conversation state; any other message discards it). Without a session there is no next message, so the request is filed directly. Also lists the user's own requests. See [Service Requests](#5b-service-requests-srcservicesservice_requests). |
 
 `db_agent` does not show database errors to the user (they can reveal schema details); the error stays in the trace and the question is handed to `doc_agent`.
 
@@ -156,9 +156,6 @@ Every agent answers in the language of the question. `response_language()` detec
 4. **Fallback:** if the refined answer still fails, the safe `FALLBACK_RESPONSE` is returned.
 
 The verdict and refinement flag are returned as `hallucination_grade` and `is_refined`.
-
-> [!NOTE]
-> `src/agent/agent_graph.py` (`EnterpriseRAGAgent`) contains the earlier single-agent Self-RAG graph (`rewrite → retrieve → generate → grade → refine/fallback`). It is kept as a library component and covered by tests, but the API does not use it for queries and it is not loaded at startup.
 
 ---
 
@@ -196,7 +193,7 @@ The verdict and refinement flag are returned as `hallucination_grade` and `is_re
   * `admin`: Complete administrative privileges (user management and user groups, ad-hoc SQL, table ETL sync, audit inspection and verification, backup/restore, session cleanup).
   * `editor`: Document management (upload, delete, access groups), working off service requests, and assistant queries.
   * `viewer`: Assistant queries on the documents their groups may see, their own service requests, statistics, and database connection status.
-* **User groups:** accounts carry a list of groups (`groups`, lowercase letters, digits, underscores) that decide which restricted documents a viewer can search (see [Document Access Control](#document-access-control-srccoredocument_accesspy)).
+* **User groups:** accounts carry a list of groups (`groups`, lowercase letters, digits, underscores) that decide which restricted documents a viewer can search (see [Document Access Control](#document-access-control-srcauthdocument_accesspy)).
 
 ### 2. Tamper-Evident Compliance Audit Trail (`src.core.audit`)
 * **Structured SQLite Storage (`data/audit.db`):** Records logins (including failures and lockouts), token refreshes, password changes, queries, stream queries, document uploads/deletions, SQL queries, ETL syncs, feedback, backups, restores, and session cleanups.
@@ -228,17 +225,17 @@ Defense in depth, from application layer to database engine. See [Database Conne
 * **Database-Enforced Read-Only Sessions:** SQLite connections run with `PRAGMA query_only = ON`; PostgreSQL queries run inside read-only transactions and MySQL/MariaDB sessions are read-only at session scope, both with a statement timeout (`DB_QUERY_TIMEOUT_SECONDS`). CI verifies this against real PostgreSQL and MySQL servers. For MSSQL/Oracle, use a SELECT-only database account.
 * **Row Capping:** Result sets are capped at `DB_MAX_ROWS`.
 
-### 5b. Service Requests (`src.core.service_requests`)
+### 5b. Service Requests (`src.services.service_requests`)
 * **Storage:** `data/requests.db` (SQLite, part of full backups) with category, title, description, status (`open`, `in_progress`, `resolved`, `rejected`, `cancelled`), resolution note, and who changed it.
 * **Access:** everyone files requests (through the chat or `POST /api/v1/requests`) and lists their own; staff (`admin`, `editor`) list all and change status; requesters can only cancel their own open requests. Other users' requests answer 404. Every change is audited (`request_create`, `request_update`).
-* **E-mail (`src.core.notifier`):** off unless `SMTP_HOST` is set. New requests are e-mailed through the organization's own mail server to the address configured for the category in `REQUEST_NOTIFY_EMAILS` (or its `default`), never to an address from the conversation or the model. `REQUEST_NOTIFY_INCLUDE_DETAILS=false` sends only the request number and category.
+* **E-mail (`src.services.notifier`):** off unless `SMTP_HOST` is set. New requests are e-mailed through the organization's own mail server to the address configured for the category in `REQUEST_NOTIFY_EMAILS` (or its `default`), never to an address from the conversation or the model. `REQUEST_NOTIFY_INCLUDE_DETAILS=false` sends only the request number and category.
 * **No other side effects:** the assistant has no internet access and no other write actions.
 * **Retention:** `REQUEST_RETENTION_DAYS` deletes closed requests during scheduled maintenance.
 
 ### 6. Conversation Session Retention (`src.agent.multi_agent.sessions`)
 * Admin-triggered cleanup (`POST /api/v1/admin/cleanup-sessions`) reads each thread's latest checkpoint timestamp and deletes threads older than the retention window (default 30 days) with `SqliteSaver.delete_thread()`.
 
-### 7. Backups, Restore & Retention (`src.api.state`, `src.api.maintenance`)
+### 7. Backups, Restore & Retention (`src.services.backups`, `src.api.maintenance`)
 * **Full backups:** `backup_all()` writes `backups/full_backup_<timestamp>/` with the vector index (copied while index writes are paused) and the data directory. SQLite databases are copied with the SQLite backup API, so snapshots taken under load are consistent; the JWT secret is excluded.
 * **Scheduled maintenance:** at startup and then hourly, the API applies `AUDIT_RETENTION_DAYS`, `SESSION_RETENTION_DAYS`, and `REQUEST_RETENTION_DAYS` and takes a full backup when `BACKUP_INTERVAL_HOURS` has passed since the newest one on disk (so restarts do not reset the schedule), keeping `BACKUP_KEEP` backups. Everything is off by default. See [Data Protection](data_protection.md).
 * **Audit retention and the hash chain:** purging stores the hash of the newest deleted entry as the chain anchor (`audit_meta` table) and records the purge as a `retention_purge` entry, so the remaining chain is still verified end to end.

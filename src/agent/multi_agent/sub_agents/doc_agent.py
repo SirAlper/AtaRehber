@@ -5,7 +5,7 @@ from typing import Dict, Any, Optional
 from src.agent.language import message, response_language
 from src.agent.multi_agent.base import BaseSubAgent
 from src.agent.multi_agent.registry import register_agent
-from src.agent.nodes import GRADE_UNAVAILABLE, is_grade_passed
+from src.agent.grading import GRADE_UNAVAILABLE, is_grade_passed
 from src.agent.prompts import (
     build_grader_messages,
     build_rag_messages,

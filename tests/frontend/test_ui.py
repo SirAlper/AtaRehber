@@ -14,7 +14,8 @@ from streamlit.testing.v1 import AppTest  # noqa: E402
 
 from ui.i18n import TEXTS, page_label, translate  # noqa: E402
 
-APP = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "ui", "app.py")
+REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+APP = os.path.join(REPO_ROOT, "ui", "app.py")
 
 
 def placeholders(text):

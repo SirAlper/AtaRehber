@@ -48,7 +48,7 @@ ruff format --check src/ tests/ evals/ ui/
 ```
 Ensure all tests and lint/format checks pass before submitting. Run `ruff format src/ tests/ evals/ ui/` to fix formatting automatically.
 
-`tests/test_db_integration.py` runs only when `TEST_POSTGRES_URL` / `TEST_MYSQL_URL` point at a database server; CI provides both.
+`tests/data/test_db_integration.py` runs only when `TEST_POSTGRES_URL` / `TEST_MYSQL_URL` point at a database server; CI provides both.
 
 ### 6. Measure Retrieval & Answer Quality
 If you change retrieval, chunking, prompts, routing, or an agent, run the evaluation harness before and after the change and include the comparison in your PR:
@@ -67,10 +67,10 @@ The routing and end-to-end stages need Ollama with `OLLAMA_MODEL` pulled. Measur
 
 ## 🧪 Testing Guidelines
 
-- Unit tests go in `tests/` with the naming convention `test_<module>.py`
+- Tests go in the topic folder under `tests/` (`agents/`, `rag/`, `api/`, `security/`, `data/`, `frontend/`, `quality/`, `performance/`) with the naming convention `test_<topic>.py`
 - Use `unittest.mock` for mocking external dependencies (LLM, database, etc.)
 - `tests/conftest.py` points `DATA_DIR` at a temporary directory, so tests never read or modify your real `data/` folder. Do not rely on pre-existing users or documents.
-- For workflow changes, add an end-to-end test that runs the real LangGraph graph with a stubbed chat model (see `tests/test_orchestrator_e2e.py`). Mocking the whole orchestrator hides bugs such as state keys that LangGraph silently drops.
+- For workflow changes, add an end-to-end test that runs the real LangGraph graph with a stubbed chat model (see `tests/agents/test_orchestrator_e2e.py`). Mocking the whole orchestrator hides bugs such as state keys that LangGraph silently drops.
 - Aim for meaningful test coverage, not just line coverage
 
 ---

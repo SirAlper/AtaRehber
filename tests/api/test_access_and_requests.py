@@ -20,8 +20,9 @@ from src.api import maintenance
 from src.api.main import app
 from src.auth.jwt_handler import create_access_token
 from src.auth.user_store import user_store
-from src.core import config, notifier
-from src.core.document_access import (
+from src.core import config
+from src.services import notifier
+from src.auth.document_access import (
     DocumentAccessStore,
     access_metadata,
     allowed_groups_for,
@@ -29,7 +30,7 @@ from src.core.document_access import (
     normalize_groups,
     search_filter,
 )
-from src.core.service_requests import ServiceRequestStore, get_request_store, normalize_category
+from src.services.service_requests import ServiceRequestStore, get_request_store, normalize_category
 from src.rag.rag_engine import RAGEngine
 
 PASSWORD = "Passw0rdX"
@@ -380,7 +381,7 @@ class TestModelsAndMaintenance(unittest.TestCase):
             patch.object(config, "AUDIT_RETENTION_DAYS", 0),
             patch.object(config, "SESSION_RETENTION_DAYS", 0),
             patch.object(config, "BACKUP_INTERVAL_HOURS", 0),
-            patch("src.core.service_requests.get_request_store", return_value=store),
+            patch("src.services.service_requests.get_request_store", return_value=store),
         ):
             self.assertEqual(maintenance.run_maintenance_once(), {"requests_deleted": 2})
         store.purge_closed_older_than_days.assert_called_once_with(30)

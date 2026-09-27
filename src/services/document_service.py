@@ -13,7 +13,7 @@ from fastapi import HTTPException, UploadFile
 from src.agent.llm import check_ollama, grader_model_name, router_model_name
 from src.api.state import get_rag_engine, get_db_connector, get_document_loader
 from src.core.audit import audit_logger
-from src.core.document_access import access_metadata, document_access_store, normalize_groups
+from src.auth.document_access import access_metadata, document_access_store, normalize_groups
 from src.core.config import (
     DOCS_PATH,
     EMBEDDING_MODEL_NAME,

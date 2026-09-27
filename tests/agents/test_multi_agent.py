@@ -4,7 +4,6 @@ from langgraph.checkpoint.memory import MemorySaver
 
 from src.agent.multi_agent.base import BaseSubAgent
 from src.agent.multi_agent.registry import AgentRegistry
-from src.agent.multi_agent.state import AgentResponse
 from src.agent.multi_agent.supervisor import SupervisorAgent
 from src.agent.multi_agent.orchestrator_graph import MultiAgentOrchestrator
 
@@ -81,12 +80,6 @@ class TestMultiAgentCore(unittest.TestCase):
         self.assertTrue(self.registry.unregister("mock_agent"))
         self.assertIsNone(self.registry.get("mock_agent"))
         self.assertFalse(self.registry.unregister("non_existent"))
-
-    def test_agent_response_model(self):
-        resp = AgentResponse(content="Başarılı yanıt", sources=[{"source": "doc.pdf"}])
-        self.assertEqual(resp.content, "Başarılı yanıt")
-        self.assertEqual(len(resp.sources), 1)
-        self.assertEqual(resp.metadata, {})
 
 
 class TestSupervisorAndOrchestrator(unittest.TestCase):

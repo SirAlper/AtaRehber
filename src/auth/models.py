@@ -14,7 +14,7 @@ class User(BaseModel):
     # Incremented whenever credentials change; tokens carrying an older version are rejected
     token_version: int = 0
     must_change_password: bool = False
-    # Groups for document-level access control (e.g. "akademik", "idari"); see src/core/document_access.py
+    # Groups for document-level access control (e.g. "akademik", "idari"); see src/auth/document_access.py
     groups: List[str] = Field(default_factory=list)
 
 

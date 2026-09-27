@@ -210,7 +210,8 @@ def build_registry(engine, work_dir: str):
     from src.agent.multi_agent.sub_agents.db_agent import DatabaseAgent
     from src.agent.multi_agent.sub_agents.doc_agent import DocumentRagAgent
     from src.agent.multi_agent.sub_agents.request_agent import ServiceRequestAgent
-    from src.connectors.db_connector import DatabaseConnector, create_sample_sqlite_db
+    from src.connectors.db_connector import DatabaseConnector
+    from src.connectors.sample_db import create_sample_sqlite_db
 
     db_path = create_sample_sqlite_db(os.path.join(work_dir, "sample_enterprise.db"))
     connector = DatabaseConnector(database_url=f"sqlite:///{db_path}", allowed_tables=[])
@@ -257,7 +258,7 @@ def run_e2e(chat_model, registry, cases: List[Dict[str, Any]]) -> Dict[str, Any]
     from langgraph.checkpoint.memory import MemorySaver
 
     from src.agent.multi_agent.orchestrator_graph import MultiAgentOrchestrator
-    from src.agent.nodes import is_grade_passed
+    from src.agent.grading import is_grade_passed
     from src.agent.language import detect_language, message_variants
 
     orchestrator = MultiAgentOrchestrator(chat_model=chat_model, registry=registry, checkpointer=MemorySaver())

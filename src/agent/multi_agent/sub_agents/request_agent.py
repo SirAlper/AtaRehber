@@ -25,8 +25,8 @@ from src.agent.prompts import ORGANIZATION
 from src.core import config
 from src.core.audit import audit_logger
 from src.core.logger import get_logger
-from src.core.notifier import notify_new_request
-from src.core.service_requests import get_request_store, normalize_category
+from src.services.notifier import notify_new_request
+from src.services.service_requests import get_request_store, normalize_category
 
 logger = get_logger("MultiAgent.RequestAgent")
 

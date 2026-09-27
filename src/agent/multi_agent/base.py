@@ -1,7 +1,6 @@
 from abc import ABC, abstractmethod
 from typing import List, Dict, Any, Optional
-from langchain_core.tools import BaseTool
-from src.core.document_access import allowed_groups_for
+from src.auth.document_access import allowed_groups_for
 from src.core.logger import get_logger
 
 logger = get_logger("MultiAgent.Base")
@@ -21,15 +20,10 @@ class BaseSubAgent(ABC):
     name: str = ""
     display_name: str = ""
     description: str = ""
-    tools: List[BaseTool] = []
     handoff_on: Dict[str, str] = {}
 
-    def __init__(self, chat_model=None, tools: Optional[List[BaseTool]] = None):
+    def __init__(self, chat_model=None):
         self._chat_model = chat_model
-        if tools is not None:
-            self.tools = tools
-        elif not hasattr(self, "tools"):
-            self.tools = []
 
     @property
     def chat_model(self):

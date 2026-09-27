@@ -110,7 +110,7 @@ jobs:
 
       - name: Run read-only enforcement tests against real databases
         # -rs lists skipped tests, so a missing server shows up in the log instead of passing silently
-        run: pytest tests/test_db_integration.py -v -rs
+        run: pytest tests/data/test_db_integration.py -v -rs
         env:
           TEST_POSTGRES_URL: postgresql+psycopg2://postgres:postgres@localhost:5432/olra_test
           TEST_MYSQL_URL: mysql+pymysql://root:root@127.0.0.1:3306/olra_test

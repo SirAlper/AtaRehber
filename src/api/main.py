@@ -12,18 +12,7 @@ from fastapi.responses import JSONResponse
 from src.auth.jwt_handler import decode_access_token
 from src.core.config import CORS_ORIGINS, RATE_LIMIT_PER_MINUTE
 from src.core.logger import get_logger
-from src.api.state import (
-    init_services,
-    cleanup_services,
-    get_rag_engine,
-    get_agent,
-    get_chat_model,
-    get_multi_agent_orchestrator,
-    get_document_loader,
-    get_db_connector,
-    get_db_loader,
-    auto_index_on_startup,
-)
+from src.api.state import cleanup_services, init_services
 from src.api.routes import (
     documents_router,
     query_router,
@@ -146,21 +135,3 @@ app.include_router(documents_router)
 app.include_router(query_router)
 app.include_router(database_router)
 app.include_router(requests_router)
-
-__all__ = [
-    "app",
-    "get_rag_engine",
-    "get_agent",
-    "get_chat_model",
-    "get_multi_agent_orchestrator",
-    "get_document_loader",
-    "get_db_connector",
-    "get_db_loader",
-    "auto_index_on_startup",
-]
-
-if __name__ == "__main__":
-    import uvicorn
-
-    # reload=False: reloading would re-load the embedding and reranker models on every file change
-    uvicorn.run("src.api.main:app", host="0.0.0.0", port=8000, reload=False)

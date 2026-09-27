@@ -1,7 +1,8 @@
 import os
 import tempfile
 import unittest
-from src.connectors.db_connector import DatabaseConnector, create_sample_sqlite_db
+from src.connectors.db_connector import DatabaseConnector
+from src.connectors.sample_db import create_sample_sqlite_db
 from src.connectors.db_loader import DatabaseTableLoader
 
 

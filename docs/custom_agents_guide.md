@@ -229,7 +229,7 @@ agent_registry.unregister("my_custom_agent")
    * Agents that change something (file a request, send a message) should confirm first, like `request_agent`: return a draft, keep it in a declared state key that `_turn_input` does not reset, and act only on the user's next "yes". Never send data to addresses or systems taken from the conversation.
 
 8. **Database Access:**
-   * Query databases through `DatabaseConnector.execute_query()` (or the `sql_db_query` tool) so the read-only guard applies. Get the shared connector with `src.api.state.get_db_connector()`.
+   * Query databases through `DatabaseConnector.execute_query()` so the read-only guard applies. Get the shared connector with `src.api.state.get_db_connector()`.
 
 9. **Answer in the User's Language:**
    * Call `response_language(question, chat_history)` from `src.agent.language` and append `language_instruction(language)` to your system prompt; naming the language explicitly works better than "answer in the user's language".
@@ -263,4 +263,4 @@ if __name__ == "__main__":
     unittest.main()
 ```
 
-To test routing and memory end to end, build a `MultiAgentOrchestrator` with your own `AgentRegistry`, a mock chat model, and a `MemorySaver` checkpointer. See `tests/test_orchestrator_e2e.py` for examples.
+To test routing and memory end to end, build a `MultiAgentOrchestrator` with your own `AgentRegistry`, a mock chat model, and a `MemorySaver` checkpointer. See `tests/agents/test_orchestrator_e2e.py` for examples.

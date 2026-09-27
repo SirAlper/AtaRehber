@@ -13,14 +13,9 @@ from src.auth.dependencies import require_role
 from src.auth.models import User
 from src.core.audit import audit_logger
 from src.api.maintenance import run_maintenance_once
-from src.api.state import (
-    BACKUP_DIR,
-    cleanup_expired_sessions,
-    backup_all,
-    is_valid_backup_name,
-    restore_vector_db,
-    list_backups,
-)
+from src.agent.multi_agent.sessions import cleanup_expired_sessions
+from src.api.state import index_write_lock
+from src.services.backups import BACKUP_DIR, backup_all, is_valid_backup_name, list_backups, restore_vector_db
 from src.core.logger import get_logger
 
 logger = get_logger("API.Admin")
@@ -135,7 +130,7 @@ async def cleanup_sessions(
 async def create_backup(current_admin: User = Depends(require_role("admin"))):
     """Create a timestamped full backup: vector index plus data directory (Admin only)."""
     try:
-        backup_path = await asyncio.to_thread(backup_all)
+        backup_path = await asyncio.to_thread(backup_all, write_lock=index_write_lock())
         await audit_logger.alog(
             username=current_admin.username,
             role=current_admin.role,

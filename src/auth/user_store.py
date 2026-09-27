@@ -6,7 +6,7 @@ from typing import Dict, List, Optional
 import bcrypt
 
 from src.auth.models import User, UserResponse, UserRole
-from src.core.document_access import normalize_groups
+from src.auth.document_access import normalize_groups
 from src.core.config import (
     USERS_FILE_PATH,
     ADMIN_DEFAULT_USERNAME,

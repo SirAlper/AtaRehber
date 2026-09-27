@@ -17,7 +17,8 @@ from src.auth.jwt_handler import (
 )
 from src.auth.login_throttle import login_throttle
 from src.auth.user_store import user_store
-from src.connectors.db_connector import DatabaseConnector, create_sample_sqlite_db
+from src.connectors.db_connector import DatabaseConnector
+from src.connectors.sample_db import create_sample_sqlite_db
 from src.connectors.db_loader import DatabaseTableLoader, table_source_name
 from src.core.audit import AuditLogger
 

@@ -16,7 +16,7 @@ from src.agent.multi_agent.orchestrator_graph import MULTI_AGENT, MultiAgentOrch
 from src.agent.multi_agent.registry import AgentRegistry
 from src.agent.multi_agent.sub_agents.request_agent import ServiceRequestAgent
 from src.agent.multi_agent.supervisor import SupervisorAgent
-from src.core.service_requests import ServiceRequestStore
+from src.services.service_requests import ServiceRequestStore
 
 REQUEST_DRAFT = {"action": "create", "category": "it_support", "title": "Projektör çalışmıyor", "description": "B204"}
 

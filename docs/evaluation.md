@@ -215,12 +215,12 @@ The `language_match_rate` metric showed that only 32 of 51 Turkish questions (63
 
 ## 🗄️ Database Integration Tests
 
-The read-only guarantees for PostgreSQL and MySQL are tested against real servers in `tests/test_db_integration.py`. The tests bypass the SQL guard on purpose and check that the database itself rejects `INSERT`, `UPDATE`, `DELETE`, `DROP`, and data-modifying CTEs, and that the statement timeout stops long queries. CI runs them against PostgreSQL 16 and MySQL 8.4 service containers. Locally they are skipped unless you point them at a server:
+The read-only guarantees for PostgreSQL and MySQL are tested against real servers in `tests/data/test_db_integration.py`. The tests bypass the SQL guard on purpose and check that the database itself rejects `INSERT`, `UPDATE`, `DELETE`, `DROP`, and data-modifying CTEs, and that the statement timeout stops long queries. CI runs them against PostgreSQL 16 and MySQL 8.4 service containers. Locally they are skipped unless you point them at a server:
 
 ```bash
 TEST_POSTGRES_URL=postgresql+psycopg2://postgres:postgres@localhost:5432/olra_test \
 TEST_MYSQL_URL=mysql+pymysql://root:root@localhost:3306/olra_test \
-pytest tests/test_db_integration.py -v
+pytest tests/data/test_db_integration.py -v
 ```
 
 Use a disposable database: the tests create and drop a table named `it_items`.

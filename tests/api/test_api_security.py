@@ -2,7 +2,8 @@ import os
 import io
 import unittest
 from fastapi.testclient import TestClient
-from src.api.main import app, get_rag_engine
+from src.api.main import app
+from src.api.state import get_rag_engine
 from src.core.config import DOCS_PATH
 
 
