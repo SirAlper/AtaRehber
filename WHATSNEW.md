@@ -6,6 +6,14 @@ This document provides a comprehensive log of new features, architectural upgrad
 
 ## 🧭 Unreleased
 
+### Added: pilot readiness
+* **HTTPS:** `docker-compose.https.yml` adds an nginx reverse proxy (TLS, HSTS, security headers, WebSocket and streaming support) and stops publishing the backend and UI ports. CI validates the nginx configuration and the compose overrides.
+* **Retention (KVKK/GDPR):** `AUDIT_RETENTION_DAYS` and `SESSION_RETENTION_DAYS` delete old audit entries and conversations hourly. The audit hash chain stays verifiable after a purge (chain anchor), and each purge is logged. `AUDIT_STORE_QUESTIONS=false` keeps question text, answer previews, and feedback comments out of the audit log. New page: [Data Protection](docs/data_protection.md).
+* **Full backups:** `POST /api/v1/admin/backup` now backs up the data directory (documents, users, audit log, conversations) together with the vector index, using the SQLite backup API for consistent copies. `BACKUP_INTERVAL_HOURS` / `BACKUP_KEEP` schedule them; `POST /api/v1/admin/maintenance/run` runs retention and backups on demand.
+* **Web UI in Turkish and English:** Turkish by default (`UI_LANGUAGE`), switchable in the sidebar, with an AI disclaimer above the chat (`UI_DISCLAIMER` to customize). The agent trace now shows the SQL of `db_agent` queries (it looked for a field that does not exist).
+* **Page numbers in citations:** PDF chunks record the page they start and end on; sources carry `page` / `page_end` and the UI shows them (e.g. "s. 4–5"). Re-upload existing PDFs to add page numbers.
+* **No telemetry:** ChromaDB's anonymized telemetry (sent to an external analytics service by default) is disabled, and Streamlit usage statistics are disabled for local runs as well.
+
 ### Fixed: answers in the user's language
 * Every agent now answers in the language of the question (Turkish or English). Before, only 63% of the Turkish evaluation questions got a Turkish answer: "not found" and fallback texts, the greeting, and database/compliance error messages were hard-coded in English, and `db_agent` summaries and compliance reports often switched to English, especially in follow-up questions. Now 100% match.
 * New module `src/agent/language.py`: `response_language()` detects the language (a question without language cues, such as a ticket code, inherits the session's language), `language_instruction()` pins it in prompts, and `message()` returns the fixed texts in Turkish or English. The English constants `NO_CONTEXT_RESPONSE` / `FALLBACK_RESPONSE` remain for compatibility.

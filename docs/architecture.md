@@ -197,7 +197,11 @@ The verdict and refinement flag are returned as `hallucination_grade` and `is_re
 * **Concurrency:** Queries are capped by `asyncio.Semaphore(OLLAMA_NUM_PARALLEL)`. Match it to the server's own `OLLAMA_NUM_PARALLEL` setting.
 * **Model choice is measured:** on the evaluation set, `qwen2.5:7b` answers 95% of the questions correctly versus 73% for the previous in-process 1.5B model (see [Evaluation](evaluation.md#-current-results)).
 
-### 4. File Upload Hardening & Path Traversal Prevention
+### 4. Transport Security & Telemetry
+* **HTTPS:** `docker-compose.https.yml` puts an nginx reverse proxy with TLS, HSTS, and security headers in front of the UI and API and stops publishing the backend and UI ports ([Docker Deployment](docker_deployment.md#-https-reverse-proxy)).
+* **No telemetry:** ChromaDB's anonymized telemetry is disabled in code, Streamlit usage statistics are disabled (`.streamlit/config.toml`, and an environment variable in the Docker image), and the Hugging Face Hub runs in offline mode once the models are downloaded.
+
+### 4b. File Upload Hardening & Path Traversal Prevention
 * **Path Traversal Protection:** `os.path.basename()` sanitization plus a canonical-path containment check (`os.path.commonpath`) against the data directory.
 * **Extension Whitelist:** Uploads are restricted to `.pdf`, `.docx`, and `.txt`. Other files (`.exe`, `.sh`, `.py`, …) are rejected with HTTP 400.
 * **Streaming Size Limit:** Uploads are written in 1 MB chunks up to `MAX_UPLOAD_SIZE_MB` (default 50). Oversized uploads are deleted and return HTTP 413.
@@ -212,9 +216,11 @@ Defense in depth, from application layer to database engine. See [Database Conne
 ### 6. Conversation Session Retention (`src.agent.multi_agent.sessions`)
 * Admin-triggered cleanup (`POST /api/v1/admin/cleanup-sessions`) reads each thread's latest checkpoint timestamp and deletes threads older than the retention window (default 30 days) with `SqliteSaver.delete_thread()`.
 
-### 7. Vector Database Backup & Restore (`src.api.state`)
-* **Snapshots:** `backup_vector_db()` copies the ChromaDB directory to `backups/vector_db_backup_<timestamp>` while index writes are paused.
-* **Staged Restore:** `restore_vector_db()` copies the chosen snapshot to `vector_db.restore_pending` and never touches the open database. On the next startup, `apply_pending_restore()` moves the current database to `backups/pre_restore_<timestamp>` and swaps the snapshot in before ChromaDB is opened.
+### 7. Backups, Restore & Retention (`src.api.state`, `src.api.maintenance`)
+* **Full backups:** `backup_all()` writes `backups/full_backup_<timestamp>/` with the vector index (copied while index writes are paused) and the data directory. SQLite databases are copied with the SQLite backup API, so snapshots taken under load are consistent; the JWT secret is excluded.
+* **Scheduled maintenance:** at startup and then hourly, the API applies `AUDIT_RETENTION_DAYS` and `SESSION_RETENTION_DAYS` and takes a full backup when `BACKUP_INTERVAL_HOURS` has passed since the newest one on disk (so restarts do not reset the schedule), keeping `BACKUP_KEEP` backups. Everything is off by default. See [Data Protection](data_protection.md).
+* **Audit retention and the hash chain:** purging stores the hash of the newest deleted entry as the chain anchor (`audit_meta` table) and records the purge as a `retention_purge` entry, so the remaining chain is still verified end to end.
+* **Staged Restore (index only):** `restore_vector_db()` copies the chosen snapshot (for full backups its `vector_db/` part) to `vector_db.restore_pending` and never touches the open database. On the next startup, `apply_pending_restore()` moves the current database to `backups/pre_restore_<timestamp>` and swaps the snapshot in before ChromaDB is opened.
 * **Name Validation:** Only plain backup directory names created by the backup endpoint are accepted.
 
 ### 8. Rate Limiting & DoS Protection

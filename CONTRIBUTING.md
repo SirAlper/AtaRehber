@@ -43,10 +43,10 @@ pytest tests/ -v
 pytest --cov=src --cov-report=term-missing
 
 # Check linting and formatting (same commands as CI; settings in ruff.toml):
-ruff check src/ tests/ evals/
-ruff format --check src/ tests/ evals/
+ruff check src/ tests/ evals/ ui/
+ruff format --check src/ tests/ evals/ ui/
 ```
-Ensure all tests and lint/format checks pass before submitting. Run `ruff format src/ tests/ evals/` to fix formatting automatically.
+Ensure all tests and lint/format checks pass before submitting. Run `ruff format src/ tests/ evals/ ui/` to fix formatting automatically.
 
 `tests/test_db_integration.py` runs only when `TEST_POSTGRES_URL` / `TEST_MYSQL_URL` point at a database server; CI provides both.
 

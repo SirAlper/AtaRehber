@@ -122,6 +122,17 @@ RAG_MIN_RERANKER_SCORE=0.005
 # ─── Conversation Memory ───
 CHAT_HISTORY_MAX_TURNS=20
 
+# ─── Data Protection & Backups (see docs/data_protection.md) ───
+AUDIT_STORE_QUESTIONS=true
+AUDIT_RETENTION_DAYS=0
+SESSION_RETENTION_DAYS=0
+BACKUP_INTERVAL_HOURS=0
+BACKUP_KEEP=7
+
+# ─── Web UI ───
+UI_LANGUAGE=tr
+# UI_DISCLAIMER=Answers are AI-generated. For official information contact the Registrar's Office.
+
 # ─── Logging Settings ───
 LOG_LEVEL=INFO
 LOG_FILE=app.log
@@ -173,8 +184,8 @@ pytest tests/ -v
 pytest tests/ --cov=src --cov-report=term-missing
 
 # Lint and formatting checks (same as CI; settings in ruff.toml):
-ruff check src/ tests/ evals/
-ruff format --check src/ tests/ evals/
+ruff check src/ tests/ evals/ ui/
+ruff format --check src/ tests/ evals/ ui/
 ```
 
 Tests run against an isolated temporary data directory (see `tests/conftest.py`) and never touch your `data/` folder. LLM calls are stubbed, so tests do not need Ollama; the memory-profiling tests load the real embedding models and are skipped when the weights have not been downloaded.

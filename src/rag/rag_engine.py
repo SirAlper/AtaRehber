@@ -53,7 +53,11 @@ class RAGEngine:
 
         logger.info("Initializing local vector store (ChromaDB)...")
         # vector_db_path lets tools such as the evaluation harness use an isolated store
-        self.client = chromadb.PersistentClient(path=vector_db_path or VECTOR_DB_PATH)
+        # anonymized_telemetry=False: ChromaDB otherwise sends usage events to an external analytics service
+        self.client = chromadb.PersistentClient(
+            path=vector_db_path or VECTOR_DB_PATH,
+            settings=chromadb.config.Settings(anonymized_telemetry=False),
+        )
         # New collections use cosine distance; existing collections keep the metric they were created with
         self.collection = self.client.get_or_create_collection(
             name="enterprise_docs",
@@ -205,15 +209,19 @@ class RAGEngine:
         sources = []
         for c in top_candidates:
             filtered_docs.append(c["doc_text"])
-            meta = c["meta"]
-            sources.append(
-                {
-                    "source": meta.get("source", "Unknown Document") if meta else "Unknown Document",
-                    "chunk_index": meta.get("chunk_index", 0) if meta else 0,
-                    "content": c["doc_text"],
-                    "distance": c["distance"],
-                    "reranker_score": c["reranker_score"],
-                }
-            )
+            meta = c["meta"] or {}
+            source = {
+                "source": meta.get("source", "Unknown Document"),
+                "chunk_index": meta.get("chunk_index", 0),
+                "content": c["doc_text"],
+                "distance": c["distance"],
+                "reranker_score": c["reranker_score"],
+            }
+            # PDF chunks carry the page they start on (and end on, if different). DOCX/TXT files and
+            # indexes built before page tracking have no page information.
+            for key in ("page", "page_end"):
+                if key in meta:
+                    source[key] = meta[key]
+            sources.append(source)
 
         return {"context": "\n\n".join(filtered_docs), "sources": sources}

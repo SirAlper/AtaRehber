@@ -129,6 +129,10 @@ The strategic development roadmap for `OpenLocalRagAgents` is structured below t
   - Enforced on user creation, admin password resets, and self-service password changes.
 - [x] **Credential Hardening:**
   - Token revocation on password change or account deactivation, mandatory replacement of the default `admin123` password, and per-account login lockout.
+- [x] **Pilot Readiness:**
+  - HTTPS reverse proxy, audit and conversation retention with a verifiable hash chain, optional question-text logging, scheduled full backups, telemetry disabled, Turkish/English web UI with an AI disclaimer, and PDF page numbers in citations.
+- [ ] **Per-User Data Erasure:**
+  - Delete a user's audit entries and conversations on request (KVKK/GDPR right to erasure); today only retention periods remove them.
 - [ ] **Multi-Worker Shared State:**
   - Move rate limiting, login throttling, and the user store out of process memory and `users.json` (SQLite or Redis) so the API can run with several workers or replicas.
 - [ ] **Multi-Tenant Document Isolation:**

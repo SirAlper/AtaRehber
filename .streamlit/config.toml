@@ -1,0 +1,3 @@
+# Local runs (streamlit run ui/app.py). The Docker image sets the same option via environment variable.
+[browser]
+gatherUsageStats = false

@@ -32,9 +32,10 @@ The interactive OpenAPI Swagger UI is available at `http://localhost:8000/docs` 
 | `GET` | `/api/v1/admin/audit-stats` | `admin` | Metrics summary (queries, uploads, logins, errors, feedback) |
 | `GET` | `/api/v1/admin/audit-verify` | `admin` | Verify the audit trail hash chain and return its head hash |
 | `POST` | `/api/v1/admin/cleanup-sessions`| `admin` | Prune conversation sessions older than specified age |
-| `POST` | `/api/v1/admin/backup` | `admin` | Create timestamped ChromaDB vector database snapshot |
-| `GET` | `/api/v1/admin/backups` | `admin` | List available ChromaDB backup snapshots |
-| `POST` | `/api/v1/admin/restore` | `admin` | Stage a ChromaDB restore from a snapshot (applied on next restart) |
+| `POST` | `/api/v1/admin/backup` | `admin` | Create a full backup: vector index plus data directory (documents, users, audit log, conversations) |
+| `GET` | `/api/v1/admin/backups` | `admin` | List full and vector-index backups |
+| `POST` | `/api/v1/admin/maintenance/run` | `admin` | Apply the retention periods and take a scheduled backup now (also runs hourly) |
+| `POST` | `/api/v1/admin/restore` | `admin` | Stage a vector index restore from a backup (applied on next restart) |
 | `POST` | `/api/v1/auth/change-password` | Authenticated | Change own password (required after first login with the default password) |
 | `GET` | `/health` | Public | Liveness probe for container healthchecks |
 
@@ -364,6 +365,7 @@ curl -X POST "http://localhost:8000/api/v1/query" \
       "source": "NovaTech_Security_Policy.pdf",
       "chunk_index": 2,
       "content": "[Document: NovaTech Information Security | CODE: SEC-04]\nClause 3: User passwords must be updated every 90 days...",
+      "page": 2,
       "distance": 0.421,
       "reranker_score": 0.9871
     }
@@ -379,6 +381,7 @@ curl -X POST "http://localhost:8000/api/v1/query" \
 ```
 
 * **`active_agent`:** the agent that produced the answer (`supervisor` for direct answers).
+* **`sources[].page` / `page_end`:** PDF page the passage starts on, and the page it ends on if different. Absent for DOCX/TXT files and for documents indexed before page tracking (re-upload them to add pages).
 * **`sources[].reranker_score`:** cross-encoder relevance from 0 to 1. Chunks below `RAG_MIN_RERANKER_SCORE` (default `0.005`) are never used or returned.
 * **Response language:** answers follow the language of the question (Turkish or English; other languages on a best-effort basis with English fixed texts, see [Language Support](language_support.md)); a question without language cues, such as a bare ticket code, inherits the language of the session's earlier questions. The fixed texts below are shown in English; Turkish questions get the Turkish versions (e.g. *"Bu bilgi şirket dokümanlarında bulunmuyor."*). Compliance verdict labels such as `[VIOLATION / PROHIBITED]` stay in English in both languages.
 * **No relevant documents:** if no chunk passes the relevance gate, `doc_agent` answers *"This information is not found in company documents."* with empty `sources`, and `compliance_agent` returns an `[UNDETERMINED]` verdict. The LLM is not called in either case.
@@ -625,9 +628,12 @@ Recomputes the SHA-256 hash chain over all audit entries. Editing or deleting a 
   "checked_entries": 1284,
   "unverifiable_legacy_entries": 0,
   "first_invalid_id": null,
-  "head_hash": "3f5c...e91a"
+  "head_hash": "3f5c...e91a",
+  "purged_before": "2026-03-01T00:00:00+00:00"
 }
 ```
+
+`purged_before` is set when the retention policy (`AUDIT_RETENTION_DAYS`) has deleted older entries; verification then starts from the hash of the newest deleted entry, so the remaining chain is still checked end to end.
 
 ---
 
@@ -654,8 +660,8 @@ curl -X POST "http://localhost:8000/api/v1/admin/cleanup-sessions?max_age_days=1
 
 ---
 
-### 5.4 Create Vector Database Backup (`POST /api/v1/admin/backup`)
-Creates a timestamped snapshot of the ChromaDB vector database directory. Index writes are paused while copying.
+### 5.4 Create Full Backup (`POST /api/v1/admin/backup`)
+Creates `backups/full_backup_<timestamp>/` with `vector_db/` (the search index, copied while index writes are paused) and `data/` (documents, `users.json`, audit log, conversation memory, sample database). SQLite databases are copied with the SQLite backup API, so the snapshot is consistent while the server is running. The JWT signing secret is not included. Restoring `data/` requires stopping the server (see [Docker Deployment](docker_deployment.md#-backups--restore)).
 
 * **Required Role:** `admin`
 
@@ -668,15 +674,15 @@ curl -X POST "http://localhost:8000/api/v1/admin/backup" \
 ```json
 {
   "status": "success",
-  "message": "Vector database backup created successfully.",
-  "backup_path": "backups/vector_db_backup_20260925_220000"
+  "message": "Full backup created (vector index, documents, users, audit log, conversations).",
+  "backup_path": "backups/full_backup_20260925_220000"
 }
 ```
 
 ---
 
-### 5.5 List Vector Database Backups (`GET /api/v1/admin/backups`)
-Lists all available ChromaDB backup snapshot archives with timestamp and size metadata.
+### 5.5 List Backups (`GET /api/v1/admin/backups`)
+Lists full backups (`type: "full"`) and vector-index-only backups from earlier versions (`type: "vector_db"`), newest first.
 
 * **Required Role:** `admin`
 
@@ -692,12 +698,14 @@ curl -X GET "http://localhost:8000/api/v1/admin/backups" \
   "count": 2,
   "backups": [
     {
-      "name": "vector_db_backup_20260925_220000",
-      "path": "backups/vector_db_backup_20260925_220000",
+      "name": "full_backup_20260925_220000",
+      "type": "full",
+      "path": "backups/full_backup_20260925_220000",
       "created_at": "2026-09-25T22:00:00+00:00"
     },
     {
       "name": "vector_db_backup_20260924_180000",
+      "type": "vector_db",
       "path": "backups/vector_db_backup_20260924_180000",
       "created_at": "2026-09-24T18:00:00+00:00"
     }
@@ -707,8 +715,8 @@ curl -X GET "http://localhost:8000/api/v1/admin/backups" \
 
 ---
 
-### 5.6 Restore Vector Database (`POST /api/v1/admin/restore`)
-Stages a restore of the ChromaDB vector database from an existing named snapshot. The live database is never modified while the server has it open: the swap is applied on the next server start.
+### 5.6 Restore Vector Index (`POST /api/v1/admin/restore`)
+Stages a restore of the vector index from a backup (for a full backup, its `vector_db/` part). Users, the audit log, conversations, and documents are not changed; restore those by following the [full restore procedure](docker_deployment.md#-backups--restore). The live database is never modified while the server has it open: the swap is applied on the next server start.
 
 > [!CAUTION]
 > After the restart, the restored snapshot completely replaces the active vector database. The replaced database is preserved as `backups/pre_restore_<timestamp>`.
@@ -718,7 +726,7 @@ Stages a restore of the ChromaDB vector database from an existing named snapshot
   * `backup_name` *(string, required)*: Directory name of the backup to restore (from `/api/v1/admin/backups`).
 
 ```bash
-curl -X POST "http://localhost:8000/api/v1/admin/restore?backup_name=vector_db_backup_20260925_220000" \
+curl -X POST "http://localhost:8000/api/v1/admin/restore?backup_name=full_backup_20260925_220000" \
      -H "Authorization: Bearer <admin_token>"
 ```
 
@@ -726,7 +734,32 @@ curl -X POST "http://localhost:8000/api/v1/admin/restore?backup_name=vector_db_b
 ```json
 {
   "status": "success",
-  "message": "Restore from 'vector_db_backup_20260925_220000' staged. Restart the server to apply it."
+  "message": "Restore from 'full_backup_20260925_220000' staged. Restart the server to apply it."
+}
+```
+
+---
+
+### 5.7 Run Maintenance Now (`POST /api/v1/admin/maintenance/run`)
+Applies `AUDIT_RETENTION_DAYS` and `SESSION_RETENTION_DAYS` and creates a full backup if `BACKUP_INTERVAL_HOURS` is set and the last full backup is older than that (then prunes to `BACKUP_KEEP`). The same job runs automatically at startup and every hour; with all settings at their defaults it does nothing. See [Data Protection](data_protection.md).
+
+* **Required Role:** `admin`
+
+```bash
+curl -X POST "http://localhost:8000/api/v1/admin/maintenance/run" \
+     -H "Authorization: Bearer <admin_token>"
+```
+
+**Example Response (HTTP 200):**
+```json
+{
+  "status": "success",
+  "results": {
+    "audit_entries_deleted": 312,
+    "sessions_deleted": 4,
+    "backup_path": "backups/full_backup_20260927_030000",
+    "backups_pruned": 1
+  }
 }
 ```
 

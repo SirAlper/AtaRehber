@@ -24,6 +24,18 @@ RATE_LIMIT_PER_MINUTE = int(os.getenv("RATE_LIMIT_PER_MINUTE", "30"))
 LOGIN_MAX_FAILED_ATTEMPTS = int(os.getenv("LOGIN_MAX_FAILED_ATTEMPTS", "5"))
 LOGIN_LOCKOUT_WINDOW_SECONDS = int(os.getenv("LOGIN_LOCKOUT_WINDOW_SECONDS", "900"))
 
+# ──────────────────────────── DATA PROTECTION & BACKUPS ────────────────────────────
+# Store the text of user questions, answer previews, and feedback comments in the audit log. With false,
+# the log keeps who asked, when, which agent answered, and how long it took (data minimization, KVKK/GDPR).
+AUDIT_STORE_QUESTIONS = os.getenv("AUDIT_STORE_QUESTIONS", "true").lower() == "true"
+# Delete audit entries / conversation sessions older than N days; 0 keeps them. Applied hourly.
+AUDIT_RETENTION_DAYS = int(os.getenv("AUDIT_RETENTION_DAYS", "0"))
+SESSION_RETENTION_DAYS = int(os.getenv("SESSION_RETENTION_DAYS", "0"))
+# Automatic full backups (vector index + data directory) every N hours; 0 disables them.
+# Only the newest BACKUP_KEEP full backups are kept.
+BACKUP_INTERVAL_HOURS = int(os.getenv("BACKUP_INTERVAL_HOURS", "0"))
+BACKUP_KEEP = int(os.getenv("BACKUP_KEEP", "7"))
+
 # ──────────────────────────── LOGGING CONFIGURATION ────────────────────────────
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
 LOG_FILE = os.getenv("LOG_FILE", os.path.join(BASE_DIR, "app.log"))

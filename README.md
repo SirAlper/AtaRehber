@@ -28,7 +28,8 @@
 * ⚡ **Thinking Indicator & Trace UX:** Streamlined user experience featuring interactive thinking indicators and collapsible multi-agent execution traces showing internal actions, durations, and SQL queries.
 * 🌐 **Multilingual, Answers in the User's Language:** Multilingual search across enterprise corpora with BGE-M3 dense vectors. Every agent answers in the language of the question (Turkish or English), including fixed messages such as "not found" and error texts, even when the documents or table data are in another language. Mandarin Chinese, Hindi, and Spanish are coming next (see [Language Support](docs/language_support.md)).
 * 📏 **Measured Quality:** A labeled evaluation harness (`python -m evals.run_eval`) measures retrieval, routing, and answer accuracy with the real models and compares runs before and after a change (see [Measured Quality](#-measured-quality)).
-* 🖥️ **Full-Stack Suite:** Ready-to-use FastAPI REST gateway (with Swagger OpenAPI docs) paired with a modern Streamlit enterprise control panel.
+* 🏛️ **Pilot-Ready Operations:** HTTPS reverse proxy, configurable retention for audit entries and conversations, an option to keep question text out of the audit log, scheduled full backups, and no telemetry (see [Data Protection](docs/data_protection.md)).
+* 🖥️ **Full-Stack Suite:** Ready-to-use FastAPI REST gateway (with Swagger OpenAPI docs) paired with a Streamlit control panel in Turkish and English, with an AI disclaimer and page-level source citations.
 
 ---
 
@@ -66,6 +67,7 @@ Explore our detailed architectural, operational, and development guides:
 | 🗄️ [**Database Connectors**](docs/database_connectors.md) | Universal SQLAlchemy configurations, Text-to-SQL security, and ETL table vectorization |
 | 🔌 [**REST API Reference**](docs/api_reference.md) | FastAPI endpoint documentation, JWT auth, NDJSON event streaming, and cURL examples |
 | 🐳 [**Docker Deployment**](docs/docker_deployment.md) | Production multi-service containerization (Backend, Frontend, Ollama), NVIDIA GPU passthrough |
+| 🔏 [**Data Protection (KVKK/GDPR)**](docs/data_protection.md) | Personal data stored, retention settings, backups, and recommended pilot settings |
 | 🌍 [**Language Support**](docs/language_support.md) | Supported languages (Turkish, English), behavior for other languages, and languages coming soon (Mandarin Chinese, Hindi, Spanish) |
 | 📏 [**Evaluation Guide**](docs/evaluation.md) | Labeled question set, harness, current results, and how each change was measured |
 | 🗺️ [**Roadmap**](docs/roadmap.md) | Hybrid search (BM25 + Dense), GraphRAG, observability, SSO, and multi-tenant isolation |
@@ -123,6 +125,9 @@ docker compose up -d
 
 # NVIDIA GPU Mode (GPU for Ollama):
 docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d
+
+# HTTPS for shared deployments (certificates in deploy/certs/):
+docker compose -f docker-compose.yml -f docker-compose.https.yml up -d
 ```
 See the full [Docker Deployment Guide](docs/docker_deployment.md) for Container Toolkit setup.
 
@@ -165,6 +170,8 @@ OpenLocalRagAgents/
 ├── Dockerfile.frontend    # Lightweight Streamlit UI image
 ├── docker-compose.yml     # Multi-service compose definition (Backend + Frontend + Ollama)
 ├── docker-compose.gpu.yml # NVIDIA GPU passthrough override
+├── docker-compose.https.yml # HTTPS reverse proxy override (nginx)
+├── deploy/                # nginx configuration and TLS certificate folder
 ├── download_model.py      # Downloads the embedding and reranker models to ./models
 ├── requirements.txt       # Backend runtime dependencies
 ├── requirements-ui.txt    # Streamlit UI dependencies

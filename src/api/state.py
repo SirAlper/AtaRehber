@@ -213,13 +213,25 @@ def cleanup_expired_sessions(max_age_days: int = 30) -> int:
 
 BACKUP_DIR = os.path.join(os.path.dirname(VECTOR_DB_PATH), "backups")
 BACKUP_PREFIX = "vector_db_backup_"
+# Full backups: vector_db/ (the index) and data/ (documents, users, audit log, conversations)
+FULL_BACKUP_PREFIX = "full_backup_"
+_BACKUP_TIME_FORMAT = "%Y%m%d_%H%M%S"
+# Never copied into backups: the JWT signing secret (a restored system simply issues new tokens) and
+# SQLite side files (the databases are copied with the SQLite backup API instead)
+_BACKUP_EXCLUDED_FILES = {".jwt_secret"}
+_BACKUP_EXCLUDED_SUFFIXES = ("-wal", "-shm", "-journal")
 # Kept inside the backups directory so a staged restore survives container re-creation
 PENDING_RESTORE_PATH = os.path.join(BACKUP_DIR, ".restore_pending")
 
 
 def is_valid_backup_name(name: str) -> bool:
-    """Backup names must be plain directory names created by backup_vector_db."""
-    return bool(name) and name == os.path.basename(name) and name.startswith(BACKUP_PREFIX) and ".." not in name
+    """Backup names must be plain directory names created by backup_vector_db or backup_all."""
+    return (
+        bool(name)
+        and name == os.path.basename(name)
+        and name.startswith((BACKUP_PREFIX, FULL_BACKUP_PREFIX))
+        and ".." not in name
+    )
 
 
 def backup_vector_db(backup_dir: Optional[str] = None) -> str:
@@ -261,6 +273,9 @@ def restore_vector_db(backup_path: str) -> bool:
     if not os.path.isdir(backup_path):
         logger.error(f"[Restore] Backup path does not exist: {backup_path}")
         return False
+    # Full backups keep the index in a vector_db/ subdirectory
+    if os.path.isdir(os.path.join(backup_path, "vector_db")):
+        backup_path = os.path.join(backup_path, "vector_db")
 
     try:
         if os.path.exists(PENDING_RESTORE_PATH):
@@ -315,16 +330,97 @@ def list_backups(backup_dir: Optional[str] = None) -> list:
         return []
 
     backups = []
-    for name in sorted(os.listdir(backup_dir), reverse=True):
+    for name in os.listdir(backup_dir):
         path = os.path.join(backup_dir, name)
-        if os.path.isdir(path) and name.startswith(BACKUP_PREFIX):
+        if os.path.isdir(path) and name.startswith((BACKUP_PREFIX, FULL_BACKUP_PREFIX)):
             stat = os.stat(path)
             backups.append(
                 {
                     "name": name,
+                    "type": "full" if name.startswith(FULL_BACKUP_PREFIX) else "vector_db",
                     "path": path,
                     "created_at": datetime.fromtimestamp(stat.st_ctime, tz=timezone.utc).isoformat(),
                 }
             )
 
-    return backups
+    # Newest first; names embed a sortable UTC timestamp
+    return sorted(backups, key=lambda b: b["name"].split("_backup_")[-1], reverse=True)
+
+
+def _copy_data_dir(src_dir: str, dst_dir: str) -> None:
+    """Copy the data directory. SQLite databases are copied with the backup API, so a snapshot taken while
+    the server writes (audit log, conversations) is still consistent."""
+    os.makedirs(dst_dir, exist_ok=True)
+    for name in os.listdir(src_dir):
+        src = os.path.join(src_dir, name)
+        dst = os.path.join(dst_dir, name)
+        if name in _BACKUP_EXCLUDED_FILES or name.endswith(_BACKUP_EXCLUDED_SUFFIXES):
+            continue
+        if os.path.isdir(src):
+            _copy_data_dir(src, dst)
+        elif name.endswith(".db"):
+            import sqlite3
+
+            source, target = sqlite3.connect(src), sqlite3.connect(dst)
+            try:
+                source.backup(target)
+            finally:
+                source.close()
+                target.close()
+        else:
+            shutil.copy2(src, dst)
+
+
+def backup_all(backup_dir: Optional[str] = None) -> str:
+    """Create a full backup: the vector index plus the data directory (documents, users, audit log,
+    conversations, sample database). Returns the backup directory.
+
+    Restoring the data directory requires stopping the server (see docs/docker_deployment.md);
+    the vector index part can also be restored through the admin API.
+    """
+    backup_dir = backup_dir or BACKUP_DIR
+    timestamp = datetime.now(timezone.utc).strftime(_BACKUP_TIME_FORMAT)
+    backup_path = os.path.join(backup_dir, f"{FULL_BACKUP_PREFIX}{timestamp}")
+    os.makedirs(backup_path)
+    try:
+        write_lock = rag_engine.write_lock if rag_engine is not None else None
+        if write_lock is not None:
+            with write_lock:
+                shutil.copytree(VECTOR_DB_PATH, os.path.join(backup_path, "vector_db"))
+        elif os.path.isdir(VECTOR_DB_PATH):
+            shutil.copytree(VECTOR_DB_PATH, os.path.join(backup_path, "vector_db"))
+        if os.path.isdir(DOCS_PATH):
+            _copy_data_dir(DOCS_PATH, os.path.join(backup_path, "data"))
+    except Exception:
+        shutil.rmtree(backup_path, ignore_errors=True)
+        logger.exception("[Backup] Full backup failed")
+        raise
+    logger.info(f"[Backup] Full backup created at: {backup_path}")
+    return backup_path
+
+
+def latest_full_backup_time(backup_dir: Optional[str] = None) -> Optional[datetime]:
+    """UTC time of the newest full backup (from its name), or None."""
+    backup_dir = backup_dir or BACKUP_DIR
+    if not os.path.isdir(backup_dir):
+        return None
+    times = []
+    for name in os.listdir(backup_dir):
+        if name.startswith(FULL_BACKUP_PREFIX):
+            try:
+                stamp = name[len(FULL_BACKUP_PREFIX) :]
+                times.append(datetime.strptime(stamp, _BACKUP_TIME_FORMAT).replace(tzinfo=timezone.utc))
+            except ValueError:
+                continue
+    return max(times, default=None)
+
+
+def prune_full_backups(keep: int, backup_dir: Optional[str] = None) -> int:
+    """Delete all but the newest `keep` full backups. Vector-only and pre-restore backups are left alone."""
+    backup_dir = backup_dir or BACKUP_DIR
+    if keep < 1 or not os.path.isdir(backup_dir):
+        return 0
+    full = sorted((n for n in os.listdir(backup_dir) if n.startswith(FULL_BACKUP_PREFIX)), reverse=True)
+    for name in full[keep:]:
+        shutil.rmtree(os.path.join(backup_dir, name), ignore_errors=True)
+    return len(full[keep:])

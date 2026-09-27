@@ -4,7 +4,7 @@ import os
 import sqlite3
 import threading
 from contextlib import contextmanager
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
 from src.core.config import DOCS_PATH
@@ -108,6 +108,8 @@ class AuditLogger:
                 for column in ("prev_hash", "entry_hash"):
                     if column not in existing_columns:
                         conn.execute(f"ALTER TABLE audit_logs ADD COLUMN {column} TEXT")
+                # Chain anchor after retention purges: the hash of the newest deleted entry
+                conn.execute("CREATE TABLE IF NOT EXISTS audit_meta (key TEXT PRIMARY KEY, value TEXT)")
                 conn.execute("CREATE INDEX IF NOT EXISTS idx_audit_timestamp ON audit_logs(timestamp)")
                 conn.execute("CREATE INDEX IF NOT EXISTS idx_audit_username ON audit_logs(username)")
                 conn.execute("CREATE INDEX IF NOT EXISTS idx_audit_action ON audit_logs(action)")
@@ -309,8 +311,11 @@ class AuditLogger:
         with self._lock:
             with self._get_connection() as conn:
                 rows = conn.execute("SELECT * FROM audit_logs ORDER BY id ASC").fetchall()
+                anchor = self._read_meta(conn, "chain_anchor_hash")
+                purged_before = self._read_meta(conn, "purged_before")
 
-        expected_prev = GENESIS_HASH
+        # After a retention purge the remaining chain continues from the newest deleted entry
+        expected_prev = anchor or GENESIS_HASH
         checked = 0
         legacy = 0
         for row in rows:
@@ -337,6 +342,7 @@ class AuditLogger:
                     "unverifiable_legacy_entries": legacy,
                     "first_invalid_id": row["id"],
                     "head_hash": None,
+                    "purged_before": purged_before,
                 }
             expected_prev = row["entry_hash"]
             checked += 1
@@ -347,7 +353,65 @@ class AuditLogger:
             "unverifiable_legacy_entries": legacy,
             "first_invalid_id": None,
             "head_hash": expected_prev if checked else None,
+            # Entries before this time were deleted by the retention policy (None if never purged)
+            "purged_before": purged_before,
         }
+
+    @staticmethod
+    def _read_meta(conn, key: str) -> Optional[str]:
+        row = conn.execute("SELECT value FROM audit_meta WHERE key = ?", (key,)).fetchone()
+        return row["value"] if row else None
+
+    def purge_older_than(self, cutoff: datetime) -> int:
+        """Delete entries written before `cutoff` (retention policy). Returns the number deleted.
+
+        Entries are appended in time order, so the deleted rows are always the oldest ones. The hash of the
+        newest deleted entry becomes the chain anchor, which keeps the remaining chain verifiable. The purge
+        itself is recorded as a 'retention_purge' entry.
+        """
+        cutoff_iso = cutoff.astimezone(timezone.utc).isoformat()
+        with self._lock:
+            with self._get_connection() as conn:
+                conn.execute("BEGIN IMMEDIATE")
+                try:
+                    last_id = conn.execute(
+                        "SELECT MAX(id) FROM audit_logs WHERE timestamp < ?", (cutoff_iso,)
+                    ).fetchone()[0]
+                    if last_id is None:
+                        conn.execute("ROLLBACK")
+                        return 0
+                    anchor = conn.execute(
+                        "SELECT entry_hash FROM audit_logs WHERE id <= ? AND entry_hash IS NOT NULL "
+                        "ORDER BY id DESC LIMIT 1",
+                        (last_id,),
+                    ).fetchone()
+                    deleted = conn.execute("DELETE FROM audit_logs WHERE id <= ?", (last_id,)).rowcount
+                    if anchor:
+                        conn.execute(
+                            "INSERT OR REPLACE INTO audit_meta (key, value) VALUES ('chain_anchor_hash', ?)",
+                            (anchor["entry_hash"],),
+                        )
+                    conn.execute(
+                        "INSERT OR REPLACE INTO audit_meta (key, value) VALUES ('purged_before', ?)", (cutoff_iso,)
+                    )
+                    conn.execute("COMMIT")
+                except Exception:
+                    conn.execute("ROLLBACK")
+                    raise
+
+        self.log(
+            username="system",
+            role="system",
+            action="retention_purge",
+            detail=f"Deleted {deleted} audit entries written before {cutoff_iso}",
+            status="success",
+        )
+        logger.info(f"[Audit] Retention purge deleted {deleted} entries older than {cutoff_iso}.")
+        return deleted
+
+    def purge_older_than_days(self, days: int) -> int:
+        """Apply a retention period of `days` days."""
+        return self.purge_older_than(datetime.now(timezone.utc) - timedelta(days=days))
 
     async def averify_chain(self) -> Dict[str, Any]:
         """Asynchronously verify the audit hash chain."""
