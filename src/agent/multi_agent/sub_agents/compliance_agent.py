@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 from typing import Dict, Any, Optional
 
 from langchain_core.messages import SystemMessage, HumanMessage
+from src.agent.language import language_instruction, message, response_language
 from src.agent.multi_agent.base import BaseSubAgent
 from src.agent.multi_agent.registry import register_agent
 from src.rag.rag_engine import RAGEngine
@@ -21,24 +22,43 @@ Below are the relevant enterprise policies, guidelines, and rules retrieved from
 AUDIT AND REPORTING STANDARDS:
 You MUST produce your response in the following structured corporate audit format:
 
-### 📌 1. Audit Verdict
+### {heading_verdict}
 Explicitly select exactly one of the following four categories:
 - **[COMPLIANT]**: The request is fully compliant with company policies.
 - **[WARNING / CONDITIONALLY COMPLIANT]**: Permissible only if specific security or administrative prerequisites/approvals are satisfied.
 - **[VIOLATION / PROHIBITED]**: The request violates enterprise information security, data privacy (GDPR/KVKK), or code of conduct rules, and cannot be permitted.
 - **[UNDETERMINED]**: None of the policies above address this scenario. Never infer a verdict from general knowledge.
 
-### 📑 2. Underlying Policy & Clause References
+### {heading_references}
 Specify the document name, policy code, and relevant sections from the context above (e.g., SEC-POL-04 Section 4.1).
 
-### 🔍 3. Risk & Impact Assessment
+### {heading_risk}
 Analyze the security, legal, administrative, or operational risks the action poses to the enterprise.
 
-### 💡 4. Mandatory Approvals & Action Plan
+### {heading_actions}
 Required administrative approvals (CISO, DPO, HR, Legal) or proper procedure steps to execute this request safely.
 
 Base the verdict only on the policies above. If none of them address the scenario, choose [UNDETERMINED], state that no written policy was identified, and recommend consulting the Legal or Information Security team.
+
+LANGUAGE: {language_rule} Use the section headings exactly as written above, and copy the verdict label exactly as listed (e.g. [VIOLATION / PROHIBITED]).
 """
+
+# Section headings per response language. Models copy template headings verbatim, so the template itself is
+# localized instead of asking the model to translate. Verdict labels stay English (machine-readable).
+REPORT_HEADINGS = {
+    "en": {
+        "heading_verdict": "📌 1. Audit Verdict",
+        "heading_references": "📑 2. Underlying Policy & Clause References",
+        "heading_risk": "🔍 3. Risk & Impact Assessment",
+        "heading_actions": "💡 4. Mandatory Approvals & Action Plan",
+    },
+    "tr": {
+        "heading_verdict": "📌 1. Denetim Kararı",
+        "heading_references": "📑 2. Dayanak Politika ve Madde Referansları",
+        "heading_risk": "🔍 3. Risk ve Etki Değerlendirmesi",
+        "heading_actions": "💡 4. Gerekli Onaylar ve Eylem Planı",
+    },
+}
 
 
 @register_agent
@@ -68,6 +88,7 @@ class ComplianceAuditorAgent(BaseSubAgent):
         """Audit user scenario against enterprise policies and output structured compliance report."""
         start_time = time.time()
         question = state.get("question", "").strip()
+        language = response_language(question, state.get("chat_history", []))
 
         logger.info(f"[{self.name}] Auditing compliance scenario: '{question}'")
 
@@ -79,11 +100,7 @@ class ComplianceAuditorAgent(BaseSubAgent):
 
         if not context:
             duration_ms = int((time.time() - start_time) * 1000)
-            answer = (
-                "### 📌 1. Audit Verdict\n**[UNDETERMINED]**\n\n"
-                "### 📑 2. Supporting Documents\nNo relevant policy or regulatory document was found matching this inquiry in the knowledge base.\n\n"
-                "### 🔍 3. Recommendation\nPlease contact the Legal & Compliance or Information Security department directly for guidance."
-            )
+            answer = message("compliance_undetermined", language)
             return {
                 "final_answer": answer,
                 "sources": [],
@@ -103,7 +120,11 @@ class ComplianceAuditorAgent(BaseSubAgent):
             }
 
         # 2. Generate structured audit report
-        prompt = COMPLIANCE_SYSTEM_PROMPT.format(context=context)
+        prompt = COMPLIANCE_SYSTEM_PROMPT.format(
+            context=context,
+            language_rule=language_instruction(language),
+            **REPORT_HEADINGS.get(language, REPORT_HEADINGS["en"]),
+        )
         try:
             response = self.chat_model.invoke(
                 [
@@ -114,7 +135,7 @@ class ComplianceAuditorAgent(BaseSubAgent):
             audit_report = response.content.strip()
         except Exception as e:
             logger.error(f"[{self.name}] Compliance audit LLM error: {e}")
-            audit_report = "A system error occurred while generating the audit report. Please try again later."
+            audit_report = message("compliance_error", language)
 
         duration_ms = int((time.time() - start_time) * 1000)
         trace_entry = {

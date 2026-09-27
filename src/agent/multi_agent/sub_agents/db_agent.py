@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from typing import Dict, Any, Optional
 
 from langchain_core.messages import SystemMessage, HumanMessage
+from src.agent.language import language_instruction, message, response_language
 from src.agent.multi_agent.base import BaseSubAgent
 from src.agent.multi_agent.registry import register_agent
 from src.connectors.db_connector import DatabaseConnector
@@ -87,11 +88,12 @@ class DatabaseAgent(BaseSubAgent):
         """Generate, validate, and execute read-only SQL queries to answer operational data questions."""
         start_time = time.time()
         question = state.get("question", "").strip()
+        language = response_language(question, state.get("chat_history", []))
         connector = self._get_connector()
 
         if not connector.is_connected:
             duration_ms = int((time.time() - start_time) * 1000)
-            msg = "Database connection is currently not active or not configured."
+            msg = message("db_not_connected", language)
             trace_entry = {
                 "agent": self.name,
                 "display_name": self.display_name,
@@ -141,7 +143,7 @@ class DatabaseAgent(BaseSubAgent):
             logger.error(f"[{self.name}] Error during SQL generation: {e}")
             duration_ms = int((time.time() - start_time) * 1000)
             return {
-                "final_answer": "An error occurred while generating the database query. Please try again or rephrase your question.",
+                "final_answer": message("db_generation_error", language),
                 "sources": [],
                 "agent_trace": list(state.get("agent_trace", []))
                 + [
@@ -162,7 +164,7 @@ class DatabaseAgent(BaseSubAgent):
             duration_ms = int((time.time() - start_time) * 1000)
             err_msg = query_result.get("message", "Unknown database error")
             return {
-                "final_answer": f"Database query could not be executed due to security or syntax constraints:\n`{err_msg}`",
+                "final_answer": f"{message('db_rejected', language)}\n`{err_msg}`",
                 "sources": [],
                 "agent_trace": list(state.get("agent_trace", []))
                 + [
@@ -194,14 +196,14 @@ class DatabaseAgent(BaseSubAgent):
         try:
             summary_response = self.chat_model.invoke(
                 [
-                    SystemMessage(content=SQL_EXPLAINER_SYSTEM_PROMPT),
+                    SystemMessage(content=f"{SQL_EXPLAINER_SYSTEM_PROMPT}{language_instruction(language)}"),
                     HumanMessage(content=explain_prompt),
                 ]
             )
             answer = summary_response.content.strip()
         except Exception as e:
             logger.error(f"[{self.name}] Error synthesizing SQL results: {e}")
-            answer = f"Query executed successfully ({count} records found):\n\n```json\n{json.dumps(rows[:10], ensure_ascii=False, indent=2)}\n```"
+            answer = f"{message('db_rows_fallback', language, count=count)}\n\n```json\n{json.dumps(rows[:10], ensure_ascii=False, indent=2)}\n```"
 
         duration_ms = int((time.time() - start_time) * 1000)
         trace_entry = {

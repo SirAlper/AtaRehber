@@ -220,6 +220,10 @@ agent_registry.unregister("my_custom_agent")
 6. **Database Access:**
    * Query databases through `DatabaseConnector.execute_query()` (or the `sql_db_query` tool) so the read-only guard applies. Get the shared connector with `src.api.state.get_db_connector()`.
 
+7. **Answer in the User's Language:**
+   * Call `response_language(question, chat_history)` from `src.agent.language` and append `language_instruction(language)` to your system prompt; naming the language explicitly works better than "answer in the user's language".
+   * For fixed texts, add Turkish and English versions instead of hard-coding English. The built-in ones are available via `message(key, language)`.
+
 ---
 
 ## 🧪 Testing Your Custom Agent

@@ -1,4 +1,8 @@
+from typing import Optional
+
 from langchain_core.messages import SystemMessage, HumanMessage
+
+from src.agent.language import language_instruction, message
 
 
 # ──────────────────────────── SYSTEM PROMPTS ────────────────────────────
@@ -33,9 +37,10 @@ SYSTEM_PROMPT_REFINE = (
     "4. Ensure sentences are complete and grammatically fluent."
 )
 
-NO_CONTEXT_RESPONSE = "This information is not found in company documents."
+# English wording; agents use message("no_context" / "fallback", language) for the user's language
+NO_CONTEXT_RESPONSE = message("no_context", "en")
 
-FALLBACK_RESPONSE = "This information cannot be fully verified against company documents."
+FALLBACK_RESPONSE = message("fallback", "en")
 
 SYSTEM_PROMPT_REWRITE = (
     "You are a search query optimizer. Given the user's current question and recent conversation history, "
@@ -50,8 +55,15 @@ SYSTEM_PROMPT_REWRITE = (
 # ──────────────────────────── MESSAGE BUILDERS ────────────────────────────
 
 
-def build_rag_messages(context: str, question: str, chat_history: list = None) -> list:
-    """Build LangChain message list for enterprise RAG response generation."""
+def _with_language(system_prompt: str, language: Optional[str]) -> str:
+    return f"{system_prompt}\n{language_instruction(language)}" if language else system_prompt
+
+
+def build_rag_messages(context: str, question: str, chat_history: list = None, language: Optional[str] = None) -> list:
+    """Build LangChain message list for enterprise RAG response generation.
+
+    language: response language code ('tr', 'en'); None leaves the language to the model.
+    """
     history_str = ""
     if chat_history:
         history_lines = [
@@ -63,7 +75,7 @@ def build_rag_messages(context: str, question: str, chat_history: list = None) -
             history_str = "Recent Conversation History:\n" + "\n".join(history_lines) + "\n\n"
 
     return [
-        SystemMessage(content=SYSTEM_PROMPT_RAG),
+        SystemMessage(content=_with_language(SYSTEM_PROMPT_RAG, language)),
         HumanMessage(content=f"{history_str}Context:\n{context}\n\nQuestion: {question}"),
     ]
 
@@ -76,10 +88,14 @@ def build_grader_messages(context: str, question: str, answer: str) -> list:
     ]
 
 
-def build_refine_messages(context: str, question: str, draft_answer: str) -> list:
+def build_refine_messages(context: str, question: str, draft_answer: str, language: Optional[str] = None) -> list:
     """Build LangChain message list to prune and refine ungrounded answers."""
+    system_prompt = SYSTEM_PROMPT_REFINE
+    if language:
+        # The "nothing verifiable" sentence the refiner may return must be in the response language too
+        system_prompt = system_prompt.replace(NO_CONTEXT_RESPONSE, message("no_context", language))
     return [
-        SystemMessage(content=SYSTEM_PROMPT_REFINE),
+        SystemMessage(content=_with_language(system_prompt, language)),
         HumanMessage(content=f"Context:\n{context}\n\nQuestion: {question}\n\nDraft Answer:\n{draft_answer}"),
     ]
 

@@ -2,6 +2,7 @@ import time
 from datetime import datetime, timezone
 from typing import Dict, Any, Optional
 
+from src.agent.language import message, response_language
 from src.agent.multi_agent.base import BaseSubAgent
 from src.agent.multi_agent.registry import register_agent
 from src.agent.nodes import GRADE_UNAVAILABLE, is_grade_passed
@@ -10,8 +11,6 @@ from src.agent.prompts import (
     build_rag_messages,
     build_refine_messages,
     build_rewrite_messages,
-    NO_CONTEXT_RESPONSE,
-    FALLBACK_RESPONSE,
 )
 from src.rag.rag_engine import RAGEngine
 from src.core.logger import get_logger
@@ -47,6 +46,7 @@ class DocumentRagAgent(BaseSubAgent):
         start_time = time.time()
         question = state.get("question", "").strip()
         chat_history = state.get("chat_history", [])
+        language = response_language(question, chat_history)
 
         logger.info(f"[{self.name}] Executing document search for: '{question}'")
 
@@ -86,7 +86,7 @@ class DocumentRagAgent(BaseSubAgent):
                 "timestamp": datetime.now(timezone.utc).isoformat(),
             }
             return {
-                "final_answer": NO_CONTEXT_RESPONSE,
+                "final_answer": message("no_context", language),
                 "sources": [],
                 "agent_trace": list(state.get("agent_trace", [])) + [trace_entry],
             }
@@ -94,12 +94,12 @@ class DocumentRagAgent(BaseSubAgent):
         # 4. Generate grounded response with chat history context
         generation_failed = False
         try:
-            messages = build_rag_messages(context, question, chat_history)
+            messages = build_rag_messages(context, question, chat_history, language=language)
             response = self.chat_model.invoke(messages)
             answer = response.content.strip()
         except Exception as e:
             logger.error(f"[{self.name}] LLM generation error: {e}")
-            answer = FALLBACK_RESPONSE
+            answer = message("fallback", language)
             generation_failed = True
 
         # 5. Self-RAG hallucination guard: grade -> (refine -> re-grade) -> fallback
@@ -109,12 +109,12 @@ class DocumentRagAgent(BaseSubAgent):
             grade = self._grade(context, question, answer)
             if not is_grade_passed(grade):
                 logger.info(f"[{self.name}] Answer not grounded ('{grade}'), refining...")
-                answer = self._refine(context, question, answer)
+                answer = self._refine(context, question, answer, language)
                 is_refined = True
                 grade = self._grade(context, question, answer)
                 if not is_grade_passed(grade):
                     logger.warning(f"[{self.name}] Refined answer still unverified, using safe fallback.")
-                    answer = FALLBACK_RESPONSE
+                    answer = message("fallback", language)
 
         duration_ms = int((time.time() - start_time) * 1000)
         trace_entry = {
@@ -147,10 +147,10 @@ class DocumentRagAgent(BaseSubAgent):
             logger.error(f"[{self.name}] Grading error, treating answer as unverified: {e}")
             return GRADE_UNAVAILABLE
 
-    def _refine(self, context: str, question: str, draft_answer: str) -> str:
+    def _refine(self, context: str, question: str, draft_answer: str, language: str) -> str:
         """Prune claims from the draft that the context does not support."""
         try:
-            response = self.chat_model.invoke(build_refine_messages(context, question, draft_answer))
+            response = self.chat_model.invoke(build_refine_messages(context, question, draft_answer, language))
             return response.content.strip() or draft_answer
         except Exception as e:
             logger.error(f"[{self.name}] Refinement error, keeping draft: {e}")

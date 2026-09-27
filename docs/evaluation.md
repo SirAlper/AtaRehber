@@ -55,6 +55,7 @@ Retrieval scores every chunk once, then replays the production selection (top 10
 | `grounded_rate` | `doc_agent` answers that passed the Self-RAG grader. |
 | `false_refusal_rate` | Answerable questions the system refused. Too high means it is too strict. |
 | `out_of_scope_refusal_rate` | Unanswerable questions the system refused. Too low means hallucination risk. |
+| `language_match_rate` | Answers written in the language of the question (detected with `src/agent/language.py`). Mismatches are listed as `wrong language` lines. |
 | `latency_p50_s` / `latency_p95_s` | Seconds per question. |
 
 Facts are checked deterministically instead of with an LLM judge: small local models are unreliable judges, and a keyword check gives the same result on every run. Matching is case-insensitive (Turkish-aware), ignores thousands separators (`15.000` = `15000`), and numbers only match whole numbers (`2` does not match `2026`).
@@ -139,6 +140,7 @@ Default settings, bundled dataset (51 questions), `qwen2.5:7b` via Ollama on an 
 | Grounded answers (Self-RAG passed) | 100% |
 | Off-topic questions refused | 100% |
 | Answerable questions refused | 2% |
+| Answers in the question's language | 100% |
 | Latency p50 / p95 | 7.3 s / 23.2 s |
 
 On the 13 held-out questions (see below): routing 12/13 and 9/10 correct answers.
@@ -175,6 +177,9 @@ After step 1 the remaining errors were limits of the 1.5B model: invented SQL co
 
 ### Step 2: switching the LLM to `qwen2.5:7b` via Ollama
 Same code and dataset; only the LLM changed. The 7B model fixed every step-1 error listed above except the database value mismatch (`db-04`). This result is why the in-process HuggingFace backend was removed and the LLM now always runs on Ollama.
+
+### Step 3: answering in the question's language
+The `language_match_rate` metric showed that only 32 of 51 Turkish questions (63%) got a Turkish answer: fixed texts such as "not found in company documents" and the greeting were hard-coded in English, and `db_agent` and `compliance_agent` switched to English when the table data or the report template was English. Follow-up questions made it worse. After localizing the fixed texts, naming the target language in every prompt, and localizing the compliance report headings, all 51 answers match the question's language; accuracy, routing, and refusal rates did not change.
 
 ---
 

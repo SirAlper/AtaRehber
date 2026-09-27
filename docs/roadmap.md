@@ -63,6 +63,10 @@ The strategic development roadmap for `OpenLocalRagAgents` is structured below t
   - Table-to-vector ETL pipeline (`DatabaseTableLoader`) and agent tools (`sql_db_query`, `sql_db_schema`).
 - [x] **Multi-Agent Supervisor Teams:**
   - Supervisor pattern routing queries dynamically across specialized agents (`doc_agent`, `db_agent`, `compliance_agent`) with a pluggable registry for custom agents.
+- [x] **Answers in the User's Language:**
+  - Turkish and English: language detection, prompts that name the target language, localized fixed texts and compliance report headings, `language_match_rate` in the evaluation (63% → 100%).
+- [ ] **Additional Response Languages (Mandarin Chinese, Hindi, Spanish):**
+  - The three most spoken languages after English. Spanish already answers correctly on a best-effort basis; Chinese and Hindi answers currently fail the Self-RAG check. See [Language Support](language_support.md#-coming-soon).
 - [ ] **Additional Specialist Agents:**
   - Code Analysis Agent and multi-agent collaboration (one question answered by several specialists in sequence).
 - [x] **User Feedback Loop:**

@@ -26,7 +26,7 @@
 * 🚀 **LLM Served by Ollama:** The LLM runs in a local [Ollama](https://ollama.com) server (default `qwen2.5:7b`), so the API process loads no LLM weights and switching models is one setting (`OLLAMA_MODEL`). Parallel requests are capped by `OLLAMA_NUM_PARALLEL`.
 * 🗄️ **Universal Database Connector:** Connects to **PostgreSQL, MSSQL, MySQL, Oracle, and SQLite** via an SQLAlchemy abstraction layer with token-level SQL validation, database-enforced read-only sessions (SQLite/PostgreSQL/MySQL), and automated table vectorization. For production, connect with a SELECT-only database account.
 * ⚡ **Thinking Indicator & Trace UX:** Streamlined user experience featuring interactive thinking indicators and collapsible multi-agent execution traces showing internal actions, durations, and SQL queries.
-* 🌐 **Language-Agnostic & Multilingual:** Native multilingual search across enterprise corpora powered by BGE-M3 dense vectors, responding naturally in the user's language without artificial constraints.
+* 🌐 **Multilingual, Answers in the User's Language:** Multilingual search across enterprise corpora with BGE-M3 dense vectors. Every agent answers in the language of the question (Turkish or English), including fixed messages such as "not found" and error texts, even when the documents or table data are in another language. Mandarin Chinese, Hindi, and Spanish are coming next (see [Language Support](docs/language_support.md)).
 * 📏 **Measured Quality:** A labeled evaluation harness (`python -m evals.run_eval`) measures retrieval, routing, and answer accuracy with the real models and compares runs before and after a change (see [Measured Quality](#-measured-quality)).
 * 🖥️ **Full-Stack Suite:** Ready-to-use FastAPI REST gateway (with Swagger OpenAPI docs) paired with a modern Streamlit enterprise control panel.
 
@@ -45,6 +45,7 @@ Default configuration, `qwen2.5:7b` via Ollama on an RTX 3060 Laptop GPU (6 GB):
 | Questions routed to the right specialist agent | 98% |
 | Off-topic questions answered with "not in the documents" instead of a guess | 100% |
 | Answerable questions wrongly refused | 2% |
+| Answers written in the language of the question | 100% |
 | Latency per question (median / 95th percentile) | 7.3 s / 23.2 s |
 
 Before the relevance gate, the routing fixes, and the switch from an in-process 1.5B model to Ollama, the same questions scored 59% correct answers, 0% on database questions, and only half of the off-topic questions were refused. The dataset is small and synthetic, so measure with your own documents before relying on these numbers ([how](docs/evaluation.md#using-your-own-documents)).
@@ -65,6 +66,7 @@ Explore our detailed architectural, operational, and development guides:
 | 🗄️ [**Database Connectors**](docs/database_connectors.md) | Universal SQLAlchemy configurations, Text-to-SQL security, and ETL table vectorization |
 | 🔌 [**REST API Reference**](docs/api_reference.md) | FastAPI endpoint documentation, JWT auth, NDJSON event streaming, and cURL examples |
 | 🐳 [**Docker Deployment**](docs/docker_deployment.md) | Production multi-service containerization (Backend, Frontend, Ollama), NVIDIA GPU passthrough |
+| 🌍 [**Language Support**](docs/language_support.md) | Supported languages (Turkish, English), behavior for other languages, and languages coming soon (Mandarin Chinese, Hindi, Spanish) |
 | 📏 [**Evaluation Guide**](docs/evaluation.md) | Labeled question set, harness, current results, and how each change was measured |
 | 🗺️ [**Roadmap**](docs/roadmap.md) | Hybrid search (BM25 + Dense), GraphRAG, observability, SSO, and multi-tenant isolation |
 

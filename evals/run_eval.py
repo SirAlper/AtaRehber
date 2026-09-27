@@ -254,7 +254,7 @@ def run_e2e(chat_model, registry, cases: List[Dict[str, Any]]) -> Dict[str, Any]
 
     from src.agent.multi_agent.orchestrator_graph import MultiAgentOrchestrator
     from src.agent.nodes import is_grade_passed
-    from src.agent.prompts import FALLBACK_RESPONSE, NO_CONTEXT_RESPONSE
+    from src.agent.language import detect_language, message_variants
 
     orchestrator = MultiAgentOrchestrator(chat_model=chat_model, registry=registry, checkpointer=MemorySaver())
     records = []
@@ -269,7 +269,11 @@ def run_e2e(chat_model, registry, cases: List[Dict[str, Any]]) -> Dict[str, Any]
 
         answer = result.get("answer", "")
         returned_sources = {s.get("source") for s in result.get("sources", [])}
-        refused = answer.strip() in (NO_CONTEXT_RESPONSE, FALLBACK_RESPONSE) or metrics.is_refusal(answer)
+        system_refusals = message_variants("no_context") + message_variants("fallback")
+        refused = answer.strip() in system_refusals or metrics.is_refusal(answer)
+        # Did the system answer in the question's language? (None when either text gives no signal)
+        question_language, answer_language = detect_language(case["question"]), detect_language(answer)
+        language_match = question_language == answer_language if question_language and answer_language else None
         recall = metrics.fact_recall(answer, case["expected_facts"])
         grade = result.get("hallucination_grade", "")
         record = {
@@ -283,6 +287,7 @@ def run_e2e(chat_model, registry, cases: List[Dict[str, Any]]) -> Dict[str, Any]
             "answer_correct": recall == 1.0 if recall is not None else None,
             "source_hit": bool(returned_sources & set(case["expected_sources"])) if case["expected_sources"] else None,
             "refused": refused,
+            "language_match": language_match,
             "hallucination_grade": grade,
             "grounded": is_grade_passed(grade) if grade else None,
             "latency_s": round(latency, 2),
@@ -312,6 +317,7 @@ def run_e2e(chat_model, registry, cases: List[Dict[str, Any]]) -> Dict[str, Any]
         "grounded_rate": rate(records, "grounded"),
         # Answerable questions the system refused (too strict) vs. unanswerable questions it answered (hallucination risk)
         "false_refusal_rate": rate(answerable, "refused"),
+        "language_match_rate": rate(records, "language_match"),
         "out_of_scope_refusal_rate": rate(unanswerable, "refused"),
         "errors": sum(1 for r in records if r["error"]),
         "latency_p50_s": metrics.percentile(latencies, 50),
@@ -337,6 +343,10 @@ def print_e2e(section: Dict[str, Any]) -> None:
     print(f"  grounded (Self-RAG passed)    : {_fmt(s['grounded_rate'])}")
     print(f"  false refusals                : {_fmt(s['false_refusal_rate'])}")
     print(f"  out-of-scope refused          : {_fmt(s['out_of_scope_refusal_rate'])}")
+    print(f"  answered in question language : {_fmt(s.get('language_match_rate'))}")
+    for r in section["cases"]:
+        if r.get("language_match") is False:
+            print(f"    wrong language: {r['id']} ({r['agent']})")
     print(f"  latency p50 / p95             : {s['latency_p50_s']}s / {s['latency_p95_s']}s")
     if s["errors"]:
         print(f"  ERRORS                        : {s['errors']}")
