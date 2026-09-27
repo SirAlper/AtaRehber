@@ -76,10 +76,10 @@ The strategic development roadmap for `OpenLocalRagAgents` is structured below t
 ## ⚡ Phase 3 — Serving Optimization & Inference Acceleration
 
 - [x] **Request Serialization & Concurrency Protection:**
-  - Integrated `QueryConcurrencyManager` with dual-mode support: serialized `asyncio.Lock` for in-process HuggingFace, and parallel `asyncio.Semaphore` for Ollama serving.
+  - `QueryConcurrencyManager` caps concurrent LLM requests to Ollama with `asyncio.Semaphore(OLLAMA_NUM_PARALLEL)`.
 - [x] **Optimized Inference Engine Integration (Ollama / vLLM):**
-  - First-class Ollama support with `langchain-ollama` (`LLM_BACKEND=ollama`), enabling 7B/14B models (`qwen2.5:7b`, `llama3.1:8b`) and multi-request parallel processing.
-  - Optional `ollama` container definition in `docker-compose.yml`.
+  - The LLM is served exclusively by Ollama (`langchain-ollama`); the in-process HuggingFace backend was removed. 7B/14B models (`qwen2.5:7b`, `llama3.1:8b`) and parallel requests, with a startup availability check.
+  - `ollama` service with automatic first-start model pull in `docker-compose.yml`; the GPU override assigns the GPU to Ollama.
 - [ ] **Semantic Vector Caching:**
   - Cache recurring queries using vector similarity (Redis / GPTCache) to answer repeated enterprise questions with near-zero latency.
 - [ ] **Speculative Decoding:**

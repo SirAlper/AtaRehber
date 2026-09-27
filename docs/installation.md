@@ -6,21 +6,21 @@ This guide provides step-by-step instructions for deploying `OpenLocalRagAgents`
 
 ## 💻 System & Hardware Requirements
 
-The platform is engineered to support both lightweight in-process execution (HuggingFace) and external inference acceleration (Ollama):
+The LLM runs in a local [Ollama](https://ollama.com) server; the API process only loads the embedding and reranker models.
 
-| Component | Minimum Requirements (HF 1.5B) | Recommended Enterprise (Ollama 7B/14B) |
+| Component | Minimum | Recommended |
 | :--- | :--- | :--- |
-| **Operating System** | Ubuntu 22.04 LTS / Windows 11 | Ubuntu 22.04 LTS / Windows 11 / RHEL 9 |
+| **Operating System** | Ubuntu 22.04 LTS / Windows 11 / macOS | Ubuntu 22.04 LTS / Windows 11 / RHEL 9 |
 | **Python** | 3.12+ | 3.12 or 3.13 |
-| **System RAM** | 8 GB DDR4 | 16 GB - 32 GB DDR5 |
-| **GPU / VRAM** | NVIDIA GPU (**Min 4-6 GB VRAM**) | NVIDIA RTX 3060 / 4060 / A4000+ (8-16 GB VRAM) |
-| **CUDA Version** | CUDA 11.8+ | CUDA 12.1+ |
+| **System RAM** | 8 GB | 16 GB - 32 GB |
+| **GPU / VRAM** | Optional (Ollama also runs on CPU, slowly) | NVIDIA GPU with 6 GB+ VRAM for `qwen2.5:7b`, 12 GB+ for 14B models |
+| **Ollama** | Latest release | Latest release |
 
-> **Memory Allocation Architecture (Default HuggingFace Backend):**  
-> - `bge-m3` Embedding Model: ~1.1 GB (Runs on CPU to preserve GPU memory)  
-> - `bge-reranker-v2-m3` Reranker Model: ~1.1 GB (Runs on CPU)  
-> - `Qwen2.5-1.5B-Instruct` LLM: ~2.8 GB (Loaded directly into GPU VRAM in BF16 format)  
-> - **Total GPU VRAM Footprint: ~3 GB!** (If no NVIDIA GPU is detected, the entire pipeline falls back to CPU execution).
+> **Memory Allocation (default settings):**  
+> - `bge-m3` embedding model: ~1.1 GB RAM (CPU, in the API process)  
+> - `bge-reranker-v2-m3` reranker model: ~1.1 GB RAM (CPU, in the API process)  
+> - `qwen2.5:7b` LLM: ~4.7 GB, 4-bit quantized by Ollama, in VRAM when a GPU is available  
+> - Smaller GPUs: `qwen2.5:3b` (~1.9 GB) fits in 4 GB of VRAM. Measure the quality difference with the [evaluation harness](evaluation.md).
 
 ---
 
@@ -43,24 +43,13 @@ python -m venv .venv
 .\.venv\Scripts\activate
 ```
 
-### 3. Install PyTorch with Hardware Acceleration (CUDA)
+### 3. Install PyTorch
 
-> **Important:** To leverage GPU acceleration, install PyTorch matching your CUDA version from the official PyTorch index:
-
-* **NVIDIA GPU (CUDA 12.1 - Recommended):**
-  ```bash
-  pip install torch --index-url https://download.pytorch.org/whl/cu121
-  ```
-
-* **NVIDIA GPU (CUDA 11.8):**
-  ```bash
-  pip install torch --index-url https://download.pytorch.org/whl/cu118
-  ```
-
-* **CPU-Only (Testing / Development without GPU):**
-  ```bash
-  pip install torch --index-url https://download.pytorch.org/whl/cpu
-  ```
+PyTorch only runs the embedding and reranker models, which use the CPU by default (`RAG_DEVICE=cpu`) so the GPU stays free for Ollama. The CPU build is enough:
+```bash
+pip install torch --index-url https://download.pytorch.org/whl/cpu
+```
+To run retrieval on an NVIDIA GPU instead, install a CUDA build (e.g. `--index-url https://download.pytorch.org/whl/cu121`) and set `RAG_DEVICE=cuda`.
 
 ### 4. Install Project Dependencies
 ```bash
@@ -68,6 +57,14 @@ pip install --upgrade pip
 # Backend + Streamlit UI (add requirements-dev.txt for tests and linting)
 pip install -r requirements.txt -r requirements-ui.txt
 ```
+
+### 5. Install Ollama and Pull the LLM
+Install Ollama from [ollama.com/download](https://ollama.com/download), then pull the default model:
+```bash
+ollama pull qwen2.5:7b
+ollama list            # the model should be listed; this also confirms the server is running
+```
+To use another model, pull it and set `OLLAMA_MODEL` in `.env`. The API logs a clear error at startup (and `GET /api/v1/stats` reports `llm_status`) if the server is unreachable or the model has not been pulled.
 
 ---
 
@@ -96,11 +93,10 @@ PASSWORD_REQUIRE_LOWERCASE=true
 PASSWORD_REQUIRE_DIGIT=true
 PASSWORD_REQUIRE_SPECIAL=false
 
-# ─── LLM Serving Backend ───
-# "huggingface" (in-process BF16) or "ollama" (external server)
-LLM_BACKEND=huggingface
+# ─── LLM (Ollama) ───
 OLLAMA_BASE_URL=http://localhost:11434
 OLLAMA_MODEL=qwen2.5:7b
+OLLAMA_NUM_CTX=4096
 OLLAMA_NUM_PARALLEL=4
 
 # ─── Relational Database (Optional) ───
@@ -145,7 +141,7 @@ The complete, commented list of settings is in [`.env.example`](../.env.example)
 
 ## 📥 Provisioning Models Locally (`download_model.py`)
 
-To prevent runtime downloads and avoid inflating `~/.cache` or OS temp directories, model weights are pinned directly into the project's `./models/` directory (~6.4 GB total).
+The embedding and reranker models are pinned into the project's `./models/` directory (~3.3 GB) to prevent runtime downloads and avoid inflating `~/.cache`. The LLM is not part of this: Ollama stores it (`ollama pull`).
 
 Run the provisioning script:
 ```bash
@@ -158,7 +154,7 @@ python download_model.py
   FORCE_DOWNLOAD=1 python download_model.py
   ```
 
-Once downloaded, the system operates in **100% offline (air-gapped)** mode with zero internet access required.
+Once both the retrieval models and the Ollama model are downloaded, the system operates in **100% offline (air-gapped)** mode with zero internet access required.
 
 ---
 
@@ -176,11 +172,11 @@ pytest tests/ -v
 pytest tests/ --cov=src --cov-report=term-missing
 
 # Lint and formatting checks (same as CI; settings in ruff.toml):
-ruff check src/ tests/
-ruff format --check src/ tests/
+ruff check src/ tests/ evals/
+ruff format --check src/ tests/ evals/
 ```
 
-Tests run against an isolated temporary data directory (see `tests/conftest.py`) and never touch your `data/` folder. LLM calls are stubbed; the memory-profiling tests load the real embedding models and are skipped when the weights have not been downloaded.
+Tests run against an isolated temporary data directory (see `tests/conftest.py`) and never touch your `data/` folder. LLM calls are stubbed, so tests do not need Ollama; the memory-profiling tests load the real embedding models and are skipped when the weights have not been downloaded.
 
 ---
 
@@ -188,7 +184,7 @@ Tests run against an isolated temporary data directory (see `tests/conftest.py`)
 
 ### Backend (FastAPI Gateway):
 ```bash
-# Recommended production launch (without reload to avoid re-allocating VRAM):
+# Recommended production launch (without --reload):
 uvicorn src.api.main:app --host 0.0.0.0 --port 8000
 
 # Or via the backward-compatible entry point:
@@ -198,7 +194,7 @@ python -m src.main
 * **Interactive Swagger Documentation:** `http://localhost:8000/docs`
 
 > [!TIP]
-> When serving in-process HuggingFace models, avoid running with `--reload` during document uploads, as modifying files triggers Uvicorn to restart and reload gigabytes of PyTorch weights into memory.
+> Avoid `--reload` outside development: every file change restarts the API and reloads the embedding and reranker models (~2 GB).
 
 ### Frontend (Streamlit Dashboard):
 In a separate terminal window:

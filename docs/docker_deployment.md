@@ -6,7 +6,7 @@ This guide details how to deploy `OpenLocalRagAgents` using **Docker** and **Doc
 
 ## 🏗️ Architecture Overview
 
-The containerized deployment supports up to three decoupled services communicating over an internal Docker bridge network:
+The containerized deployment runs three services on an internal Docker bridge network, plus a one-shot `ollama-pull` job that downloads the LLM on the first start:
 
 ```text
 ┌──────────────────────────────────────────────────────────────────────────────────┐
@@ -21,22 +21,23 @@ The containerized deployment supports up to three decoupled services communicati
 │         ▼                 ▼                 ▼                     ▼              │
 │  ┌────────────────────────────────────────────────────────────────────────────┐  │
 │  │                   rag_agents_backend (Port 8000)                           │  │
-│  │          FastAPI + LangGraph + PyTorch (CPU default / CUDA)                │  │
+│  │     FastAPI + LangGraph + embedding/reranker models (PyTorch, CPU)         │  │
 │  └───────────────────▲─────────────────────────────────────▲──────────────────┘  │
 │                      │ (internal: 8000)                    │ (internal: 11434)   │
 │  ┌───────────────────┴─────────────────┐  ┌────────────────┴──────────────────┐  │
 │  │        rag_agents_frontend          │  │        rag_agents_ollama          │  │
-│  │ Streamlit (Port 8501, light image)  │  │ (optional profile: ollama,        │  │
-│  │                                     │  │  bound to 127.0.0.1:11434)        │  │
+│  │ Streamlit (Port 8501, light image)  │  │ LLM server (GPU via override),    │  │
+│  │                                     │  │ internal network only             │  │
 │  └─────────────────────────────────────┘  └───────────────────────────────────┘  │
 └──────────────────────────────────────────────────────────────────────────────────┘
 ```
 
 * **Separate images:**
-  * [`Dockerfile`](../Dockerfile) builds the **backend** in two stages. A builder stage compiles dependencies, and a `python:3.12-slim` runtime stage copies only the installed packages and the `src/` code. PyTorch is installed from the CPU wheel index by default; the GPU override builds with CUDA 12.1 wheels (`TORCH_INDEX_URL` build argument).
+  * [`Dockerfile`](../Dockerfile) builds the **backend** in two stages. A builder stage compiles dependencies, and a `python:3.12-slim` runtime stage copies only the installed packages and the `src/` code. PyTorch is installed from the CPU wheel index; it only runs the embedding and reranker models (a CUDA build can be selected with the `TORCH_INDEX_URL` build argument).
+  * The **LLM** runs in the official `ollama/ollama` image. Its models are stored in the `ollama_data` volume.
   * [`Dockerfile.frontend`](../Dockerfile.frontend) builds a lightweight **Streamlit** image with only `streamlit` and `requests`, since the UI talks to the backend over HTTP and needs no ML stack.
 * **Non-root containers:** Both images run as user `app` (uid/gid `1000`).
-* **Zero-Bloat Image:** Model weights, vector indexes, documents and databases are mounted as host volumes, never baked into the image. `.env` files are excluded from the build context, so secrets never end up in image layers.
+* **Zero-Bloat Image:** Retrieval model weights, vector indexes, documents and databases are mounted as host volumes, never baked into the image. `.env` files are excluded from the build context, so secrets never end up in image layers.
 * **Data Persistence:** Rebuilding or recreating containers keeps your documents, audit log (`audit.db`), user accounts (`users.json`), JWT secret (`.jwt_secret`), conversation checkpoints (`multi_agent_conversations.db`), vector collections, and backups.
 
 ---
@@ -47,7 +48,7 @@ The containerized deployment supports up to three decoupled services communicati
 | :--- | :--- | :--- |
 | **Docker Engine** | Version 24.0+ | Version 24.0+ |
 | **Docker Compose** | Compose v2.24+ (`docker compose`) | Compose v2.24+ (`docker compose`) |
-| **NVIDIA Driver** | Not required | Version 525+ |
+| **NVIDIA Driver** | Not required (the LLM runs on CPU, slowly) | Version 525+ |
 | **Container Toolkit** | Not required | [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html) |
 
 > [!NOTE]
@@ -57,12 +58,11 @@ The containerized deployment supports up to three decoupled services communicati
 
 ## ⚡ Quickstart in 3 Steps
 
-### Step 1: Provision Local Models and Volume Directories
-Before starting the containers in HuggingFace mode, download the local models to `./models` (requires the Python dependencies on the host, see [Installation](installation.md)):
+### Step 1: Provision Retrieval Models and Volume Directories
+Download the embedding and reranker models to `./models` (requires the Python dependencies on the host, see [Installation](installation.md)). The LLM is pulled by the `ollama-pull` service on the first start.
 ```bash
 python download_model.py
 ```
-*(If you use the Ollama profile exclusively, HuggingFace LLM weights are optional; the embedding and reranker models are still required.)*
 
 The containers run as uid `1000`. On Linux, create the volume directories up front so they are owned by your user (Docker would otherwise create missing ones as `root`, and the backend could not write to them):
 ```bash
@@ -78,18 +78,19 @@ sudo chown -R 1000:1000 data vector_db backups
 docker compose up -d --build
 ```
 
-#### Option B: NVIDIA GPU Acceleration (CUDA Passthrough)
-Builds the backend with CUDA 12.1 PyTorch wheels, sets `RAG_DEVICE=cuda`, and passes host GPUs to the backend container:
+#### Option B: NVIDIA GPU Acceleration
+Passes the host GPUs to the Ollama container, where the LLM runs. The embedding and reranker models stay on the backend's CPU:
 ```bash
 docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d --build
 ```
 
-#### Option C: With Ollama High-Concurrency Serving Profile
-Starts the bundled Ollama server alongside the backend and frontend. Set `LLM_BACKEND=ollama` in `.env` so the backend uses it, then pull the model once:
+#### Option C: Use an Ollama Already Running on the Host
+Set `OLLAMA_BASE_URL=http://host.docker.internal:11434` in `.env` (Docker Desktop; on Linux use the host IP), pull the model on the host (`ollama pull qwen2.5:7b`), and start only the backend and frontend:
 ```bash
-docker compose --profile ollama up -d --build
-docker compose exec ollama ollama pull qwen2.5:7b
+docker compose up -d --build --no-deps backend frontend
 ```
+
+On the first start (options A and B), `ollama-pull` downloads `OLLAMA_MODEL` (~4.7 GB for `qwen2.5:7b`). The UI and API are available right away; questions work once the download has finished (`docker compose logs -f ollama-pull`).
 
 ### Step 3: Access Applications
 * **Streamlit Web UI:** `http://localhost:8501`
@@ -107,14 +108,14 @@ docker compose exec ollama ollama pull qwen2.5:7b
 
 ## ⚙️ Custom Configuration (`.env`)
 
-Copy `.env.example` to `.env` in the project root (next to `docker-compose.yml`). The backend service loads the whole file via `env_file`. The few variables with defaults in `docker-compose.yml` (`LLM_BACKEND`, `RAG_DEVICE`, `CORS_ORIGINS`, …) use `${VAR:-default}` syntax, so values from `.env` always win.
+Copy `.env.example` to `.env` in the project root (next to `docker-compose.yml`). The backend service loads the whole file via `env_file`. The few variables with defaults in `docker-compose.yml` (`OLLAMA_BASE_URL`, `OLLAMA_MODEL`, `RAG_DEVICE`, `CORS_ORIGINS`, …) use `${VAR:-default}` syntax, so values from `.env` always win.
 
 ```env
-# ─── LLM Serving Backend ───
-# Options: "huggingface" (local in-process) or "ollama" (external server)
-LLM_BACKEND=huggingface
+# ─── LLM (Ollama) ───
+# The bundled ollama service; the ollama-pull job pulls OLLAMA_MODEL on the first start
 OLLAMA_BASE_URL=http://ollama:11434
 OLLAMA_MODEL=qwen2.5:7b
+OLLAMA_NUM_CTX=4096
 OLLAMA_NUM_PARALLEL=4
 
 # ─── Authentication & RBAC ───
@@ -176,8 +177,8 @@ docker compose logs -f backend
 # Frontend UI only
 docker compose logs -f frontend
 
-# Ollama service only (if profile active)
-docker compose logs -f ollama
+# Ollama service and the first-start model download
+docker compose logs -f ollama ollama-pull
 ```
 
 ### Inspect Container Health:
@@ -227,3 +228,6 @@ sudo chown -R 1000:1000 data vector_db backups
 
 ### 4. Frontend Never Starts:
 The frontend waits for the backend healthcheck (`/health`). Loading models can take a few minutes on first start (`start_period: 120s`). Check `docker compose logs -f backend` for model loading or download errors, for example missing weights in `./models`.
+
+### 5. Questions Fail With "model is not pulled" or "not reachable":
+Right after the first start the LLM may still be downloading. Follow `docker compose logs -f ollama-pull`; the job exits once the model is present. `GET /api/v1/stats` reports the current `llm_status`. To pull a different model into the bundled server: `docker compose exec ollama ollama pull <model>`.

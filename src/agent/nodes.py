@@ -94,7 +94,7 @@ class AgentNodes:
         }
 
     def generate(self, state: dict) -> dict:
-        """Generate enterprise RAG response using ChatHuggingFace/ChatOllama."""
+        """Generate enterprise RAG response using the Ollama chat model."""
         logger.info("[generate] Generating response...")
         context = state.get("context", "").strip()
         chat_history = list(state.get("chat_history", []))

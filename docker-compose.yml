@@ -1,6 +1,7 @@
 services:
   # ───────────────────────────────────────────────────────────────────────────
-  # Backend: FastAPI REST API + LangGraph Self-RAG + ChromaDB + ML Models
+  # Backend: FastAPI REST API + LangGraph agents + ChromaDB + embedding/reranker models
+  # The LLM runs in the ollama service below.
   # ───────────────────────────────────────────────────────────────────────────
   backend:
     build:
@@ -23,7 +24,6 @@ services:
       - MAX_UPLOAD_SIZE_MB=${MAX_UPLOAD_SIZE_MB:-50}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - ALLOW_ONLINE_HF=${ALLOW_ONLINE_HF:-0}
-      - LLM_BACKEND=${LLM_BACKEND:-huggingface}
       - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://ollama:11434}
       - OLLAMA_MODEL=${OLLAMA_MODEL:-qwen2.5:7b}
     volumes:
@@ -31,14 +31,9 @@ services:
       - ./data:/app/data
       - ./vector_db:/app/vector_db
       - ./backups:/app/backups
-    # Uncomment the deploy block below to enable NVIDIA GPU acceleration:
-    # deploy:
-    #   resources:
-    #     reservations:
-    #       devices:
-    #         - driver: nvidia
-    #           count: all
-    #           capabilities: [gpu]
+    depends_on:
+      # Started, not "healthy": the API also works without the LLM (documents, users, audit)
+      - ollama
     healthcheck:
       test: ["CMD-SHELL", "curl -f http://localhost:8000/health || exit 1"]
       interval: 20s
@@ -68,22 +63,39 @@ services:
       - rag_network
 
   # ───────────────────────────────────────────────────────────────────────────
-  # Optional: Ollama Serving Engine for High Concurrency (7B / 14B Models)
-  # Run with: docker compose --profile ollama up
+  # Ollama: serves the LLM. GPU acceleration: add -f docker-compose.gpu.yml
+  # No host port is published (the backend uses the internal network), so this does not
+  # clash with an Ollama already running on the host. Use: docker compose exec ollama ollama list
   # ───────────────────────────────────────────────────────────────────────────
   ollama:
     image: ollama/ollama:latest
     container_name: rag_agents_ollama
     restart: unless-stopped
-    # Bound to localhost only: the backend reaches Ollama over the internal network
-    ports:
-      - "127.0.0.1:11434:11434"
     volumes:
       - ollama_data:/root/.ollama
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
     networks:
       - rag_network
-    profiles:
-      - ollama
+
+  # One-shot job: pulls OLLAMA_MODEL on first start (a no-op once the model is present).
+  # Queries fail with an "ollama pull" hint in the logs until it finishes.
+  ollama-pull:
+    image: ollama/ollama:latest
+    container_name: rag_agents_ollama_pull
+    environment:
+      - OLLAMA_HOST=http://ollama:11434
+    entrypoint: ["ollama", "pull", "${OLLAMA_MODEL:-qwen2.5:7b}"]
+    depends_on:
+      ollama:
+        condition: service_healthy
+    restart: "no"
+    networks:
+      - rag_network
 
 networks:
   rag_network:

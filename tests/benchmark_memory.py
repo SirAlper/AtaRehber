@@ -57,21 +57,20 @@ def main():
     print(f"  ✓ Search Completed in {time.time()-t0:.2f}s | Context Length: {len(res.get('context', ''))} chars")
     print(f"  ✓ RAM after Search: {search_ram:.1f} MB (Delta: +{search_ram - rag_ram:.1f} MB)")
 
-    # 3. LLM (HuggingFace 1.5B or Ollama)
-    print("\n[3/3] Loading LLM...")
-    from src.core.config import LLM_BACKEND
+    # 3. LLM (served by Ollama in a separate process, so its memory does not show up here)
+    print("\n[3/3] Checking LLM (Ollama)...")
+    from src.agent.llm import check_ollama, create_chat_model
+    from src.core.config import OLLAMA_MODEL
 
-    print(f"  Active LLM Backend: '{LLM_BACKEND}'")
+    problem = check_ollama()
+    if problem:
+        print(f"  ✗ {problem}")
+        return
     t0 = time.time()
-    from src.agent.llm import create_chat_model
-
-    _chat_model = create_chat_model()  # keep loaded while measuring
+    create_chat_model().invoke("Merhaba")
     llm_ram = get_ram_mb()
-    llm_vram_alloc, llm_vram_res = get_vram_mb()
-    print(f"  ✓ LLM Loaded in {time.time()-t0:.2f}s")
-    print(f"  ✓ RAM after LLM: {llm_ram:.1f} MB (Delta: +{llm_ram - search_ram:.1f} MB)")
-    if torch.cuda.is_available():
-        print(f"  ✓ Total VRAM: {llm_vram_alloc:.1f} MB allocated, {llm_vram_res:.1f} MB reserved")
+    print(f"  ✓ First answer from '{OLLAMA_MODEL}' in {time.time()-t0:.2f}s (includes model load if it was idle)")
+    print(f"  ✓ RAM after LLM call: {llm_ram:.1f} MB (Delta: +{llm_ram - search_ram:.1f} MB)")
 
     # 4. Agent State & Query Test
     print("\n[4/4] Executing Complete LangGraph Self-RAG Query...")
@@ -91,9 +90,7 @@ def main():
     print("📈 SUMMARY REPORT:")
     print(f"  • Baseline RAM (Process start):     {base_ram:.1f} MB")
     print(f"  • RAG Models RAM (Embedding+Rerank): {rag_ram:.1f} MB")
-    print(f"  • Total Working Set with LLM:        {final_ram:.1f} MB (~{final_ram/1024:.2f} GB)")
-    if torch.cuda.is_available():
-        print(f"  • GPU VRAM Allocated:               {llm_vram_alloc:.1f} MB (~{llm_vram_alloc/1024:.2f} GB)")
+    print(f"  • Total Working Set (LLM in Ollama): {final_ram:.1f} MB (~{final_ram/1024:.2f} GB)")
     print(f"  • Disk Consumption During Run:       {disk_diff_mb:.2f} MB (Change in free space)")
     print("=" * 60)
 

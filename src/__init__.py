@@ -13,7 +13,6 @@ from src.core.config import (
     MODELS_DIR,
     VECTOR_DB_PATH,
     DOCS_PATH,
-    LLM_MODEL_NAME,
     EMBEDDING_MODEL_NAME,
     RERANKER_MODEL_NAME,
 )
@@ -26,7 +25,6 @@ __all__ = [
     "MODELS_DIR",
     "VECTOR_DB_PATH",
     "DOCS_PATH",
-    "LLM_MODEL_NAME",
     "EMBEDDING_MODEL_NAME",
     "RERANKER_MODEL_NAME",
     "DocumentLoader",

@@ -206,7 +206,7 @@ agent_registry.unregister("my_custom_agent")
 
 2. **Memory Safety & Lazy Loading:**
    * If your agent requires heavy dependencies or external drivers, load them inside `execute()` or behind a cached `@property` rather than during module import.
-   * Leave `chat_model` unset: the orchestrator injects the shared LLM instance, preventing duplicate VRAM allocations. Pass `chat_model=` only in tests.
+   * Leave `chat_model` unset: the orchestrator injects the shared Ollama chat model, so every agent uses the same `OLLAMA_MODEL` and settings. Pass `chat_model=` only in tests.
 
 3. **Use the Conversation History:**
    * `state["chat_history"]` holds the session's previous turns. Include the last few in your prompt so follow-up questions resolve correctly.

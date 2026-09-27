@@ -12,7 +12,7 @@ Run from the repository root with the project's virtual environment:
 # Retrieval only: embedding + reranker, no LLM (about 3 minutes on CPU)
 python -m evals.run_eval
 
-# Retrieval + supervisor routing + end-to-end answers (loads the LLM)
+# Retrieval + supervisor routing + end-to-end answers (needs Ollama with OLLAMA_MODEL pulled)
 python -m evals.run_eval --stages all
 
 # Only some questions
@@ -28,8 +28,8 @@ The harness runs in a temporary directory. It indexes `evals/corpus/` into its o
 | Stage | Needs | What it measures |
 | :--- | :--- | :--- |
 | `retrieval` | Embedding + reranker | Whether the right document reaches the LLM, and whether off-topic questions retrieve nothing. |
-| `routing` | LLM | Whether the supervisor picks the expected agent. |
-| `e2e` | LLM | The full workflow (`MultiAgentOrchestrator.query`): answer correctness, refusals, Self-RAG grounding, latency. |
+| `routing` | Ollama | Whether the supervisor picks the expected agent. |
+| `e2e` | Ollama | The full workflow (`MultiAgentOrchestrator.query`): answer correctness, refusals, Self-RAG grounding, latency. |
 
 ### Retrieval metrics
 
@@ -77,8 +77,17 @@ Settings are read from the environment, like the application itself, so you can 
 ```bash
 RAG_MIN_RERANKER_SCORE=0.01 python -m evals.run_eval
 RERANKER_TOP_N=5 CHUNK_SIZE=400 python -m evals.run_eval --stages all
-LLM_BACKEND=ollama OLLAMA_MODEL=qwen2.5:7b python -m evals.run_eval --stages e2e
+OLLAMA_MODEL=qwen2.5:3b python -m evals.run_eval --stages all     # pull it first: ollama pull qwen2.5:3b
 ```
+
+This `VAR=value command` form works in bash. In PowerShell, set the variable first and remove it afterwards:
+```powershell
+$env:OLLAMA_MODEL = "qwen2.5:3b"
+python -m evals.run_eval --stages all
+Remove-Item Env:OLLAMA_MODEL
+```
+
+The routing and end-to-end stages need a running Ollama server with `OLLAMA_MODEL` pulled; the harness checks this first and stops with the fix if not. Each report records the model under `config.llm_model`.
 
 LLM output varies slightly between runs, so treat differences of one or two questions as noise.
 
@@ -143,7 +152,24 @@ Remaining weaknesses, all limits of the 1.5B model rather than of retrieval or r
 * A few policy questions phrased with "can"/"must" (`-ebilir`, `-meli`) still go to `compliance_agent`, and "Bu sistem neler yapabilir?" goes to `doc_agent` instead of a direct answer.
 * The Self-RAG grader still passes one wrong answer (26 instead of 20 leave days).
 
-A larger model (for example `LLM_BACKEND=ollama` with `qwen2.5:7b`) is the next thing to measure.
+### Switching the LLM to `qwen2.5:7b` (Ollama)
+
+Same code and dataset, only the LLM changed: `qwen2.5-1.5b` in-process versus `qwen2.5:7b` served by Ollama. On the 6 GB RTX 3060 Laptop GPU, Ollama kept 82% of the 7B model on the GPU and 18% on the CPU.
+
+| Metric | 1.5B (in-process) | 7B (Ollama) |
+| :--- | :---: | :---: |
+| Routing accuracy | 82% | **98%** |
+| Answer accuracy | 73% | **95%** |
+| ↳ documents / compliance / database | 91% / 63% / 40% | **100% / 100% / 80%** |
+| Off-topic questions refused | 100% | 100% |
+| Answerable questions refused | 7% | 2% |
+| Latency p50 / p95 | 10.2 s / 39.2 s | **7.3 s / 23.2 s** |
+
+On the held-out questions: routing 12/13 and 9/10 correct answers. The larger model also fixed the reasoning error the Self-RAG grader had missed (20 leave days instead of 26). This result is why the in-process HuggingFace backend was removed and the LLM now always runs on Ollama.
+
+Remaining failures:
+* `db-04` filters on `durum = 'çözüldü'`, but the column stores `'Resolved'`. The SQL prompt shows column names, not the values stored in them.
+* `db-10` (a support ticket code) is routed to `doc_agent`, which correctly answers that the information is not in the documents instead of guessing.
 
 ---
 

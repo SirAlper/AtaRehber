@@ -2,7 +2,7 @@
 
 Usage (from the repository root):
     python -m evals.run_eval                               # retrieval only (embedding + reranker, no LLM)
-    python -m evals.run_eval --stages all                  # retrieval + routing + end-to-end (loads the LLM)
+    python -m evals.run_eval --stages all                  # retrieval + routing + end-to-end (needs Ollama)
     python -m evals.run_eval --compare evals/results/<previous report>.json
 
 Settings under test are read from the environment like the application itself, e.g.
@@ -398,10 +398,9 @@ def main(argv=None) -> int:
             "config": {
                 "embedding_model": os.path.basename(config.EMBEDDING_MODEL_NAME),
                 "reranker_model": os.path.basename(config.RERANKER_MODEL_NAME),
-                "llm_backend": config.LLM_BACKEND,
-                "llm_model": config.OLLAMA_MODEL
-                if config.LLM_BACKEND == "ollama"
-                else os.path.basename(config.LLM_MODEL_NAME),
+                "llm_backend": "ollama",
+                "llm_model": config.OLLAMA_MODEL,
+                "ollama_num_ctx": config.OLLAMA_NUM_CTX,
                 "rag_min_similarity": config.RAG_MIN_SIMILARITY,
                 "rag_min_reranker_score": config.RAG_MIN_RERANKER_SCORE,
                 "reranker_top_n": config.RERANKER_TOP_N,
@@ -412,6 +411,16 @@ def main(argv=None) -> int:
             "details": {},
         }
         print(f"Evaluating {len(cases)} cases, stages: {', '.join(args.stages)}")
+
+        if "routing" in args.stages or "e2e" in args.stages:
+            from src.agent.llm import check_ollama
+
+            # Fail fast instead of recording an error for every question
+            llm_problem = check_ollama()
+            if llm_problem:
+                print(f"LLM not available: {llm_problem}")
+                return 1
+            print(f"LLM: {config.OLLAMA_MODEL} via Ollama at {config.OLLAMA_BASE_URL}")
 
         # Routing only needs the agents' descriptions, not the vector store
         engine = None
@@ -429,7 +438,6 @@ def main(argv=None) -> int:
         if "routing" in args.stages or "e2e" in args.stages:
             from src.agent.llm import create_chat_model
 
-            print("\nLoading LLM...")
             chat_model = create_chat_model()
             registry = build_registry(engine, work_dir)
 

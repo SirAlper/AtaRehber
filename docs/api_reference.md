@@ -209,7 +209,7 @@ curl -X DELETE "http://localhost:8000/api/v1/auth/users/jane_analyst" \
 ## 📄 2. Document & System Endpoints
 
 ### 2.1 System Statistics (`GET /api/v1/stats`)
-Returns hardware acceleration status, active embedding/LLM models, backend architecture (HuggingFace/Ollama), and vector collection statistics.
+Returns the embedding and LLM models, whether Ollama is ready (`llm_status`: `"ok"` or a problem with the fix, e.g. `"... Run: ollama pull qwen2.5:7b"`), the retrieval device, and vector collection statistics.
 
 ```bash
 curl -X GET "http://localhost:8000/api/v1/stats" \
@@ -220,11 +220,12 @@ curl -X GET "http://localhost:8000/api/v1/stats" \
 ```json
 {
   "status": "success",
-  "device": "CUDA (NVIDIA GPU)",
-  "llm_backend": "huggingface",
+  "device": "CPU",
+  "llm_backend": "ollama",
   "embedding_model": ".../models/bge-m3",
-  "llm_model": ".../models/qwen2.5-1.5b",
-  "ollama_base_url": null,
+  "llm_model": "qwen2.5:7b",
+  "ollama_base_url": "http://localhost:11434",
+  "llm_status": "ok",
   "total_chunks": 42,
   "total_documents": 3,
   "documents": {

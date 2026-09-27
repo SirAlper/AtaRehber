@@ -1,10 +1,8 @@
+# NVIDIA GPU override: docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d
+# The GPU goes to Ollama, which runs the LLM. The embedding and reranker models stay on CPU
+# (RAG_DEVICE=cpu) so the whole GPU memory is available to the LLM.
 services:
-  backend:
-    build:
-      args:
-        TORCH_INDEX_URL: https://download.pytorch.org/whl/cu121
-    environment:
-      - RAG_DEVICE=${RAG_DEVICE:-cuda}
+  ollama:
     deploy:
       resources:
         reservations:
