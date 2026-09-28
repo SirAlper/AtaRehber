@@ -4,6 +4,40 @@
 
 The system is centered around an **Intelligent Supervisor Orchestrator**. Whenever a new sub-agent is registered, the Supervisor **automatically discovers it**, registers its specialization domain, and delegates relevant incoming user inquiries accordingly.
 
+> [!TIP]
+> Most agents need no code: admins create them in the web UI (see [Agents Without Code](#-agents-without-code-web-ui)). Write a Python agent only for workflows the built-in tools cannot express.
+
+---
+
+## 🧩 Agents Without Code (Web UI)
+
+Admins create agents in the sidebar under **🧩 Custom Agents** (or with `PUT /api/v1/admin/custom-agents/{name}`):
+
+| Field | Meaning |
+| :--- | :--- |
+| System name | 3-40 lowercase letters, digits, underscores, e.g. `not_asistani`; built-in agent names and workflow names (`supervisor`, `auto`, `finish`, …) are reserved |
+| Display name | Shown in the agent choice and in answers |
+| What is it for? | The supervisor routes by this text, so name the question types ("Grade average, letter grade, and GPA calculations") |
+| Instructions | The agent's prompt: steps, tone, answer format |
+| Tools | Any of the tools below; the model decides when to call them (Ollama tool calling, at most 4 rounds per question) |
+| Enabled | Disabled agents are not offered to the supervisor |
+
+| Tool | What it does |
+| :--- | :--- |
+| `documents` | `search_documents(query)`: searches the documents with the asking user's access groups (guests never reach custom agents) and returns passages with document and article |
+| `calculator` | `calculator(expression)`: arithmetic, percentages, powers, `round`/`abs`/`min`/`max`/`sqrt`; parsed with `ast`, no code runs |
+| `dates` | `date_calculator(start_date, days, months, years, end_date)`: adds to a date or counts the days between two dates |
+| `database` | `query_database(sql)`: one read-only SELECT through the SQL guard, allowed tables only; offered only while a database is connected. There is no per-user row filter, so do not give it tables with personal data |
+
+What the definition cannot change:
+* Rules are always added to the instructions: facts about the organization come from the tools, arithmetic and dates from the calculator and date tool, articles are cited, and nothing is invented. The answer language follows the question.
+* An answer that used the document search passes the same quote-based check as `doc_agent` (grade, refine once with the grader's objection, fallback). All tool results are the context of the check, so a deadline the date tool computed is grounded like a quoted rule.
+* No tool reaches the internet.
+
+Definitions are stored in `data/custom_agents.json` (part of full backups), registered at startup, and re-registered on every change; the orchestrator recompiles its workflow when the registry changes, so no restart is needed. Saving and deleting agents are recorded in the audit trail (`custom_agent_save`, `custom_agent_delete`). Up to 20 custom agents.
+
+The implementation is in `src/agent/multi_agent/custom_agents.py` (definitions, store, `CustomAgent`, `sync_custom_agents()`) and `src/agent/multi_agent/tools.py` (tools).
+
 ---
 
 ## 🏗️ Architectural Overview: How It Works

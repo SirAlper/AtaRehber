@@ -42,6 +42,10 @@ The interactive OpenAPI Swagger UI is available at `http://localhost:8000/docs` 
 | `GET` | `/api/v1/admin/backups` | `admin` | List full and vector-index backups |
 | `POST` | `/api/v1/admin/maintenance/run` | `admin` | Apply the retention periods and take a scheduled backup now (also runs hourly) |
 | `POST` | `/api/v1/admin/restore` | `admin` | Stage a vector index restore from a backup (applied on next restart) |
+| `GET` | `/api/v1/admin/agent-tools` | `admin` | Tools custom agents can use (labels in `language=tr` or `en`) and whether they work right now |
+| `GET` | `/api/v1/admin/custom-agents` | `admin` | Custom agent definitions with their availability |
+| `PUT` | `/api/v1/admin/custom-agents/{name}` | `admin` | Create or replace a custom agent; the supervisor can route to it at once |
+| `DELETE` | `/api/v1/admin/custom-agents/{name}` | `admin` | Delete a custom agent |
 | `POST` | `/api/v1/auth/change-password` | Authenticated | Change own password (required after first login with the default password) |
 | `GET` | `/health` | Public | Liveness probe for container healthchecks |
 
@@ -823,6 +827,26 @@ curl -X POST "http://localhost:8000/api/v1/admin/maintenance/run" \
   }
 }
 ```
+
+---
+
+### 5.8 Custom Agents (`/api/v1/admin/custom-agents`)
+Agents defined without code (see [Custom Agents Guide](custom_agents_guide.md#-agents-without-code-web-ui)). `PUT /api/v1/admin/custom-agents/{name}` takes:
+
+```json
+{
+  "name": "not_asistani",
+  "display_name": "Not Asistanı",
+  "description": "Not ortalaması, harf notu ve AGNO hesaplama soruları",
+  "instructions": "Vize ve final notlarından yönetmeliğe göre ortalamayı hesapla ve harf notunu açıkla.",
+  "tools": ["documents", "calculator"],
+  "enabled": true
+}
+```
+
+* `name` must match the path; 3-40 lowercase letters, digits, underscores; built-in agent names are rejected (HTTP 400).
+* `tools`: any of `documents`, `calculator`, `dates`, `database` (`GET /api/v1/admin/agent-tools` lists them). Unknown tools or too short texts: HTTP 422.
+* The response contains the stored record with `created_by`, `created_at`, `updated_by`, `updated_at`. `GET` lists them with `available` (enabled, and at least one of its tools works if it has tools).
 
 ---
 

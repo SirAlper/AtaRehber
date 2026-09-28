@@ -6,6 +6,12 @@ This document provides a comprehensive log of new features, architectural upgrad
 
 ## 🧭 Unreleased
 
+### Added: custom agents without code
+* **Agents from the web UI:** admins create agents under **🧩 Custom Agents**: what the agent is for (the supervisor routes by it), its instructions, and its tools. The agent is available at once, without a restart, and appears in the agent choice. API: `GET`/`PUT`/`DELETE /api/v1/admin/custom-agents/{name}`, `GET /api/v1/admin/agent-tools`.
+* **Tools:** document search (with the user's access groups), calculator (no code runs), date calculation, and read-only database queries. The model decides when to call them (Ollama tool calling).
+* **Same safety rules:** fixed rules are added to every custom prompt, and answers based on documents pass the quote-based check of `doc_agent`, with computed values (a deadline, an average) as part of the context. The grade and refine steps moved to `src/agent/self_rag.py`, shared by both.
+* **Language detection:** "Vize notum 50 … not ortalamam kaç olur?" was answered in English: "not" (a grade) is also an English word and "etkiliyorsa" was not recognized. The present tense "-yor" now counts inside words (etkiliyorsa, geliyorum), and Turkish letters decide a Turkish/English tie.
+
 ### Added: guest access and a busy answer
 * **Guests (visitors without an account):** with `GUEST_ACCESS_ENABLED=true` the login panel offers "Continue as guest". Guests ask `doc_agent` about the documents shared with `GUEST_DOCUMENT_GROUP` (default `ziyaretci`) only, for example the open education faculty's regulations for prospective students; they cannot see internal documents, file requests, or query databases. Each guest session has its own question budget (`GUEST_RATE_LIMIT_PER_MINUTE`, default 10), lasts `GUEST_SESSION_MINUTES` (default 120), and cannot be refreshed; ending it clears the conversation for the next visitor on a shared computer. New endpoints `GET` / `POST /api/v1/auth/guest`. Documents shared with visitors are visible to every account as well.
 * **Busy answer instead of a timeout:** at most `MAX_QUEUED_QUERIES` (default 10) questions wait for the model; further questions get HTTP 503 at once and the web UI says "the assistant is busy, try again in a minute".

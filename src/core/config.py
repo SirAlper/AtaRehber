@@ -152,6 +152,8 @@ MULTI_AGENT_CONVERSATIONS_DB = os.path.join(DOCS_PATH, "multi_agent_conversation
 REQUESTS_DB = os.path.join(DOCS_PATH, "requests.db")
 # Which user groups may search each restricted document (documents not listed are visible to everyone)
 DOCUMENT_ACCESS_FILE = os.path.join(DOCS_PATH, "document_access.json")
+# Agents defined by admins in the web UI (name, purpose, instructions, tools)
+CUSTOM_AGENTS_FILE = os.path.join(DOCS_PATH, "custom_agents.json")
 CHAT_HISTORY_MAX_TURNS = int(os.getenv("CHAT_HISTORY_MAX_TURNS", "20"))
 
 # ──────────────────────────── CHUNKING CONFIGURATION ────────────────────────────

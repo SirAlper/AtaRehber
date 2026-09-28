@@ -177,6 +177,10 @@ def init_services():
     get_db_connector()
     get_db_loader()
     get_multi_agent_orchestrator()
+    # Agents defined in the web UI; the orchestrator recompiles its workflow when the registry changes
+    from src.agent.multi_agent.custom_agents import sync_custom_agents
+
+    logger.info(f"[Agents] {sync_custom_agents()} custom agent(s) loaded.")
 
     # The API still starts without Ollama (documents, users, audit work); queries fail until it is available
     llm_problem = check_ollama()

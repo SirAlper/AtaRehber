@@ -5,17 +5,10 @@ from typing import Dict, Any, Optional
 from src.agent.language import message, response_language
 from src.agent.multi_agent.base import BaseSubAgent
 from src.agent.multi_agent.registry import register_agent
-from src.agent.grading import GRADE_UNAVAILABLE, grade_from_quotes, grade_objection, is_grade_passed
-from src.agent.llm import json_mode
-from src.agent.prompts import (
-    build_grader_messages,
-    build_quote_grader_messages,
-    build_rag_messages,
-    build_refine_messages,
-    build_rewrite_messages,
-)
+from src.agent.grading import grade_objection, is_grade_passed
+from src.agent.prompts import build_rag_messages, build_rewrite_messages
+from src.agent.self_rag import grade_answer, refine_answer
 from src.rag.rag_engine import RAGEngine
-from src.core import config
 from src.core.logger import get_logger
 
 logger = get_logger("MultiAgent.DocAgent")
@@ -153,34 +146,9 @@ class DocumentRagAgent(BaseSubAgent):
         }
 
     def _grade(self, context: str, question: str, answer: str) -> str:
-        """Ask the LLM whether the answer is supported by the context; fails closed on errors.
-
-        With GRADER_MODE=quotes the grader must back each fact with a sentence copied from the context, and the
-        copies are checked here; a made-up quote fails the answer even if the grader says 'yes'.
-        """
-        try:
-            if config.GRADER_MODE == "quotes":
-                messages = build_quote_grader_messages(context, question, answer)
-                try:
-                    response = json_mode(self.grader_model).invoke(messages)
-                except Exception as e:
-                    # In JSON mode the model sometimes repeats a token until Ollama aborts ("token repeat limit
-                    # reached"); the verdict is also read from plain text
-                    logger.warning(f"[{self.name}] JSON grading failed ({e}), retrying without JSON mode.")
-                    response = self.grader_model.invoke(messages)
-                return grade_from_quotes(response.content, context, answer=answer, question=question)
-            response = self.grader_model.invoke(build_grader_messages(context, question, answer))
-            return response.content.strip()
-        except Exception as e:
-            logger.error(f"[{self.name}] Grading error, treating answer as unverified: {e}")
-            return GRADE_UNAVAILABLE
+        """Ask the grading model whether the answer is supported by the context (see src/agent/self_rag.py)."""
+        return grade_answer(self.grader_model, context, question, answer, agent_name=self.name)
 
     def _refine(self, context: str, question: str, draft_answer: str, language: str, objection: str = "") -> str:
         """Prune claims from the draft that the context does not support (the grader's objection first)."""
-        try:
-            messages = build_refine_messages(context, question, draft_answer, language, objection=objection)
-            response = self.chat_model.invoke(messages)
-            return response.content.strip() or draft_answer
-        except Exception as e:
-            logger.error(f"[{self.name}] Refinement error, keeping draft: {e}")
-            return draft_answer
+        return refine_answer(self.chat_model, context, question, draft_answer, language, objection, self.name)

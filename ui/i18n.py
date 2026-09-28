@@ -195,6 +195,44 @@ TEXTS: Dict[str, Dict[str, str]] = {
     "category_administrative": {"tr": "İdari", "en": "Administrative"},
     "category_other": {"tr": "Diğer", "en": "Other"},
     # ── User groups (admin) ──
+    "custom_agents_title": {"tr": "🧩 Özel Ajanlar", "en": "🧩 Custom Agents"},
+    "custom_agents_help": {
+        "tr": "Ajan oluşturun: ne için çalıştığını, nasıl çalışacağını ve hangi araçları kullanacağını yazın. "
+        "Yönetici ajan, soruları açıklamaya bakarak bu ajana yönlendirir.",
+        "en": "Create agents: describe what they are for, how they work, and which tools they use. The supervisor "
+        "routes questions to them by their description.",
+    },
+    "custom_agent_new": {"tr": "➕ Yeni ajan", "en": "➕ New agent"},
+    "custom_agent_name": {"tr": "Sistem adı", "en": "System name"},
+    "custom_agent_name_help": {
+        "tr": "3-40 karakter; küçük harf, rakam ve alt çizgi (ör. not_asistani). Sonradan değiştirilemez.",
+        "en": "3-40 characters: lowercase letters, digits, underscores (e.g. grade_assistant). Cannot be changed.",
+    },
+    "custom_agent_system_name": {"tr": "Sistem adı: `{name}`", "en": "System name: `{name}`"},
+    "custom_agent_display_name": {"tr": "Görünen ad", "en": "Display name"},
+    "custom_agent_description": {"tr": "Hangi işler için çalışır?", "en": "What is it for?"},
+    "custom_agent_description_help": {
+        "tr": "Yönetici ajan soruları bu metne göre yönlendirir; soru türlerini somut yazın "
+        "(ör. 'Not ortalaması, harf notu ve AGNO hesaplama soruları').",
+        "en": "The supervisor routes by this text; name the question types "
+        "(e.g. 'Grade average, letter grade, and GPA calculations').",
+    },
+    "custom_agent_instructions": {"tr": "Talimat (prompt)", "en": "Instructions (prompt)"},
+    "custom_agent_instructions_help": {
+        "tr": "Ajanın nasıl çalışacağını anlatın: adımlar, üslup, cevap biçimi. Belgelere dayanma ve uydurmama "
+        "kuralları her zaman eklenir.",
+        "en": "Describe how the agent works: steps, tone, answer format. The rules to rely on documents and not "
+        "to invent facts are always added.",
+    },
+    "custom_agent_tools": {"tr": "Araçlar", "en": "Tools"},
+    "custom_agent_enabled": {"tr": "Etkin", "en": "Enabled"},
+    "custom_agent_create": {"tr": "Ajanı oluştur", "en": "Create agent"},
+    "custom_agent_edit": {"tr": "Düzenle", "en": "Edit"},
+    "custom_agent_delete": {"tr": "🗑️ Ajanı sil", "en": "🗑️ Delete agent"},
+    "custom_agent_active": {"tr": "🟢 etkin", "en": "🟢 active"},
+    "custom_agent_inactive": {"tr": "⚪ pasif", "en": "⚪ inactive"},
+    "custom_agent_saved": {"tr": "'{name}' kaydedildi.", "en": "'{name}' saved."},
+    "custom_agent_deleted": {"tr": "Ajan silindi.", "en": "Agent deleted."},
     "users_title": {"tr": "👥 Kullanıcı Grupları", "en": "👥 User Groups"},
     "user_groups": {"tr": "{user} ({role}) grupları", "en": "Groups of {user} ({role})"},
     "user_groups_saved": {"tr": "Gruplar kaydedildi.", "en": "Groups saved."},

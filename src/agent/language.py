@@ -49,6 +49,7 @@ _TURKISH_SUFFIXES = (
     "mak",
     "mek",
 )
+_TURKISH_PROGRESSIVE = ("iyor", "ıyor", "uyor", "üyor")
 # The question particle is Turkish when it ends the sentence ("... serbest mi?"); elsewhere "mi" is also Spanish
 _TURKISH_QUESTION_PARTICLES = frozenset({"mi", "mı", "mu", "mü"})
 # Words shared with Romance languages (a, no, as, do, in, on) are left out
@@ -90,13 +91,19 @@ def detect_language(text: str) -> Optional[str]:
     }
     best = max(scores.values())
     winners = [language for language, score in scores.items() if score == best]
+    # "not" (a grade) and similar words are Turkish and English; Turkish letters decide such a tie
+    if best and sorted(winners) == ["en", "tr"] and any(_TURKISH_CHARS.intersection(t) for t in tokens):
+        return "tr"
     if best == 0 or len(winners) > 1:
         return None
     return winners[0]
 
 
 def _has_turkish_suffix(token: str) -> bool:
-    return any(token.endswith(suffix) and len(token) > len(suffix) + 1 for suffix in _TURKISH_SUFFIXES)
+    if any(token.endswith(suffix) and len(token) > len(suffix) + 1 for suffix in _TURKISH_SUFFIXES):
+        return True
+    # The present tense "-yor" is followed by further suffixes: etkiliyorsa, geliyorum, istiyoruz
+    return len(token) > 5 and any(marker in token[2:] for marker in _TURKISH_PROGRESSIVE)
 
 
 def response_language(question: str, chat_history: Iterable[dict] = ()) -> str:
