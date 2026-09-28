@@ -62,6 +62,14 @@ def _parse_verdict(raw: str):
     return supported.group(1), problem.group(1) if problem else "", quotes
 
 
+def verified_quotes(raw: str, context: str) -> list:
+    """Quotes of the grader's reply that really occur in the context (the evidence shown with the answer)."""
+    verdict = _parse_verdict(raw)
+    if verdict is None:
+        return []
+    return [q.strip() for q in verdict[2] if q.strip() and quote_in_context(q, context)]
+
+
 def grade_objection(grade: str) -> str:
     """The grader's reason from a failed grade ('no: 65 puan' -> '65 puan'); '' for other grades."""
     grade = str(grade or "").strip()

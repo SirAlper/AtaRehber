@@ -1,11 +1,12 @@
 """Rendering helpers for chat messages: agent badges, execution trace, verification note, and sources."""
 
+import html
 import re
 
 import streamlit as st
 
 from i18n import page_label
-from session import t
+from session import t, user_role
 
 BUILT_IN_AGENTS = ("auto", "doc_agent", "db_agent", "compliance_agent", "request_agent")
 REQUEST_STATUSES = ("open", "in_progress", "resolved", "rejected", "cancelled")
@@ -18,6 +19,12 @@ AGENT_BADGE_STYLES = {
     "multi_agent": "background-color: #ede9fe; color: #5b21b6; border: 1px solid #ddd6fe;",
 }
 DEFAULT_BADGE_STYLE = "background-color: #f1f5f9; color: #334155; border: 1px solid #cbd5e1;"
+# Roles that see retrieval details (chunk numbers, reranker scores)
+STAFF_ROLES = ("admin", "editor")
+# Characters of a source shown before "show all"
+SOURCE_PREVIEW_CHARS = 500
+# Chunk header added by the document loader: "[YÜKSEKÖĞRETİM KANUNU | Madde 30 – Emeklilik yaş haddi]"
+_CHUNK_HEADER = re.compile(r"^\[[^\]\n]*\]\n")
 
 PAGE_STYLE = """
 <style>
@@ -30,6 +37,10 @@ PAGE_STYLE = """
     .role-admin { background-color: #dc3545; color: white; }
     .role-editor { background-color: #0d6efd; color: white; }
     .role-viewer { background-color: #198754; color: white; }
+    .evidence {
+        border-left: 4px solid #0ea5e9; background-color: rgba(14, 165, 233, 0.08);
+        padding: 8px 12px; border-radius: 4px; margin: 6px 0;
+    }
     .agent-badge {
         display: inline-block; padding: 3px 10px; border-radius: 12px;
         font-size: 0.8rem; font-weight: 600; margin-bottom: 6px;
@@ -94,28 +105,99 @@ def render_trace(trace: list) -> None:
 def render_verification(message: dict) -> None:
     if not message.get("sources"):
         return
-    if message.get("is_refined"):
+    if message.get("is_refined") and message.get("verified"):
         st.caption(t("audit_refined"))
     elif message.get("verified"):
         st.caption(t("audit_verified"))
     elif message.get("verified") is False:
         st.caption(t("audit_unverified"))
+        # No verified answer: point to the sections that may still help
+        sections = list(dict.fromkeys(section_label(source) for source in message["sources"]))[:3]
+        st.info(t("related_sections", sections=", ".join(sections)))
+
+
+def document_name(source: dict) -> str:
+    """File name without extension, e.g. 'ATATÜRK ÜNİVERSİTESİ ÖN LİSANS VE LİSANS YÖNETMELİĞİ'."""
+    return re.sub(r"\.(txt|pdf|docx)$", "", str(source.get("source", "?")), flags=re.IGNORECASE)
+
+
+def section_label(source: dict) -> str:
+    """'Madde 30' for legislation chunks, the page for PDFs, otherwise the document name."""
+    article = str(source.get("article") or "").split(" – ")[0]
+    return article or page_label(st.session_state.ui_language, source) or document_name(source)
+
+
+def source_text(source: dict) -> str:
+    """Chunk text without the loader's header line (the title shows document and article already)."""
+    return _CHUNK_HEADER.sub("", str(source.get("content", "")), count=1).strip()
+
+
+def render_evidence(sources: list) -> None:
+    """The sentences the answer relies on, with their citation: '📌 Dayanak (Madde 30/2)'."""
+    evidence = [(item, source) for source in sources for item in source.get("evidence", [])]
+    if not evidence:
+        return
+    for item, source in evidence:
+        citation = html.escape(item.get("citation") or section_label(source))
+        document, sentence = html.escape(document_name(source)), html.escape(item["text"])
+        st.markdown(
+            f'<div class="evidence">📌 <b>{t("evidence_title")}</b> · {citation} · <i>{document}</i>'
+            f"<br>“{sentence}”</div>",
+            unsafe_allow_html=True,
+        )
+
+
+def _source_preview(text: str, highlight: list) -> str:
+    """Up to SOURCE_PREVIEW_CHARS around the first highlighted sentence, with the sentences in bold."""
+    start = min((text.find(h) for h in highlight if h in text), default=0)
+    begin = max(0, start - SOURCE_PREVIEW_CHARS // 3) if start > SOURCE_PREVIEW_CHARS // 2 else 0
+    preview = text[begin : begin + SOURCE_PREVIEW_CHARS]
+    for sentence in highlight:
+        if sentence in preview:
+            preview = preview.replace(sentence, f"**{sentence}**")
+    return ("…" if begin else "") + preview + ("…" if begin + SOURCE_PREVIEW_CHARS < len(text) else "")
+
+
+def _render_source(source: dict, index: int, staff: bool) -> None:
+    title = document_name(source)
+    page = page_label(st.session_state.ui_language, source)
+    for part in (page, source.get("article")):
+        if part:
+            title += f" — {part}"
+    details = ""
+    if staff:
+        parts = [t("chunk", index=source.get("chunk_index", 0))]
+        if source.get("reranker_score") is not None:
+            parts.append(t("score", score=source["reranker_score"]))
+        details = " · " + " · ".join(parts)
+    st.markdown(f"**{index}. 📄 {title}**{details}")
+    text = source_text(source)
+    highlight = [item["text"] for item in source.get("evidence", [])]
+    st.markdown("> " + _source_preview(text, highlight).replace("\n", "\n> "))
+    if len(text) > SOURCE_PREVIEW_CHARS:
+        with st.popover(t("source_full_text")):
+            st.markdown(text)
 
 
 def render_sources(sources: list) -> None:
-    with st.expander(t("sources_title", count=len(sources))):
-        for index, source in enumerate(sources, 1):
-            title = f"`{source.get('source', '?')}`"
-            page = page_label(st.session_state.ui_language, source)
-            if page:
-                title += f" — {page}"
-            if source.get("article"):
-                title += f" — {source['article']}"
-            details = [t("chunk", index=source.get("chunk_index", 0))]
-            if source.get("reranker_score") is not None:
-                details.append(t("score", score=source["reranker_score"]))
-            st.markdown(f"**{index}. 📄 {title}** · {' · '.join(details)}")
-            st.markdown(f'> *"{source.get("content", "").strip()}"*')
+    """Sources the answer relies on first; other retrieved sections of the same article are merged."""
+    staff = user_role() in STAFF_ROLES
+    groups, order = {}, []
+    for source in sources:
+        key = (source.get("source"), source.get("article") or source.get("chunk_index"))
+        if key not in groups:
+            groups[key] = source
+            order.append(key)
+        elif source.get("used") and not groups[key].get("used"):
+            groups[key] = source
+    unique = [groups[key] for key in order]
+    used = [source for source in unique if source.get("used")]
+    others = [source for source in unique if not source.get("used")]
+    with st.expander(t("sources_title", count=len(unique))):
+        for index, source in enumerate(used + others, 1):
+            if used and others and index == len(used) + 1:
+                st.caption(t("sources_related"))
+            _render_source(source, index, staff)
 
 
 def render_assistant_message(message: dict, text: str) -> None:
@@ -123,6 +205,8 @@ def render_assistant_message(message: dict, text: str) -> None:
     if message.get("active_agent"):
         render_agent_badge(message["active_agent"], message.get("agents"))
     st.markdown(text)
+    if message.get("verified"):
+        render_evidence(message.get("sources", []))
     if message.get("agent_trace"):
         render_trace(message["agent_trace"])
     render_verification(message)

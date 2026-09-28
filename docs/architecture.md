@@ -173,6 +173,13 @@ Admins define agents in the web UI: a purpose (the supervisor routes by it), ins
 
 The verdict and refinement flag are returned as `hallucination_grade` and `is_refined`.
 
+### Around the guard (`doc_agent`)
+* **Follow-up questions:** with a conversation, short questions (up to 6 words, "Peki doktora için?") and questions that refer back ("bunun", "that") are rewritten into a standalone search query first; long standalone questions are searched as asked (`needs_rewrite()`).
+* **Evidence:** the grader's quotes that really occur in the context are matched to the sentences of the sources they were copied from (`src/rag/evidence.py`); a verified answer's sources carry them as `evidence` (`[{"text", "citation"}]`, the citation with article and paragraph, e.g. `Madde 30/2`) and `used: true`, used sources first. The web UI shows them as "📌 Evidence" under the answer.
+* **Answer cache:** verified answers to first questions of a conversation are reused for the same question (ignoring case, spacing, and final punctuation) and the same document access while the index is unchanged (`src/agent/answer_cache.py`, `ANSWER_CACHE_SIZE`, `ANSWER_CACHE_MINUTES`). `RAGEngine.index_version` changes on every upload, deletion, and access change, so no answer built on old documents or other access is reused. A reused answer is recorded as `cache_hit` in the trace.
+* **Progress:** agents report their stage with `report_progress()` (`searching`, `writing`, `verifying`, `refining`); `stream_events()` passes them on as `progress` events, and the web UI shows them while it waits.
+* **Experimental, off by default:** `ANSWER_EVIDENCE_FIRST` makes the model copy its evidence before answering (`EVIDENCE:` / `ANSWER:` lines, `split_evidence()`); `DOC_AGENT_TOOLS` lets it call the calculator and date tools, whose results become context for the check. See [Evaluation](evaluation.md) for their measured effect.
+
 ---
 
 ## 🧠 Multi-Turn Conversational Memory & Checkpointing

@@ -6,6 +6,16 @@ This document provides a comprehensive log of new features, architectural upgrad
 
 ## 🧭 Unreleased
 
+### Improved: answers from the documents
+* **Evidence under the answer:** a verified answer shows the sentence it relies on, with article and paragraph ("📌 Evidence · Madde 30/2"). The sentences come from the grader's checked quotes, matched to the original text of the sources.
+* **Clearer sources:** the sources the answer relies on come first, with the evidence in bold; other retrieved chunks of the same article are merged and listed as "other sections that may be relevant". Long chunks are shortened (full text on demand), the loader's header line is no longer repeated, and chunk numbers and scores are shown to admins and editors only.
+* **"Could not be verified" points somewhere:** the unverified answer lists the sections that may still help.
+* **Progress while waiting:** the web UI uses the streaming endpoint and shows the stages ("Searching the documents…", "Writing the answer…", "Checking the answer…") instead of a spinner.
+* **Fixed: short follow-up questions were not rewritten.** Only questions with more than three words were turned into standalone search queries, so "Peki doktora için?" was searched as is. Now short questions and questions that refer back are rewritten.
+* **Answer cache:** verified answers to first questions are reused for the same question, access, and documents (`ANSWER_CACHE_SIZE`, `ANSWER_CACHE_MINUTES`); uploads, deletions, and access changes invalidate them.
+* **Evaluation:** the retrieval stage reports whether the expected facts are in the chosen chunks (the right document could be the wrong article) and compares candidate pools (`RAG_CANDIDATE_POOL`); the end-to-end stage reports facts in the returned sources and how many verified answers show evidence.
+* **Experimental modes** (off by default, measured in [Evaluation](docs/evaluation.md)): `ANSWER_EVIDENCE_FIRST` (copy the evidence before answering) and `DOC_AGENT_TOOLS` (calculator and dates for `doc_agent`).
+
 ### Added: custom agents without code
 * **Agents from the web UI:** admins create agents under **🧩 Custom Agents**: what the agent is for (the supervisor routes by it), its instructions, and its tools. The agent is available at once, without a restart, and appears in the agent choice. API: `GET`/`PUT`/`DELETE /api/v1/admin/custom-agents/{name}`, `GET /api/v1/admin/agent-tools`.
 * **Tools:** document search (with the user's access groups), calculator (no code runs), date calculation, and read-only database queries. The model decides when to call them (Ollama tool calling).

@@ -86,6 +86,14 @@ MAX_QUEUED_QUERIES = int(os.getenv("MAX_QUEUED_QUERIES", "10"))
 # more wrong answers, a small router model keeps routing fast. Every configured model must be pulled.
 OLLAMA_ROUTER_MODEL = os.getenv("OLLAMA_ROUTER_MODEL", "").strip()
 OLLAMA_GRADER_MODEL = os.getenv("OLLAMA_GRADER_MODEL", "").strip()
+# Answers of doc_agent to first questions (no conversation yet) are reused for the same question and document
+# access until the documents change or ANSWER_CACHE_MINUTES pass; 0 turns the cache off
+ANSWER_CACHE_SIZE = int(os.getenv("ANSWER_CACHE_SIZE", "256"))
+ANSWER_CACHE_MINUTES = int(os.getenv("ANSWER_CACHE_MINUTES", "1440"))
+# doc_agent copies the sentences its answer relies on before answering (EVIDENCE / ANSWER lines)
+ANSWER_EVIDENCE_FIRST = os.getenv("ANSWER_EVIDENCE_FIRST", "false").lower() == "true"
+# doc_agent may call the calculator and date tools (deadlines, averages) while answering
+DOC_AGENT_TOOLS = os.getenv("DOC_AGENT_TOOLS", "false").lower() == "true"
 # How doc_agent checks its answers: "quotes" makes the grader back every fact with a sentence copied from the
 # documents and verifies the copies in code; "simple" asks only for yes/no (faster, less reliable).
 GRADER_MODE = os.getenv("GRADER_MODE", "quotes").strip().lower()
@@ -138,6 +146,8 @@ LOCAL_RERANKER_PATH = os.path.join(MODELS_DIR, "bge-reranker-v2-m3")
 EMBEDDING_MODEL_NAME = LOCAL_EMBEDDING_PATH if os.path.exists(LOCAL_EMBEDDING_PATH) else "BAAI/bge-m3"
 RERANKER_MODEL_NAME = LOCAL_RERANKER_PATH if os.path.exists(LOCAL_RERANKER_PATH) else "BAAI/bge-reranker-v2-m3"
 
+# Candidates the vector search hands to the cross-encoder per question
+RAG_CANDIDATE_POOL = int(os.getenv("RAG_CANDIDATE_POOL", "10"))
 # Number of top candidate chunks to pass to LLM after Cross-Encoder reranking. 4 instead of 3 lets an answer
 # that needs a neighbouring piece of a long article (a list of penalties) see it; no loss on the demo set (evals)
 RERANKER_TOP_N = int(os.getenv("RERANKER_TOP_N", "4"))

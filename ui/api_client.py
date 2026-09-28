@@ -1,7 +1,8 @@
 """HTTP client for the backend API. Every call returns plain data or (ok, message) and never raises."""
 
+import json
 import os
-from typing import Any, Optional, Tuple
+from typing import Any, Callable, Optional, Tuple
 
 import requests
 import streamlit as st
@@ -139,6 +140,45 @@ def ask(question: str, agent: Optional[str] = None) -> dict:
     if response.status_code == 503:
         return {"status": "error", "answer": t("server_busy"), "sources": []}
     return {"status": "error", "answer": t("api_error", error=_detail(response)), "sources": []}
+
+
+def ask_stream(question: str, agent: Optional[str] = None, on_event: Optional[Callable[[dict], None]] = None) -> dict:
+    """Like ask(), but through /query-stream: on_event receives the progress events (stages, chosen agent)."""
+    payload = {"question": question, "session_id": st.session_state.get("session_id")}
+    if agent and agent not in ("auto", "none"):
+        payload["agent"] = agent
+
+    def post():
+        return requests.post(
+            f"{API_BASE_URL}/api/v1/query-stream", headers=auth_headers(), json=payload, stream=True, timeout=(10, 180)
+        )
+
+    try:
+        response = post()
+        if response.status_code == 401 and refresh_tokens():
+            response = post()
+    except Exception:
+        return {"status": "error", "answer": t("api_connection_error", error=API_BASE_URL), "sources": []}
+    if response.status_code == 401:
+        return {"status": "error", "answer": t("session_expired"), "sources": []}
+    if response.status_code == 503:
+        return {"status": "error", "answer": t("server_busy"), "sources": []}
+    if response.status_code != 200:
+        return {"status": "error", "answer": t("api_error", error=_detail(response)), "sources": []}
+    try:
+        for line in response.iter_lines(decode_unicode=True):
+            if not line:
+                continue
+            event = json.loads(line)
+            if event.get("type") == "done":
+                return event
+            if event.get("type") == "error":
+                return {"status": "error", "answer": t("api_error", error=event.get("message", "")), "sources": []}
+            if on_event:
+                on_event(event)
+    except Exception as e:
+        return {"status": "error", "answer": t("api_error", error=e), "sources": []}
+    return {"status": "error", "answer": t("no_response"), "sources": []}
 
 
 def send_feedback(question: str, feedback: str, comment: str = "") -> bool:
