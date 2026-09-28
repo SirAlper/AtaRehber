@@ -114,15 +114,15 @@ LLM output varies slightly between runs, so treat differences of one or two ques
 
 The bundled set has 51 questions over six fictional NovaTech policy documents (`evals/corpus/`) and the sample database. The documents deliberately overlap (several numbers, approval rules, and "30 days" appear in more than one document), so retrieval has to pick the right one.
 
-### University dataset (a real law)
+### University dataset (laws and regulations)
 
-`evals/dataset_university.jsonl` has 48 questions over the full text of the Turkish Higher Education Law No. 2547 (`evals/corpus_university/`, about 420,000 characters, 1,000 chunks): 35 document questions (8 of them `-inf-` questions that need a small inference, e.g. whether 4 days of absence fall into the 3–9 day penalty range, and 2 in English), 5 compliance scenarios, 1 service request, 1 greeting, and 6 questions the law does not answer.
+`evals/dataset_university.jsonl` has 127 questions over three documents in `evals/corpus_university/`: the Turkish Higher Education Law No. 2547 (about 420,000 characters), the Open Higher Education Regulation, and Atatürk University's associate and undergraduate regulation (830 chunks with article-aware chunking). 105 document questions (among them `-inf-` questions that need a small inference, e.g. whether 75% attendance meets an 80% requirement, questions that span two documents, and English questions), 9 compliance scenarios, 2 service requests, 1 greeting, and 10 questions the documents do not answer.
 
 ```bash
-python -m evals.run_eval --dataset evals/dataset_university.jsonl --corpus evals/corpus_university --stages routing,e2e
+RAG_MIN_RERANKER_SCORE=0.05 python -m evals.run_eval --dataset evals/dataset_university.jsonl --corpus evals/corpus_university --no-database
 ```
 
-Skip the `retrieval` stage for this corpus: it scores every chunk with the cross-encoder for every question (about 40,000 pairs), which takes longer than 45 minutes on a laptop, and with a single document every chunk counts as the right source. Routing and end-to-end use the production path (10 candidates per question) and take about 25 minutes.
+`--no-database` leaves out `db_agent` and the demo sales database, as in a university deployment with `SAMPLE_DB_ENABLED=false`. The index is cached in `evals/.cache/` (building it takes about 8 minutes on the CPU); the retrieval stage scores 50 candidates per question and takes about 30 minutes on the CPU, routing and end-to-end about 30 minutes.
 
 ### Using your own documents
 
@@ -138,7 +138,7 @@ Keep private datasets and documents out of the repository.
 
 ## 📊 Current Results
 
-Default settings, bundled dataset (51 questions), `qwen2.5:7b` via Ollama on an RTX 3060 Laptop GPU (6 GB; Ollama kept 82% of the model on the GPU and 18% on the CPU), embedding and reranker on CPU. A full `--stages all` run takes about 15 minutes on this machine.
+Default settings, bundled dataset (51 questions), `qwen2.5:7b` via Ollama on an RTX 3060 Laptop GPU (6 GB; Ollama kept 82% of the model on the GPU and 18% on the CPU), embedding and reranker on CPU. A full `--stages all` run takes about 15 minutes on this machine. A re-run with the changes for laws and regulations (article-aware chunking only applies to documents with article headings, quote grader, 4 chunks) gave the same answer accuracy (95.1%) with 6.8–7.0 s / 16.5 s latency.
 
 | Metric | Value |
 | :--- | :---: |
@@ -161,23 +161,40 @@ Remaining failures:
 
 ### University dataset
 
-Same machine; the model partly ran on the CPU in the second run (only 4.2 of 5.1 GB fit into the GPU next to other applications), so its latency is not comparable. The e2e evaluation asks as a logged-in admin without a session (documents unfiltered, requests filed without the confirmation turn).
+Same machine, with the whole model on the GPU (`OLLAMA_NUM_GPU=99`), `RAG_MIN_RERANKER_SCORE=0.05`, and `--no-database`. The e2e evaluation asks as a logged-in admin without a session (documents unfiltered, requests filed without the confirmation turn). The baseline ran the code before this round of changes on the same 127 questions, and both reports are scored with the same rules.
 
-| Metric | Before (single agent per question) | Collaborating agents, organization-neutral prompts |
+| Metric | Before | Article-aware chunking, quote grader, 4 chunks |
 | :--- | :---: | :---: |
-| Routing accuracy | 93.6% | 97.9% |
-| Answer accuracy | 70.0% | 78.0% |
-| ↳ documents / compliance | 65.7% / 100% | 74.3% / 100% |
-| Answers citing the right document | 95% | 100% |
-| Off-topic questions refused | 83% | 100% |
-| Answerable questions refused | 15% | 15% |
-| Latency p50 / p95 | 7.4 s / 21.8 s | 10.9 s / 46.2 s (partial CPU offload) |
+| Retrieval hit rate / MRR | 99.1% / 0.97 | 100% / 1.00 |
+| Routing accuracy | 95.3% | 99.2% |
+| Answer accuracy | 78.4% | 90.5% |
+| ↳ documents / compliance / requests | 76.2% / 100% / 100% | 91.4% / 77.8% / 100% |
+| Answerable questions refused | 19 of 116 | 9 of 116 |
+| Off-topic questions refused | 9 of 10 | 9 of 10 |
+| Answers in the question's language | 100% | 100% |
+| Latency p50 / p95 | 9.6 s / 22.2 s ¹ | 11.9 s / 22.2 s |
 
-What changed the results:
-* **Routing:** "Rektörlerin yaş haddi kaçtır?" had been answered by the supervisor from general knowledge and "YÖK kaç üyeden oluşur?" went to the demo sales database and showed a raw SQL error. The routing rules now send every question about what a law says to `doc_agent`, and a rejected SQL query is handed to `doc_agent`.
-* **General rule before exceptions:** "Rektör en fazla kaç rektör yardımcısı seçebilir?" was answered with the exception for open-education universities (five) instead of the rule (three); now correct.
-* **Still wrong or refused:** the model still takes the superseded "65 points" from a transitional article for the associate-professor language exam (the article in force says 55), confuses the penalties for cheating (one semester's suspension) and attempted cheating (reprimand) and the grader accepts both mistakes, and the grader rejects six correct answers (15% false refusals). The right article was in the retrieved context in all but one of these cases, so the remaining errors come from the 7B model's reading and grading. Next steps: a stronger grading model (`OLLAMA_GRADER_MODEL`) and article-aware chunking.
-* After switching the router to Ollama's JSON mode, a routing-only run had no malformed routing decisions (before: 2–3 per run, caught by the keyword fallback); the two routing misses left are off-topic questions sent to the demo database, which does not exist with `SAMPLE_DB_ENABLED=false`.
+¹ The baseline ran with 18% of the model on the CPU and without the quote grader, so its latency is not directly comparable.
+
+Most errors of the baseline were not wrong answers but correct answers the yes/no grader rejected (19 false refusals), while retrieval already found the right document for 99% of the questions. Measured step by step (document accuracy):
+
+| Step | Documents | Refused |
+| :--- | :---: | :---: |
+| Baseline | 76.2% | 19 |
+| Article-aware chunking + quote grader | 79.0% | 14 |
+| Verdict first in the grader's JSON, `RAG_MIN_RERANKER_SCORE=0.05` | 81.0% | 13 |
+| Digits for numbers in words, cross-references, grader objection check, JSON retry | 88.6% | 7 |
+| 4 chunks, transitional articles last in the context | 90.5% | 10 |
+| + the grader's objection passed to the refinement step | 91.4% | 9 |
+
+Runs of the same configuration differ by a few questions (the grader's decisions are not fully stable), so single-question changes between steps are noise; the trend is not. With three chunks instead of four, the last configuration reached 87.6%.
+
+* **Numbers in words** fixed the associate-professor language exam question (the article in force says "elli beş puan", a transitional article "65" in digits) and the Quality Council's member count ("on üç").
+* **Transitional articles last** fixed the retirement age in Turkish and English (67 instead of the transitional 70/69/68).
+* **Threshold:** with article-aware chunks the lowest reranker score of an answerable question is 0.12 (an English question) and the highest off-topic score 0.057; 0.05 rejects 9 of 10 off-topic questions before the LLM. On the demo company documents (plain chunks) 0.05 would drop 6.5% of the answerable questions, so the default stays at 0.005.
+* **Still wrong:** the penalty for cheating (the model mixes it up with attempted cheating, which is listed in the neighbouring piece of the same article), two sentences with two rules each ("beş yıl … on yıl", "katkı payı … öğrenim ücreti"), and a compliance scenario on party membership, which the law allows, reported as a violation. Answers that compute a number (a year, a sum) are often refused, because the computed number is not in the documents.
+
+On the demo dataset, four chunks instead of three changed no answer (95.1% either way, documents 100%) and added 0.2 s median latency.
 
 ---
 

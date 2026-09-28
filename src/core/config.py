@@ -61,12 +61,19 @@ OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen2.5:7b")
 # Context window in tokens. Set explicitly because some Ollama versions default to 2048 and silently
 # drop the start of longer prompts (system prompt and retrieved context).
 OLLAMA_NUM_CTX = int(os.getenv("OLLAMA_NUM_CTX", "4096"))
+# Model layers Ollama puts on the GPU; empty lets Ollama decide. Ollama keeps a safety margin and moves the last
+# layers of qwen2.5:7b to the CPU on a 6 GB card; 99 forces all layers on the GPU (about 4x faster prompt
+# processing there). Too high a value for the free VRAM makes loading the model fail.
+OLLAMA_NUM_GPU = int(os.getenv("OLLAMA_NUM_GPU", "").strip() or -1)
 # Maximum number of LLM requests the API sends to Ollama at once
 OLLAMA_NUM_PARALLEL = int(os.getenv("OLLAMA_NUM_PARALLEL", "4"))
 # Optional separate models per task; empty uses OLLAMA_MODEL (see src/agent/llm.py). A stronger grader catches
 # more wrong answers, a small router model keeps routing fast. Every configured model must be pulled.
 OLLAMA_ROUTER_MODEL = os.getenv("OLLAMA_ROUTER_MODEL", "").strip()
 OLLAMA_GRADER_MODEL = os.getenv("OLLAMA_GRADER_MODEL", "").strip()
+# How doc_agent checks its answers: "quotes" makes the grader back every fact with a sentence copied from the
+# documents and verifies the copies in code; "simple" asks only for yes/no (faster, less reliable).
+GRADER_MODE = os.getenv("GRADER_MODE", "quotes").strip().lower()
 
 # ──────────────────────────── ORGANIZATION ────────────────────────────
 # Name used in prompts and fixed answers, e.g. "Example University". Empty: "the organization".
@@ -116,8 +123,9 @@ LOCAL_RERANKER_PATH = os.path.join(MODELS_DIR, "bge-reranker-v2-m3")
 EMBEDDING_MODEL_NAME = LOCAL_EMBEDDING_PATH if os.path.exists(LOCAL_EMBEDDING_PATH) else "BAAI/bge-m3"
 RERANKER_MODEL_NAME = LOCAL_RERANKER_PATH if os.path.exists(LOCAL_RERANKER_PATH) else "BAAI/bge-reranker-v2-m3"
 
-# Number of top candidate chunks to pass to LLM after Cross-Encoder reranking
-RERANKER_TOP_N = int(os.getenv("RERANKER_TOP_N", "3"))
+# Number of top candidate chunks to pass to LLM after Cross-Encoder reranking. 4 instead of 3 lets an answer
+# that needs a neighbouring piece of a long article (a list of penalties) see it; no loss on the demo set (evals)
+RERANKER_TOP_N = int(os.getenv("RERANKER_TOP_N", "4"))
 # Minimum cosine similarity for a vector search candidate to reach the reranker
 RAG_MIN_SIMILARITY = float(os.getenv("RAG_MIN_SIMILARITY", "0.325"))
 # Minimum cross-encoder relevance score (0-1) for a chunk to be used as context. The bi-encoder similarity
@@ -134,6 +142,8 @@ CHAT_HISTORY_MAX_TURNS = int(os.getenv("CHAT_HISTORY_MAX_TURNS", "20"))
 # ──────────────────────────── CHUNKING CONFIGURATION ────────────────────────────
 CHUNK_SIZE = int(os.getenv("CHUNK_SIZE", "600"))
 CHUNK_OVERLAP = int(os.getenv("CHUNK_OVERLAP", "100"))
+# Laws and regulations are split by article; articles longer than this are split further
+ARTICLE_CHUNK_SIZE = int(os.getenv("ARTICLE_CHUNK_SIZE", "900"))
 
 os.environ["HF_HUB_DISABLE_TELEMETRY"] = "1"
 os.environ["TOKENIZERS_PARALLELISM"] = "false"

@@ -6,6 +6,17 @@ This document provides a comprehensive log of new features, architectural upgrad
 
 ## 🧭 Unreleased
 
+### Improved: answer accuracy on laws and regulations
+* **Article-aware chunking:** laws and regulations are split by article (`Madde 30 –`, `GEÇİCİ MADDE 2 –`, …). Every chunk names its document and article (`[YÜKSEKÖĞRETİM KANUNU | Madde 30 – Emeklilik yaş haddi]`), pieces of long articles repeat the sentence that introduces their list (which penalty the listed acts get), and footnotes and appendix tables are kept apart. Long articles are split at `ARTICLE_CHUNK_SIZE` (default 900 characters). Sources in answers show the article. Re-index existing documents to use it.
+* **Numbers in words get their digits:** `elli beş puan` is indexed as `elli beş (55) puan`, so the model no longer prefers a superseded number written in digits in a transitional article.
+* **Provisions in force first:** transitional articles and footnotes are placed last in the context.
+* **Four chunks of context (`RERANKER_TOP_N=4`, was 3):** long articles are split into several pieces, and the fourth one often holds the rule; no change on the demo dataset, +0.2 s median latency.
+* **Quote-based answer check:** the grader backs the facts of an answer with words copied from the documents, and the copies are verified in code (`GRADER_MODE=quotes`, default; `simple` restores the yes/no check). An objection the documents state word for word counts as a grader mistake when all numbers of the answer occur in the documents; a JSON reply Ollama aborts is retried without JSON mode.
+* **Targeted refinement:** the grader's objection is passed to the refinement step, which corrects that claim instead of reducing a correct answer to "not in the documents".
+* **Routing:** sub-questions the supervisor plans for the same agent are merged into one step with the user's question.
+* **`OLLAMA_NUM_GPU`:** on a 6 GB card Ollama keeps a safety margin and runs about a fifth of qwen2.5:7b on the CPU. `OLLAMA_NUM_GPU=99` puts every layer on the GPU when it fits; measured on an RTX 3060 Laptop (6 GB): prompt processing 322 → 1273 tokens/s, generation 27 → 39 tokens/s.
+* **Evaluation:** the university dataset has 127 questions over three documents (Law No. 2547, the Open Higher Education Regulation, and Atatürk University's undergraduate regulation). The harness caches the index per corpus and chunking settings (`evals/.cache/`), scores a pool of 50 candidates per question in the retrieval stage (`--retrieval-pool`), and can leave out the database agent like a deployment without a database (`--no-database`). An answer that contains every expected fact no longer counts as a refusal because of a phrase such as "fark bulunmamaktadır", and digits added to numbers in words ("on (10) iş günü") do not break fact matching.
+
 ### Changed: code cleanup and module layout
 * **Removed unused code:** the single-agent Self-RAG graph the API no longer used (`src/agent/agent_graph.py`, `nodes.py`, `query_service.py`), the unused LangChain SQL tools (`src/agent/tools.py`, which opened its own database connection on import), the `src/config.py` bridge, `AgentResponse`, the `tools` attribute of sub-agents, and the vector-only backup function. The grading helpers moved to `src/agent/grading.py`.
 * **No eager package imports:** `src/**/__init__.py` files only document their package. Before, `from src.core import config` loaded torch and created the user store; the test suite now starts in about half the time.

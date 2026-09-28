@@ -288,7 +288,9 @@ class SupervisorAgent:
                 logger.warning(f"[Supervisor] Agent '{agent}' not available, defaulting to 'doc_agent'.")
                 agent = "doc_agent"
             sub_question = str(step.get("question") or "").strip() or question
-            if any(existing["agent"] == agent and existing["question"] == sub_question for existing in plan):
+            # One step per agent: the model sometimes splits a single-topic question into sub-questions for the
+            # same agent, which only adds a synthesis step. That agent then answers the whole question.
+            if any(existing["agent"] == agent for existing in plan):
                 continue
             plan.append({"agent": agent, "question": sub_question})
         if len(plan) == 1:

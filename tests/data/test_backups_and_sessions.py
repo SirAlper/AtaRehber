@@ -10,6 +10,7 @@ from unittest.mock import MagicMock, patch
 
 from src.agent.prompts import (
     SYSTEM_PROMPT_GRADER,
+    SYSTEM_PROMPT_GRADER_QUOTES,
     SYSTEM_PROMPT_REFINE,
 )
 
@@ -21,7 +22,7 @@ def scripted_chat_model(generate: str, grades: list, refined: str = "refined ans
     def invoke(messages):
         system = messages[0].content
         # startswith: agents append a response-language instruction to some system prompts
-        if system.startswith(SYSTEM_PROMPT_GRADER):
+        if system.startswith((SYSTEM_PROMPT_GRADER, SYSTEM_PROMPT_GRADER_QUOTES)):
             return MagicMock(content=next(grade_iter))
         if system.startswith(SYSTEM_PROMPT_REFINE):
             return MagicMock(content=refined)

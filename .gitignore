@@ -47,6 +47,7 @@ data/.jwt_secret
 Thumbs.db
 # Evaluation reports (generated)
 evals/results/
+evals/.cache/
 
 # TLS certificates for the HTTPS proxy
 deploy/certs/*

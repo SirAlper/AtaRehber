@@ -69,6 +69,24 @@ class TestSourcePages(unittest.TestCase):
         self.assertEqual((sources[1]["page"], sources[1]["page_end"]), (4, 5))
 
 
+class TestTransitionalArticlesLast(unittest.TestCase):
+    def test_provisions_in_force_come_first_in_the_context(self):
+        engine = make_engine(
+            [("geçici 65 puan", 0.7, 0.99), ("madde 24 elli beş puan", 0.7, 0.98), ("dipnot", 0.6, 0.9)]
+        )
+        engine.collection.query.return_value["metadatas"] = [
+            [
+                {"source": "kanun.txt", "chunk_index": 1, "article": "Geçici Madde 47"},
+                {"source": "kanun.txt", "chunk_index": 2, "article": "Madde 24 – Doçentlik"},
+                {"source": "kanun.txt", "chunk_index": 3, "article": "Dipnotlar (değişiklik notları)"},
+            ]
+        ]
+        result = engine.search("q", min_reranker_score=0.0)
+        self.assertEqual(result["context"].split("\n\n"), ["madde 24 elli beş puan", "geçici 65 puan", "dipnot"])
+        # Sources keep the relevance order and name the article
+        self.assertEqual([s["article"] for s in result["sources"]][0], "Geçici Madde 47")
+
+
 class TestNoTelemetry(unittest.TestCase):
     def test_chroma_client_disables_anonymized_telemetry(self):
         with (

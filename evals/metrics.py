@@ -27,6 +27,7 @@ REFUSAL_MARKERS = (
     "bulunmamaktadır",
     "bulunmuyor",
     "bulunamadı",
+    "bulunmadı",
     "yer almıyor",
     "yer almamaktadır",
     "bilgi yok",
@@ -64,7 +65,10 @@ def fact_found(answer: str, fact: Fact) -> bool:
     """A fact is a string or a list of alternative spellings; any alternative counts."""
     alternatives = [fact] if isinstance(fact, str) else list(fact)
     normalized = normalize_text(answer)
-    return any(_alternative_found(normalized, alt) for alt in alternatives)
+    # Answers copy the digits the document loader adds to numbers in words ("on (10) iş günü"); "on iş günü" and
+    # "10" both count
+    without_digits = re.sub(r" \(\d+\)", "", normalized)
+    return any(_alternative_found(text, alt) for alt in alternatives for text in (normalized, without_digits))
 
 
 def fact_recall(answer: str, facts: Sequence[Fact]) -> Optional[float]:

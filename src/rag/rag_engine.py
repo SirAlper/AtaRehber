@@ -18,6 +18,11 @@ from src.core.logger import get_logger
 logger = get_logger("RAGEngine")
 
 
+def _is_transitional(article: str) -> bool:
+    """Transitional articles and footnotes of legislation (article labels from the document loader)."""
+    return article.startswith(("Geçici Madde", "Dipnotlar"))
+
+
 def distance_to_similarity(distance: float, space: str) -> float:
     """Convert a ChromaDB distance into cosine similarity for (normalized) embeddings.
 
@@ -222,10 +227,12 @@ class RAGEngine:
         candidates.sort(key=lambda x: x["reranker_score"], reverse=True)
         top_candidates = candidates[: RERANKER_TOP_N if top_n is None else top_n]
 
-        filtered_docs = []
+        # Transitional articles and footnotes often hold superseded values; the model leans on what it reads first,
+        # so they go after the provisions in force in the context. Sources keep the relevance order.
+        in_force_first = sorted(top_candidates, key=lambda c: _is_transitional((c["meta"] or {}).get("article", "")))
+        filtered_docs = [c["doc_text"] for c in in_force_first]
         sources = []
         for c in top_candidates:
-            filtered_docs.append(c["doc_text"])
             meta = c["meta"] or {}
             source = {
                 "source": meta.get("source", "Unknown Document"),
@@ -234,9 +241,9 @@ class RAGEngine:
                 "distance": c["distance"],
                 "reranker_score": c["reranker_score"],
             }
-            # PDF chunks carry the page they start on (and end on, if different). DOCX/TXT files and
-            # indexes built before page tracking have no page information.
-            for key in ("page", "page_end"):
+            # PDF chunks carry the page they start on (and end on, if different); chunks of laws and regulations
+            # carry their article. Other files and older indexes have neither.
+            for key in ("page", "page_end", "article"):
                 if key in meta:
                     source[key] = meta[key]
             sources.append(source)

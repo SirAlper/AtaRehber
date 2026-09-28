@@ -97,10 +97,14 @@ PASSWORD_REQUIRE_SPECIAL=false
 OLLAMA_BASE_URL=http://localhost:11434
 OLLAMA_MODEL=qwen2.5:7b
 OLLAMA_NUM_CTX=4096
+# Layers on the GPU (empty = Ollama decides; 99 = all, e.g. qwen2.5:7b on a 6 GB card):
+OLLAMA_NUM_GPU=
 OLLAMA_NUM_PARALLEL=4
 # Optional separate models for routing and answer grading (empty = OLLAMA_MODEL):
 OLLAMA_ROUTER_MODEL=
 OLLAMA_GRADER_MODEL=
+# Answer check: quotes (facts backed by copied sentences) or simple (yes/no):
+GRADER_MODE=quotes
 
 # ─── Organization & Agents ───
 ORGANIZATION_NAME=
@@ -138,7 +142,8 @@ RATE_LIMIT_PER_MINUTE=30
 # ─── Contextual Chunking & Retrieval ───
 CHUNK_SIZE=600
 CHUNK_OVERLAP=100
-RERANKER_TOP_N=3
+ARTICLE_CHUNK_SIZE=900
+RERANKER_TOP_N=4
 RAG_MIN_SIMILARITY=0.325
 RAG_MIN_RERANKER_SCORE=0.005
 

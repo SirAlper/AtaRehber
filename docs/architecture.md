@@ -84,7 +84,7 @@ Traditional naive RAG implementations rely solely on vector similarity, which fr
 * **Model:** `BAAI/bge-reranker-v2-m3`.
 * **Operation:** Remaining candidates are paired with the query (`[Query, Document Chunk]`) and scored jointly by the cross-encoder.
 * **Relevance Gate:** Passages scoring below `RAG_MIN_RERANKER_SCORE` (0–1, default `0.005`) are dropped. If none remain, the question gets no context, so `doc_agent` answers "not found in the organization's documents" and `compliance_agent` returns an `[UNDETERMINED]` verdict without calling the LLM. On the evaluation set this rejects all off-topic questions while keeping every answerable one.
-* **Output:** The top `RERANKER_TOP_N` (default `3`) passages are concatenated into the LLM context.
+* **Output:** The top `RERANKER_TOP_N` (default `4`) passages are concatenated into the LLM context.
 
 Index writes are serialized with a write lock (also used by backups), and per-document chunk statistics are cached and recomputed only after the index changes.
 
@@ -106,6 +106,15 @@ The `src/rag/document_loader.py` module applies **Contextual Chunking**:
    Clause 4.1: USB drive usage on corporate computers requires prior IT authorization...
    ```
 3. The embedding model therefore retains the parent document identity for every passage. Chunk size and overlap are configurable (`CHUNK_SIZE`, `CHUNK_OVERLAP`).
+
+**Laws and regulations** (at least three article headings such as `Madde 30 –`, `MADDE 1 –`, `Geçici Madde 47 –`, `Ek Madde 5 –`) are split by article instead:
+* Every article is its own chunk, together with its title line, so a rule is never mixed with the end of the previous article. Articles longer than `ARTICLE_CHUNK_SIZE` (default 900 characters) are split into pieces.
+* Every chunk starts with the document title and the article: `[YÜKSEKÖĞRETİM KANUNU | Madde 30 – Emeklilik yaş haddi]`. The article is also stored as `article` metadata and shown next to the source in the answer.
+* Pieces of a long article repeat the line that introduces their list in parentheses, e.g. `(a) Kınama: … Kınama cezasını gerektiren eylemler şunlardır:)`, so a listed act keeps the penalty it belongs to.
+* Footnotes of consolidated texts (`[12] … değiştirilmiştir`) and upper-case appendix tables after the last article (lists of amending laws) become separate chunks instead of being attached to the last article.
+* Numbers written in words get their digits (`src/rag/turkish_numbers.py`): `en az elli beş puan` becomes `en az elli beş (55) puan`. Laws write most limits in words while transitional articles use digits, and a small model otherwise prefers the number it can see as digits. Numbers below ten ("bir yarıyıl"), ordinals ("elli beşinci"), words already followed by digits, and idioms ("yüz yüze", "yüz kızartıcı") are left alone.
+
+When the context is assembled, chunks of transitional articles (`Geçici Madde …`) and footnotes are placed after the provisions in force, because the model leans on what it reads first; the returned sources keep the relevance order.
 
 ---
 
@@ -151,8 +160,10 @@ Every agent answers in the language of the question. `response_language()` detec
 
 ### Self-RAG Hallucination Guard (`doc_agent`)
 1. **Generate** a draft answer from the retrieved context.
-2. **Grade** it with `SYSTEM_PROMPT_GRADER`, using the grading model (`OLLAMA_GRADER_MODEL`, default: the answer model). The verdict passes only if its first word is `yes` / `evet`. If the grader itself fails, the answer counts as **unverified** (fail closed).
-3. **Refine** once if the grade fails: unsupported claims are pruned (`SYSTEM_PROMPT_REFINE`) and the result is graded again.
+2. **Grade** it, using the grading model (`OLLAMA_GRADER_MODEL`, default: the answer model). With `GRADER_MODE=quotes` (default) the grader (`SYSTEM_PROMPT_GRADER_QUOTES`, JSON output) says whether the answer's key facts are supported and copies, for each, the words of the context that state it (at most 4 quotes of 25 words). `grade_from_quotes()` then checks the copies against the context: the answer passes only if the grader says `yes` and every quote's words (at least 80%) occur in the context, so a quote the model made up fails the answer. With `GRADER_MODE=simple` the grader (`SYSTEM_PROMPT_GRADER`) answers only yes/no. The verdict passes only if its first word is `yes` / `evet`. If the grader itself fails, the answer counts as **unverified** (fail closed).
+   * The grader writes its verdict first (`{"supported": …, "problem": …, "quotes": […]}`), so a reply cut off by the token limit still has one. If Ollama aborts the JSON-mode reply (the model repeating a token), the grader is asked once more without JSON mode.
+   * A `no` whose `problem` is a phrase the context states word for word (e.g. `azami yedi yıl`) is treated as a grader mistake, since the prompt asks for a fact missing from the context. The answer then passes only if every number in it also occurs in the context or the question, so an invented number is still caught; computed numbers (e.g. a year the question asks to work out) keep the `no`.
+3. **Refine** once if the grade fails: unsupported claims are pruned (`SYSTEM_PROMPT_REFINE`) and the result is graded again. The grader's objection is passed to the editor ("Auditor's objection: …"), which corrects that claim and keeps the other supported facts; it answers that the information is not in the documents only if the context has nothing that answers the question.
 4. **Fallback:** if the refined answer still fails, the safe `FALLBACK_RESPONSE` is returned.
 
 The verdict and refinement flag are returned as `hallucination_grade` and `is_refined`.

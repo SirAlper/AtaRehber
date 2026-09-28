@@ -1,5 +1,6 @@
 """Behavior of the built-in specialists: doc_agent's Self-RAG guard, db_agent, and supervisor routing."""
 
+import json
 import unittest
 from unittest.mock import MagicMock
 
@@ -7,10 +8,17 @@ from src.agent.multi_agent.registry import AgentRegistry
 from src.agent.multi_agent.sub_agents.db_agent import DatabaseAgent
 from src.agent.multi_agent.sub_agents.doc_agent import DocumentRagAgent
 from src.agent.multi_agent.supervisor import SupervisorAgent
-from src.agent.grading import is_grade_passed
+from src.agent.grading import (
+    grade_from_quotes,
+    grade_objection,
+    is_grade_passed,
+    numbers_grounded,
+    quote_in_context,
+)
 from src.agent.prompts import (
     FALLBACK_RESPONSE,
     SYSTEM_PROMPT_GRADER,
+    SYSTEM_PROMPT_GRADER_QUOTES,
     SYSTEM_PROMPT_REFINE,
 )
 
@@ -22,7 +30,7 @@ def scripted_chat_model(generate: str, grades: list, refined: str = "refined ans
     def invoke(messages):
         system = messages[0].content
         # startswith: agents append a response-language instruction to some system prompts
-        if system.startswith(SYSTEM_PROMPT_GRADER):
+        if system.startswith((SYSTEM_PROMPT_GRADER, SYSTEM_PROMPT_GRADER_QUOTES)):
             return MagicMock(content=next(grade_iter))
         if system.startswith(SYSTEM_PROMPT_REFINE):
             return MagicMock(content=refined)
@@ -61,20 +69,127 @@ class TestDocAgentSelfRag(unittest.TestCase):
 
     def test_grader_failure_fails_closed(self):
         chat = MagicMock()
-        chat.invoke.side_effect = [
-            MagicMock(content="Answer"),
-            RuntimeError("down"),
-            MagicMock(content="Answer"),
-            RuntimeError("down"),
-        ]
+        # Generation and refinement work; every grading attempt (JSON mode and the plain retry) fails
+        replies = iter([MagicMock(content="Answer"), MagicMock(content="Answer")])
+
+        def invoke(messages):
+            if messages[0].content.startswith((SYSTEM_PROMPT_GRADER, SYSTEM_PROMPT_GRADER_QUOTES)):
+                raise RuntimeError("down")
+            return next(replies)
+
+        chat.invoke.side_effect = invoke
         out = self._agent(chat).execute({"question": "Q?"})
         self.assertEqual(out["final_answer"], FALLBACK_RESPONSE)
+
+    def test_refinement_is_told_the_graders_objection(self):
+        grades = iter(
+            [
+                '{"supported": "no", "problem": "free cars", "quotes": []}',
+                '{"supported": "yes", "problem": "", "quotes": []}',
+            ]
+        )
+        refine_prompts = []
+
+        def invoke(messages):
+            system = messages[0].content
+            if system.startswith(SYSTEM_PROMPT_GRADER_QUOTES):
+                return MagicMock(content=next(grades))
+            if system.startswith(SYSTEM_PROMPT_REFINE):
+                refine_prompts.append(messages[1].content)
+                return MagicMock(content="20 days.")
+            return MagicMock(content="20 days and free cars.")
+
+        chat = MagicMock()
+        chat.invoke.side_effect = invoke
+        out = self._agent(chat).execute({"question": "How many leave days?"})
+        self.assertEqual(out["final_answer"], "20 days.")
+        self.assertTrue(refine_prompts[0].endswith("Auditor's objection: free cars"))
+        self.assertEqual(grade_objection("no (grader unavailable)"), "")
+
+    def test_grader_is_retried_without_json_mode(self):
+        attempts = []
+
+        def invoke(messages):
+            if messages[0].content.startswith(SYSTEM_PROMPT_GRADER_QUOTES):
+                attempts.append(1)
+                if len(attempts) == 1:
+                    raise RuntimeError("prediction aborted, token repeat limit reached")
+                return MagicMock(content='{"supported": "yes", "problem": "", "quotes": []}')
+            return MagicMock(content="20 days.")
+
+        chat = MagicMock()
+        chat.invoke.side_effect = invoke
+        out = self._agent(chat).execute({"question": "How many leave days?"})
+        self.assertEqual((out["final_answer"], out["hallucination_grade"]), ("20 days.", "yes"))
 
     def test_grade_parsing(self):
         self.assertTrue(is_grade_passed("yes"))
         self.assertTrue(is_grade_passed("Evet, belgelerle tutarlı"))
         self.assertFalse(is_grade_passed("no, not yes"))
         self.assertFalse(is_grade_passed(""))
+
+    def test_quote_grader_rejects_invented_quotes(self):
+        grade = '{"supported": "yes", "problem": "", "quotes": ["Annual leave is 30 days for everyone."]}'
+        chat = scripted_chat_model("30 days.", [grade, grade], refined="30 days.")
+        out = self._agent(chat).execute({"question": "How many leave days?"})
+        self.assertEqual(out["final_answer"], FALLBACK_RESPONSE)
+        self.assertIn("quote not found", out["hallucination_grade"])
+
+
+class TestQuoteGrading(unittest.TestCase):
+    CONTEXT = "[YÖNETMELİK | Madde 12 – Devam]\nÖğrenciler teorik derslerin en az %70'ine devam etmek zorundadır."
+
+    def _grade(self, quotes, supported="yes", problem=""):
+        reply = json.dumps({"supported": supported, "problem": problem, "quotes": quotes})
+        return grade_from_quotes(reply, self.CONTEXT)
+
+    def test_quotes_from_the_context_pass(self):
+        # Small differences in copying (a dropped word, İ/i) are tolerated; empty quotes are ignored
+        self.assertEqual(self._grade(["öğrenciler teorik derslerin en az %70'ine devam etmek ZORUNDADIR", ""]), "yes")
+
+    def test_invented_quote_fails(self):
+        grade = self._grade(["Uygulamalı derslerin %80'ine devam zorunludur."])
+        self.assertTrue(grade.startswith("no: quote not found"))
+
+    def test_grader_verdict_no_is_kept(self):
+        grade = self._grade([], supported="no", problem="%80 is not in the context")
+        self.assertEqual(grade, "no: %80 is not in the context")
+
+    def test_reply_cut_off_by_the_token_limit_keeps_its_verdict(self):
+        reply = '{"supported": "yes", "problem": "", "quotes": ["teorik derslerin en az %70\'ine devam", "Öğrenciler te'
+        self.assertEqual(grade_from_quotes(reply, self.CONTEXT), "yes")
+        reply = '{"supported": "yes", "problem": "", "quotes": ["derslerin %80 oranında devamı gerekir", "Öğr'
+        self.assertFalse(is_grade_passed(grade_from_quotes(reply, self.CONTEXT)))
+
+    def test_objection_stated_in_the_context_is_a_grader_mistake(self):
+        answer = "Öğrenciler teorik derslerin en az %70'ine devam etmek zorundadır (Madde 12)."
+        reply = json.dumps({"supported": "no", "problem": "en az %70'ine devam", "quotes": []})
+        grade = grade_from_quotes(reply, self.CONTEXT, answer=answer, question="Devam zorunluluğu nedir?")
+        self.assertTrue(is_grade_passed(grade), grade)
+
+    def test_objection_override_still_requires_grounded_numbers(self):
+        # The objection is in the context, but the answer's 80 is not: stays rejected
+        answer = "Öğrenciler derslerin en az %80'ine devam etmek zorundadır."
+        reply = json.dumps({"supported": "no", "problem": "en az %70'ine devam", "quotes": []})
+        self.assertFalse(is_grade_passed(grade_from_quotes(reply, self.CONTEXT, answer=answer)))
+        # A one-word objection or one not in the context is kept
+        for problem in ("devam", "%80 devam şartı"):
+            reply = json.dumps({"supported": "no", "problem": problem, "quotes": []})
+            self.assertFalse(is_grade_passed(grade_from_quotes(reply, self.CONTEXT, answer="%70.")))
+
+    def test_numbers_grounded(self):
+        self.assertTrue(numbers_grounded("AGNO en az 2,0 olmalıdır.", "başarı notu 2,00’dır"))
+        self.assertTrue(
+            numbers_grounded("2020 yılından en az 5 yıl sonra", "en az beş (5) yıl", question="2020 yılında")
+        )
+        # Computed numbers are not in the documents: such answers keep a "no" of the grader
+        self.assertFalse(numbers_grounded("2025 yılında", "en az beş (5) yıl", question="2020 yılında"))
+        self.assertFalse(numbers_grounded("en az 65 puan", "en az elli beş (55) puan"))
+
+    def test_plain_text_reply_falls_back_to_yes_no(self):
+        self.assertEqual(grade_from_quotes("yes", self.CONTEXT), "yes")
+        self.assertFalse(is_grade_passed(grade_from_quotes("", self.CONTEXT)))
+        self.assertTrue(quote_in_context("İzin", "izin"))
 
 
 class TestDbAgent(unittest.TestCase):
