@@ -53,8 +53,8 @@ TEXTS: Dict[str, Dict[str, str]] = {
     "confirm_password": {"tr": "Yeni şifre (tekrar)", "en": "Confirm new password"},
     "update_password": {"tr": "Şifreyi Güncelle", "en": "Update Password"},
     "password_fields_missing": {
-        "tr": "Lütfen tüm şifre alanlarını doldurun.",
-        "en": "Please fill in all password fields.",
+        "tr": "Boş alan: {fields}. Tarayıcının otomatik doldurduğu bir şifre görünse de sayfaya iletilmemiş olabilir; lütfen yeniden yazın.",
+        "en": "Empty field: {fields}. A password your browser filled in may not have reached the page yet; please type it again.",
     },
     "password_mismatch": {"tr": "Yeni şifreler eşleşmiyor.", "en": "New passwords do not match."},
     "password_changed": {"tr": "Şifre başarıyla değiştirildi.", "en": "Password changed successfully."},

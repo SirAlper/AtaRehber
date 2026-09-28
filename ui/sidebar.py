@@ -66,12 +66,21 @@ def _password_change() -> None:
     """Mandatory after the first login with the default admin password."""
     st.subheader(t("change_password_title"))
     st.warning(t("change_password_required"))
-    current = st.text_input(t("current_password"), type="password", key="cp_current")
-    new = st.text_input(t("new_password"), type="password", key="cp_new")
-    confirm = st.text_input(t("confirm_password"), type="password", key="cp_confirm")
-    if st.button(t("update_password"), use_container_width=True, type="primary"):
-        if not current or not new:
-            st.warning(t("password_fields_missing"))
+    # A form sends all three fields when the button is pressed; single inputs only report their value after Enter
+    # or leaving the field. The autocomplete hints stop password managers from putting the old password into
+    # the new-password fields.
+    with st.form("password_change_form"):
+        current = st.text_input(
+            t("current_password"), type="password", key="cp_current", autocomplete="current-password"
+        )
+        new = st.text_input(t("new_password"), type="password", key="cp_new", autocomplete="new-password")
+        confirm = st.text_input(t("confirm_password"), type="password", key="cp_confirm", autocomplete="new-password")
+        submitted = st.form_submit_button(t("update_password"), use_container_width=True, type="primary")
+    if submitted:
+        empty = [label for label, value in ((t("current_password"), current), (t("new_password"), new)) if not value]
+        if empty:
+            # A browser may show a saved password it has not handed to the page yet; naming the field helps
+            st.warning(t("password_fields_missing", fields=", ".join(empty)))
         elif new != confirm:
             st.error(t("password_mismatch"))
         else:

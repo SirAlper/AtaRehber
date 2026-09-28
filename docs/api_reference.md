@@ -861,7 +861,7 @@ curl -X PATCH "http://localhost:8000/api/v1/requests/12" -H "Authorization: Bear
 The API implements an in-memory sliding-window rate limiter to safeguard on-premise hardware against abuse and resource exhaustion:
 
 * **Scope:** Authenticated requests are limited per account; anonymous requests per client IP. Users sharing a gateway (such as the Streamlit frontend container) therefore do not share one budget.
-* **Configuration:** Configured via `RATE_LIMIT_PER_MINUTE` in `.env` (default: `30` requests/minute).
+* **Configuration:** `RATE_LIMIT_PER_MINUTE` (default `30`) limits questions, uploads, and other changes (`POST`, `PUT`, `PATCH`, `DELETE`); reads (`GET`) have their own budget, `RATE_LIMIT_READS_PER_MINUTE` (default `300`), because the web UI reloads its panels with several `GET` requests on every click.
 * **Bypassed Routes:** `/health` and documentation endpoints (`/docs`, `/redoc`, `/openapi.json`) are excluded.
 * **Login brute-force protection:** handled separately by per-account lockout (see section 1.1).
 * **HTTP 429 Too Many Requests:** When a client exceeds the limit, the API immediately returns HTTP 429:

@@ -17,8 +17,11 @@ CORS_ORIGINS = [
 MAX_UPLOAD_SIZE_MB = int(os.getenv("MAX_UPLOAD_SIZE_MB", "50"))
 ALLOWED_UPLOAD_EXTENSIONS = {".pdf", ".docx", ".txt"}
 
-# Rate Limiting (requests per minute per user)
+# Rate Limiting (requests per minute per user). Questions, uploads, and other changes share
+# RATE_LIMIT_PER_MINUTE; reads (GET) have their own budget, because the web UI reloads its panels (status,
+# documents, requests, ...) with several GET requests on every click.
 RATE_LIMIT_PER_MINUTE = int(os.getenv("RATE_LIMIT_PER_MINUTE", "30"))
+RATE_LIMIT_READS_PER_MINUTE = int(os.getenv("RATE_LIMIT_READS_PER_MINUTE", "300"))
 
 # Failed login attempts allowed per username within LOGIN_LOCKOUT_WINDOW_SECONDS before temporary lockout
 LOGIN_MAX_FAILED_ATTEMPTS = int(os.getenv("LOGIN_MAX_FAILED_ATTEMPTS", "5"))

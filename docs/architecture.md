@@ -254,7 +254,7 @@ Defense in depth, from application layer to database engine. See [Database Conne
 * **Name Validation:** Only plain backup directory names created by the backup endpoint are accepted.
 
 ### 8. Rate Limiting & DoS Protection
-* **Sliding Window Middleware:** Limits requests to `RATE_LIMIT_PER_MINUTE` (default 30) per authenticated account, or per client IP for anonymous requests. Keying by account prevents all users behind the Streamlit container (a single IP) from sharing one budget.
+* **Sliding Window Middleware:** Limits questions, uploads, and other changes to `RATE_LIMIT_PER_MINUTE` (default 30) and reads (`GET`) to `RATE_LIMIT_READS_PER_MINUTE` (default 300) per authenticated account, or per client IP for anonymous requests; the web UI reloads its panels with several reads on every click. Keying by account prevents all users behind the Streamlit container (a single IP) from sharing one budget.
 * **Automated Throttling:** Excess requests receive HTTP 429 with a `Retry-After` header. `/health` and API docs are exempt. Idle entries are purged periodically.
 
 ### 9. Centralized Logging & Error Handling (`src.core.logger`)

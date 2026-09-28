@@ -6,6 +6,10 @@ This document provides a comprehensive log of new features, architectural upgrad
 
 ## 🧭 Unreleased
 
+### Fixed: web UI
+* **Rate limit hit while uploading:** the web UI reloads its panels with several `GET` requests on every click (an admin's sidebar makes eight), which used up the 30 requests per minute, so an upload after a few clicks failed with HTTP 429. Reads now have their own budget, `RATE_LIMIT_READS_PER_MINUTE` (default 300); `RATE_LIMIT_PER_MINUTE` (30) still limits questions, uploads, and other changes.
+* **Forced password change said "fill in all fields" although they were filled:** a text field only reports its value after Enter or leaving it, and a password the browser fills in may not reach the page. The three fields are now a form sent as a whole, carry `current-password` / `new-password` autocomplete hints, and the warning names the empty field.
+
 ### Improved: answer accuracy on laws and regulations
 * **Article-aware chunking:** laws and regulations are split by article (`Madde 30 –`, `GEÇİCİ MADDE 2 –`, …). Every chunk names its document and article (`[YÜKSEKÖĞRETİM KANUNU | Madde 30 – Emeklilik yaş haddi]`), pieces of long articles repeat the sentence that introduces their list (which penalty the listed acts get), and footnotes and appendix tables are kept apart. Long articles are split at `ARTICLE_CHUNK_SIZE` (default 900 characters). Sources in answers show the article. Re-index existing documents to use it.
 * **Numbers in words get their digits:** `elli beş puan` is indexed as `elli beş (55) puan`, so the model no longer prefers a superseded number written in digits in a transitional article.

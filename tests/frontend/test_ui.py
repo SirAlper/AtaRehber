@@ -113,3 +113,38 @@ def test_logged_in_chat_shows_disclaimer_and_page_numbers():
     assert "Yıllık izin 20 iş günüdür." in text
     assert "`yonetmelik.pdf` — s. 4–5" in text
     assert "Doküman Ajanı" in text
+
+
+def test_forced_password_change_sends_all_fields_and_names_empty_ones():
+    tokens = {"access_token": "t", "refresh_token": "r", "role": "admin", "username": "admin", "expires_in": 900}
+    posts = []
+
+    def fake_post(url, **kwargs):
+        posts.append((url, kwargs.get("json")))
+        return fake_response(dict(tokens, must_change_password=False))
+
+    with patch("requests.get", side_effect=fake_get), patch("requests.post", side_effect=fake_post):
+        at = AppTest.from_file(APP, default_timeout=30)
+        at.session_state["auth_token"] = "token"
+        at.session_state["user_info"] = {"username": "admin", "role": "admin"}
+        at.session_state["must_change_password"] = True
+        at.run()
+
+        # The current password is missing: the warning names it and nothing is sent
+        at.sidebar.text_input(key="cp_new").set_value("YeniSifre!2026")
+        at.sidebar.text_input(key="cp_confirm").set_value("YeniSifre!2026")
+        next(b for b in at.sidebar.button if b.label == "Şifreyi Güncelle").click().run()
+        assert any("Boş alan: Mevcut şifre" in w.value for w in at.sidebar.warning)
+        assert posts == []
+
+        at.sidebar.text_input(key="cp_current").set_value("admin123")
+        next(b for b in at.sidebar.button if b.label == "Şifreyi Güncelle").click().run()
+
+    assert not at.exception
+    assert posts == [
+        (
+            "http://127.0.0.1:8000/api/v1/auth/change-password",
+            {"current_password": "admin123", "new_password": "YeniSifre!2026"},
+        )
+    ]
+    assert at.session_state["must_change_password"] is False

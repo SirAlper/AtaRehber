@@ -10,7 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from src.auth.jwt_handler import decode_access_token
-from src.core.config import CORS_ORIGINS, RATE_LIMIT_PER_MINUTE
+from src.core.config import CORS_ORIGINS, RATE_LIMIT_PER_MINUTE, RATE_LIMIT_READS_PER_MINUTE
 from src.core.logger import get_logger
 from src.api.state import cleanup_services, init_services
 from src.api.routes import (
@@ -62,6 +62,7 @@ app.add_middleware(
 
 _RATE_WINDOW = 60  # seconds
 _RATE_LIMIT_EXEMPT_PATHS = {"/health", "/docs", "/openapi.json", "/redoc"}
+_READ_METHODS = {"GET", "HEAD", "OPTIONS"}
 _rate_limit_store: Dict[str, Deque[float]] = defaultdict(deque)
 _last_sweep = 0.0
 
@@ -99,7 +100,11 @@ async def rate_limit_middleware(request: Request, call_next):
     if request.url.path in _RATE_LIMIT_EXEMPT_PATHS:
         return await call_next(request)
 
-    key = _rate_limit_key(request)
+    # Reads have their own, larger budget: the web UI reloads its panels with several GETs on every click,
+    # which must not use up the budget for questions and uploads
+    is_read = request.method in _READ_METHODS
+    limit = RATE_LIMIT_READS_PER_MINUTE if is_read else RATE_LIMIT_PER_MINUTE
+    key = f"{_rate_limit_key(request)}:{'read' if is_read else 'write'}"
     now = time.time()
     _sweep_rate_limit_store(now)
 
@@ -107,12 +112,12 @@ async def rate_limit_middleware(request: Request, call_next):
     while timestamps and now - timestamps[0] >= _RATE_WINDOW:
         timestamps.popleft()
 
-    if len(timestamps) >= RATE_LIMIT_PER_MINUTE:
+    if len(timestamps) >= limit:
         logger.warning(f"Rate limit exceeded for {key}")
         return JSONResponse(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             content={
-                "detail": f"Rate limit exceeded. Maximum {RATE_LIMIT_PER_MINUTE} requests per minute.",
+                "detail": f"Rate limit exceeded. Maximum {limit} requests per minute.",
                 "retry_after": _RATE_WINDOW,
             },
             headers={"Retry-After": str(_RATE_WINDOW)},
