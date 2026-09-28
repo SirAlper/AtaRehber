@@ -175,6 +175,30 @@ class TestLegislationChunking(unittest.TestCase):
         self.assertEqual(metas[1]["article"], "Madde 1 – Yaş haddi")
         self.assertIn("yetmiş beş (75) yaştır", chunks[1])
 
+    def test_title_wrapped_after_a_blank_line_is_joined(self):
+        text = "ÖRNEK ÜNİVERSİTESİ ÖN LİSANS\n\nSINAV YÖNETMELİĞİ\n\nBİRİNCİ BÖLÜM\n\n" + "".join(
+            f"Madde {i} – Metin {i}.\n\n" for i in range(1, 4)
+        )
+        chunks, _ = self._chunk(text)
+        self.assertTrue(chunks[-1].startswith("[ÖRNEK ÜNİVERSİTESİ ÖN LİSANS SINAV YÖNETMELİĞİ | Madde 3]"))
+
+    def test_a_piece_gets_the_introduction_above_its_first_item(self):
+        item = "bu bent, parçaların gerçek yönetmeliklerdeki gibi uzun olması için yazılmış açıklayıcı bir metindir"
+        text = (
+            "KANUN\n\nMadde 1 – (1) Sınavlara ilişkin esaslar şunlardır:\n\n"
+            "a) Tek ders sınavı:\n\n"
+            + "\n\n".join(f"{i}) Birinci türün {i}. kuralı: {item}." for i in range(1, 11))
+            + f"\n\nb) Ek sınav: {', '.join([item] * 6)}.\n\nMadde 2 – İki.\n\nMadde 3 – Üç.\n"
+        )
+        chunks, _ = self._chunk(text)
+        # Pieces that do not start with the article: (header, introduction, first line of the piece)
+        pieces = {chunk.split("\n")[2][:2]: chunk.split("\n")[1] for chunk in chunks if chunk.count("\n") >= 2}
+        # A piece starting with item "b)" gets the paragraph that introduces a) and b), not its sibling a)
+        self.assertEqual(pieces["b)"], "(Madde 1 – (1) Sınavlara ilişkin esaslar şunlardır:)")
+        # A piece starting inside the numbered sub-items of a) gets a)'s introduction
+        sub_item_piece = next(intro for start, intro in pieces.items() if start[:1].isdigit())
+        self.assertEqual(sub_item_piece, "(a) Tek ders sınavı:)")
+
     def test_upper_case_title_is_not_an_article_title(self):
         _, metas = self._chunk("BAŞLIK\n\nMadde 1- Birinci.\n\nMadde 2- İkinci.\n\nMadde 3- Üçüncü.\n")
         self.assertEqual([meta.get("article") for meta in metas][-3:], ["Madde 1", "Madde 2", "Madde 3"])

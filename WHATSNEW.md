@@ -6,6 +6,11 @@ This document provides a comprehensive log of new features, architectural upgrad
 
 ## 🧭 Unreleased
 
+### Added: guest access and a busy answer
+* **Guests (visitors without an account):** with `GUEST_ACCESS_ENABLED=true` the login panel offers "Continue as guest". Guests ask `doc_agent` about the documents shared with `GUEST_DOCUMENT_GROUP` (default `ziyaretci`) only, for example the open education faculty's regulations for prospective students; they cannot see internal documents, file requests, or query databases. Each guest session has its own question budget (`GUEST_RATE_LIMIT_PER_MINUTE`, default 10), lasts `GUEST_SESSION_MINUTES` (default 120), and cannot be refreshed; ending it clears the conversation for the next visitor on a shared computer. New endpoints `GET` / `POST /api/v1/auth/guest`. Documents shared with visitors are visible to every account as well.
+* **Busy answer instead of a timeout:** at most `MAX_QUEUED_QUERIES` (default 10) questions wait for the model; further questions get HTTP 503 at once and the web UI says "the assistant is busy, try again in a minute".
+* A pure greeting is answered as a greeting even when an agent is chosen.
+
 ### Fixed: web UI
 * **Rate limit hit while uploading:** the web UI reloads its panels with several `GET` requests on every click (an admin's sidebar makes eight), which used up the 30 requests per minute, so an upload after a few clicks failed with HTTP 429. Reads now have their own budget, `RATE_LIMIT_READS_PER_MINUTE` (default 300); `RATE_LIMIT_PER_MINUTE` (30) still limits questions, uploads, and other changes.
 * **Forced password change said "fill in all fields" although they were filled:** a text field only reports its value after Enter or leaving it, and a password the browser fills in may not reach the page. The three fields are now a form sent as a whole, carry `current-password` / `new-password` autocomplete hints, and the warning names the empty field.

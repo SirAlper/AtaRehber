@@ -2,7 +2,10 @@ from typing import List, Literal, Optional
 from pydantic import BaseModel, Field
 
 
-UserRole = Literal["admin", "editor", "viewer"]
+# Roles of user accounts
+AccountRole = Literal["admin", "editor", "viewer"]
+# "guest": visitors without an account (GUEST_ACCESS_ENABLED); they exist only in their session token
+UserRole = Literal["admin", "editor", "viewer", "guest"]
 
 
 class User(BaseModel):
@@ -46,13 +49,13 @@ class UserCreate(BaseModel):
         max_length=128,
         description="Password (validated against the password policy)",
     )
-    role: UserRole = "viewer"
+    role: AccountRole = "viewer"
     groups: List[str] = Field(default_factory=list, description="Document access groups, e.g. ['akademik']")
 
 
 class UserUpdate(BaseModel):
     password: Optional[str] = Field(None, min_length=1, max_length=128)
-    role: Optional[UserRole] = None
+    role: Optional[AccountRole] = None
     disabled: Optional[bool] = None
     groups: Optional[List[str]] = Field(None, description="Replaces the user's document access groups")
 

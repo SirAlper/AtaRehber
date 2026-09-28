@@ -1,7 +1,7 @@
 import bisect
 import os
 import re
-from typing import List, Tuple
+from typing import List, Optional, Tuple
 
 from pypdf import PdfReader
 from docx import Document
@@ -27,6 +27,18 @@ MIN_ARTICLES = 3
 # Longest line accepted as an article title ("Emeklilik yaş haddi:") or as a list introduction
 _MAX_TITLE_LEN = 100
 _MAX_INTRO_LEN = 400
+# List markers of legislation from the outside in: paragraph "(1)", item "a)" / "ğ)" / "A-", sub-item "1)"
+_LIST_LEVELS = (
+    re.compile(r"^\(\d+\)"),
+    re.compile(r"^\(?[a-zçğıöşüA-ZÇĞİÖŞÜ]{1,2}[).-]\s"),
+    re.compile(r"^\d+[).-]\s"),
+)
+
+
+def _list_level(text: str) -> Optional[int]:
+    """List level of the first non-empty line (0 paragraph, 1 item, 2 sub-item), or None for plain text."""
+    first = next((line.strip() for line in text.splitlines() if line.strip()), "")
+    return next((level for level, marker in enumerate(_LIST_LEVELS) if marker.match(first)), None)
 
 
 class DocumentLoader:
@@ -220,7 +232,17 @@ class DocumentLoader:
             intros = self._list_introductions(text)
             for split in self.article_splitter.create_documents([text]):
                 offset = split.metadata.get("start_index", 0)
-                intro = next((line for pos, line in reversed(intros) if pos < offset), "")
+                # The introduction of a piece's list sits above its first item: a piece starting with "ğ)" gets
+                # "(6) Sınavlara ilişkin esaslar şunlardır:", not its sibling "d) Tek ders sınavı:"
+                level = _list_level(split.page_content)
+                intro = next(
+                    (
+                        line
+                        for pos, line, line_level in reversed(intros)
+                        if pos < offset and (level is None or line_level is None or line_level < level)
+                    ),
+                    "",
+                )
                 lead = f"({intro})\n" if intro else ""
                 body = annotate_numbers(f"{lead}{split.page_content}")
                 pieces.append((start + offset, f"{header}\n{body}", label))
@@ -228,13 +250,17 @@ class DocumentLoader:
 
     @staticmethod
     def _legislation_title(content: str) -> str:
-        """First line(s) of the document, e.g. 'YÜKSEKÖĞRETİM KANUNU' (two lines when the title wraps)."""
-        lines = [line.strip() for line in content.strip().splitlines()]
+        """Upper-case title lines at the start, e.g. 'YÜKSEKÖĞRETİM KANUNU'; a title that wraps onto a second line
+        after a blank line ('... ÖN LİSANS VE LİSANS' / 'EĞİTİM-ÖĞRETİM VE SINAV YÖNETMELİĞİ') is joined."""
+        lines = [line.strip() for line in content.strip().splitlines() if line.strip()]
         title = []
         for line in lines[:3]:
-            if not line:
+            is_upper = line == line.upper() and any(c.isalpha() for c in line)
+            if title and (not is_upper or re.search(r"\b(BÖLÜM|KISIM)\b", line)):
                 break
             title.append(line)
+            if not is_upper:
+                break
         return " ".join(title)[:150] or "Document"
 
     @staticmethod
@@ -268,8 +294,8 @@ class DocumentLoader:
         return f"{label} – {title}" if title else label
 
     @staticmethod
-    def _list_introductions(text: str) -> List[Tuple[int, str]]:
-        """Lines that introduce a list ('... cezasını gerektiren eylemler şunlardır:') with their offsets.
+    def _list_introductions(text: str) -> List[Tuple[int, str, Optional[int]]]:
+        """Lines that introduce a list ('... cezasını gerektiren eylemler şunlardır:') with offsets and list levels.
 
         Lines before the article heading (the article title, e.g. 'Emeklilik yaş haddi:') are skipped.
         """
@@ -278,7 +304,7 @@ class DocumentLoader:
             stripped = line.strip()
             in_body = in_body or bool(_ARTICLE_RE.match(line))
             if in_body and stripped.endswith(":") and 10 <= len(stripped) <= _MAX_INTRO_LEN:
-                intros.append((offset, stripped))
+                intros.append((offset, stripped, _list_level(stripped)))
             offset += len(line)
         return intros
 

@@ -91,6 +91,8 @@ Index writes are serialized with a write lock (also used by backups), and per-do
 ### Document Access Control (`src/auth/document_access.py`)
 Documents are visible to everyone unless they are restricted to user groups (for example `akademik`, `idari`). The groups of each restricted document are stored in `data/document_access.json` and mirrored into the metadata of its chunks (`acl_public=False`, `acl_<group>=True`), so the vector store filters **before** similarity search and reranking: a user never receives context from a document outside their groups. Chunks without the key (everything indexed before access control existed, and synced database tables) count as public, so no migration is needed. `admin` and `editor` manage documents and search all of them; `viewer` accounts search public documents and those shared with one of their groups, and restricted documents they cannot search are also left out of their document list and statistics. Changing a document's groups updates its chunks in place and explicitly revokes groups that lost access.
 
+Guests search only the documents shared with `GUEST_DOCUMENT_GROUP` (the search scope `["*only", "ziyaretci"]` becomes the filter `{"acl_ziyaretci": true}`), so documents that are public to accounts stay internal. Documents shared with visitors are public information, so every account searches them as well.
+
 ---
 
 ## 📑 Contextual Chunking
@@ -204,6 +206,7 @@ The verdict and refinement flag are returned as `hallucination_grade` and `is_re
   * `admin`: Complete administrative privileges (user management and user groups, ad-hoc SQL, table ETL sync, audit inspection and verification, backup/restore, session cleanup).
   * `editor`: Document management (upload, delete, access groups), working off service requests, and assistant queries.
   * `viewer`: Assistant queries on the documents their groups may see, their own service requests, statistics, and database connection status.
+  * `guest` (visitors without an account, `GUEST_ACCESS_ENABLED`): questions to `doc_agent` about the documents shared with `GUEST_DOCUMENT_GROUP` (default `ziyaretci`) only, with their own question budget per session (`GUEST_RATE_LIMIT_PER_MINUTE`). Guest sessions (`POST /api/v1/auth/guest`) exist only in their token, cannot be refreshed, end after `GUEST_SESSION_MINUTES`, and all end when guest access is turned off; accounts cannot be given the `guest` role.
 * **User groups:** accounts carry a list of groups (`groups`, lowercase letters, digits, underscores) that decide which restricted documents a viewer can search (see [Document Access Control](#document-access-control-srcauthdocument_accesspy)).
 
 ### 2. Tamper-Evident Compliance Audit Trail (`src.core.audit`)
@@ -217,7 +220,7 @@ The verdict and refinement flag are returned as `hallucination_grade` and `is_re
 * **Separate server:** The LLM runs in an [Ollama](https://ollama.com) server (`OLLAMA_BASE_URL`, default model `qwen2.5:7b`). The API process loads no LLM weights, so it starts quickly, and switching models is a matter of `ollama pull <model>` plus `OLLAMA_MODEL`.
 * **Explicit context window:** Requests set `num_ctx` (`OLLAMA_NUM_CTX`, default 4096) because some Ollama versions default to 2048 tokens and silently drop the beginning of longer prompts, i.e. the system prompt and retrieved context.
 * **Availability check:** At startup the API checks that the server is reachable and the model is pulled, and logs an actionable error (`ollama pull …`) otherwise. The API still starts, so documents, users, and the audit log remain usable; `GET /api/v1/stats` reports the state as `llm_status`.
-* **Concurrency:** Queries are capped by `asyncio.Semaphore(OLLAMA_NUM_PARALLEL)`. Match it to the server's own `OLLAMA_NUM_PARALLEL` setting.
+* **Concurrency:** Queries are capped by `asyncio.Semaphore(OLLAMA_NUM_PARALLEL)`. Match it to the server's own `OLLAMA_NUM_PARALLEL` setting. At most `MAX_QUEUED_QUERIES` (default 10) further questions wait for a slot; beyond that the API answers HTTP 503 at once and the web UI says the assistant is busy, instead of a timeout after 180 s. A good value is about 180 s divided by the seconds a question takes, minus `OLLAMA_NUM_PARALLEL`.
 * **Model choice is measured:** on the evaluation set, `qwen2.5:7b` answers 95% of the questions correctly versus 73% for the previous in-process 1.5B model (see [Evaluation](evaluation.md#-current-results)).
 
 ### 4. Transport Security & Telemetry

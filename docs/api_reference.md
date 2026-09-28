@@ -12,6 +12,8 @@ The interactive OpenAPI Swagger UI is available at `http://localhost:8000/docs` 
 | :--- | :--- | :---: | :--- |
 | `POST` | `/api/v1/auth/login` | Public | Obtain signed JWT Bearer access token and refresh token |
 | `POST` | `/api/v1/auth/refresh` | Public | Exchange refresh token for fresh access and refresh token pair |
+| `GET` | `/api/v1/auth/guest` | Public | Whether guest access is enabled (`{"enabled": true}`) |
+| `POST` | `/api/v1/auth/guest` | Public | Start a guest session (visitors without an account; `GUEST_ACCESS_ENABLED`) |
 | `GET` | `/api/v1/auth/me` | Authenticated | View current authenticated user profile |
 | `POST` | `/api/v1/auth/register` | `admin` | Register new user account with password policy enforcement |
 | `GET` | `/api/v1/auth/users` | `admin` | List all registered enterprise user accounts |
@@ -23,9 +25,9 @@ The interactive OpenAPI Swagger UI is available at `http://localhost:8000/docs` 
 | `DELETE` | `/api/v1/documents/{filename}` | `admin`, `editor` | Permanently delete document from disk and purge chunks from vector store |
 | `PUT` | `/api/v1/documents/{filename}/access` | `admin`, `editor` | Restrict a document to user groups, or make it visible to everyone |
 | `GET` | `/api/v1/agents` | Authenticated | List the supervisor (`auto`) and the specialist sub-agents that are currently available |
-| `POST` | `/api/v1/query` | Authenticated | Multi-agent question answering with multi-turn session memory |
-| `POST` | `/api/v1/query-stream` | Authenticated | Same workflow as `/query`, streamed as NDJSON events |
-| `POST` | `/api/v1/feedback` | Authenticated | Submit thumbs-up/down evaluation on agent answers |
+| `POST` | `/api/v1/query` | Authenticated, `guest` | Multi-agent question answering with multi-turn session memory |
+| `POST` | `/api/v1/query-stream` | Authenticated, `guest` | Same workflow as `/query`, streamed as NDJSON events |
+| `POST` | `/api/v1/feedback` | Authenticated, `guest` | Submit thumbs-up/down evaluation on agent answers |
 | `GET` | `/api/v1/requests` | Authenticated | List own service requests (staff: all with `all_users=true`) |
 | `POST` | `/api/v1/requests` | Authenticated | File a service request without the chat (form) |
 | `PATCH` | `/api/v1/requests/{request_id}` | Authenticated | Staff change a request's status; requesters cancel their own open requests |
@@ -120,6 +122,17 @@ curl -X POST "http://localhost:8000/api/v1/auth/refresh" \
 ```
 
 The refresh token is rotated on every call. Refresh tokens issued before a password change or account deactivation are rejected with HTTP 401.
+
+---
+
+### 1.2a Guest Sessions (`GET` / `POST /api/v1/auth/guest`)
+Visitors without an account (for example prospective open education students) can ask questions when `GUEST_ACCESS_ENABLED=true`. `GET` returns `{"enabled": true|false}`; `POST` returns an access token for a new guest session (`role: "guest"`, username `guest-<random>`, no refresh token, valid for `GUEST_SESSION_MINUTES`, default 120). With guest access disabled, `POST` returns HTTP 404 and existing guest tokens are rejected.
+
+Guests may only call `/api/v1/query`, `/api/v1/query-stream`, `/api/v1/feedback`, and `/api/v1/auth/me` (everything else answers HTTP 403):
+* Their questions always go to `doc_agent` (a pure greeting gets a greeting): no database, service requests, or compliance checks.
+* They search **only** the documents shared with `GUEST_DOCUMENT_GROUP` (default `ziyaretci`), not the documents public to accounts. Share a document with visitors by giving it that group (upload form or `PUT /api/v1/documents/{filename}/access`); every account sees those documents too.
+* Each guest session has its own question budget, `GUEST_RATE_LIMIT_PER_MINUTE` (default 10), so visitors behind one IP do not block each other. Starting sessions is limited per IP like any anonymous request.
+* Their questions are recorded in the audit trail under the session's username with role `guest`.
 
 ---
 
@@ -378,6 +391,8 @@ curl -X GET "http://localhost:8000/api/v1/agents" \
 
 ### 3.1 Batch Query (`POST /api/v1/query`)
 Runs the multi-agent LangGraph workflow: the supervisor plans one or more specialist steps (or answers greetings directly), the specialists produce the answer (a failing step is handed to another agent once, several answers are combined), and the turn is saved to the session history. Documents are searched with the caller's access groups. See [Architecture](architecture.md#-multi-agent-workflow-srcagentmulti_agent) for details.
+
+* **Busy server:** at most `MAX_QUEUED_QUERIES` (default 10) questions wait for the model; beyond that the API answers at once with HTTP 503 (`Retry-After: 60`) instead of letting the client time out. `/query-stream` checks this before streaming starts.
 
 * **Request Parameters:**
   * `question` *(string, required)*: The user question (1-4000 characters).

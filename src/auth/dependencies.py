@@ -2,9 +2,11 @@ from typing import Callable
 from fastapi import Depends, HTTPException, Security, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
+from src.auth.document_access import GUEST_ROLE
 from src.auth.jwt_handler import decode_access_token
 from src.auth.models import User
 from src.auth.user_store import user_store
+from src.core import config
 from src.core.config import REQUIRE_DEFAULT_PASSWORD_CHANGE
 from src.core.logger import get_logger
 
@@ -39,6 +41,16 @@ async def get_authenticated_user(
             detail="Invalid or expired authentication token.",
             headers={"WWW-Authenticate": "Bearer"},
         )
+
+    if token_data.role == GUEST_ROLE:
+        # Guests have no account; their session token is the only record. Turning guest access off ends them.
+        if not config.GUEST_ACCESS_ENABLED:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Guest access is disabled.",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        return User(username=token_data.username, role=GUEST_ROLE, hashed_password="", groups=[])
 
     user = user_store.get_user(token_data.username)
     if user is None:

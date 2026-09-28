@@ -37,6 +37,11 @@ def user_role() -> str:
     return (st.session_state.user_info or {}).get("role", "viewer")
 
 
+def is_guest() -> bool:
+    """Visitor without an account (guest session): questions about the documents shared with visitors only."""
+    return is_logged_in() and user_role() == "guest"
+
+
 def is_logged_in() -> bool:
     return bool(st.session_state.get("auth_token"))
 
@@ -64,6 +69,14 @@ def logout() -> None:
     st.session_state.user_info = None
     st.session_state.must_change_password = False
     st.rerun()
+
+
+def start_conversation(text_key: str) -> None:
+    """New conversation that opens with a fixed assistant text, e.g. the guest welcome."""
+    st.session_state.session_id = uuid.uuid4().hex[:12]
+    st.session_state.messages = [
+        {"role": "assistant", "text_key": text_key, "sources": [], "active_agent": "supervisor"}
+    ]
 
 
 def new_conversation() -> None:

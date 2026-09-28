@@ -18,6 +18,7 @@ from src.core.config import (
     OLLAMA_NUM_PARALLEL,
 )
 from src.auth.document_access import access_metadata, document_access_store
+from src.core import config
 from src.core.logger import get_logger
 from src.services.backups import apply_pending_restore
 
@@ -33,11 +34,32 @@ db_loader: Optional[DatabaseTableLoader] = None
 ollama_semaphore = asyncio.Semaphore(OLLAMA_NUM_PARALLEL)
 
 
+class QueueFullError(Exception):
+    """More than MAX_QUEUED_QUERIES questions are already waiting for the model."""
+
+
 class QueryConcurrencyManager:
-    """Limits concurrent queries to OLLAMA_NUM_PARALLEL so the Ollama server is not overloaded."""
+    """Limits concurrent queries to OLLAMA_NUM_PARALLEL so the Ollama server is not overloaded.
+
+    At most MAX_QUEUED_QUERIES questions wait for a slot; entering beyond that raises QueueFullError at once, so
+    a user sees "busy, try again shortly" instead of a timeout minutes later.
+    """
+
+    def __init__(self):
+        self.waiting = 0
+
+    def is_full(self) -> bool:
+        limit = config.MAX_QUEUED_QUERIES
+        return limit > 0 and ollama_semaphore.locked() and self.waiting >= limit
 
     async def __aenter__(self):
-        await ollama_semaphore.acquire()
+        if self.is_full():
+            raise QueueFullError()
+        self.waiting += 1
+        try:
+            await ollama_semaphore.acquire()
+        finally:
+            self.waiting -= 1
         return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
