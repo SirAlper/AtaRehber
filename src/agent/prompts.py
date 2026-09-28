@@ -29,8 +29,10 @@ SYSTEM_PROMPT_RAG = (
     "were the general rule.\n"
     "5. Prefer provisions currently in force. Transitional or temporary articles (e.g. 'Geçici Madde'), footnotes, "
     "and amendment notes may contain old or superseded values; use them only when the question is about them.\n"
-    "6. When the Context shows an article or section number for the rule you use, cite it (e.g. 'Madde 30').\n"
-    "7. Ensure sentences and bullet points are fully and cleanly finished."
+    "6. If a provision refers to another provision that is also in the Context (e.g. 'Kanunun 54 üncü maddesine "
+    "göre'), also state what that provision says for the question, e.g. the specific penalty.\n"
+    "7. When the Context shows an article or section number for the rule you use, cite it (e.g. 'Madde 30').\n"
+    "8. Ensure sentences and bullet points are fully and cleanly finished."
 )
 
 SYSTEM_PROMPT_GRADER = (
@@ -41,15 +43,28 @@ SYSTEM_PROMPT_GRADER = (
     "Do not write anything else."
 )
 
+SYSTEM_PROMPT_GRADER_QUOTES = (
+    "You are a factual auditor. Check whether the Answer is supported by the Context.\n"
+    "- 'supported' is 'yes' if the key facts of the Answer (numbers, durations, deadlines, penalties, conditions, "
+    "bodies, names) are stated in the Context. Paraphrasing and summarizing are fine.\n"
+    "- It is 'no' if a key fact is missing from the Context or the Context states something different (another "
+    "number, another penalty, a different condition); 'problem' then names that fact in a few words.\n"
+    "- 'quotes': for each key fact, copy the words of the Context that state it, word for word "
+    "(at most 25 words each, at most 4 quotes).\n"
+    'Reply with JSON only: {"supported": "yes", "problem": "", "quotes": ["..."]}'
+)
+
 SYSTEM_PROMPT_REFINE = (
     "You are an editor and verification specialist.\n"
     "Review the Context, Question, and the previously generated Draft Answer.\n"
     "Some statements in the draft answer may not be fully grounded in the documents.\n"
     "Your task:\n"
     "1. Completely remove (prune) any unsupported claims, assumptions, or speculations not directly verified by the Context.\n"
-    "2. Reconstruct a concise, professional response, retaining ONLY verified facts.\n"
-    f"3. If no verifiable information remains to answer the question, write only: '{NO_CONTEXT_RESPONSE}'\n"
-    "4. Ensure sentences are complete and grammatically fluent."
+    "2. If an Auditor's objection is given, correct or remove that claim using the Context, and keep the other facts "
+    "of the draft that the Context states.\n"
+    "3. Reconstruct a concise, professional response, retaining ONLY verified facts.\n"
+    f"4. Only if the Context contains nothing that answers the question, write only: '{NO_CONTEXT_RESPONSE}'\n"
+    "5. Ensure sentences are complete and grammatically fluent."
 )
 
 SYSTEM_PROMPT_SYNTHESIS = (
@@ -107,15 +122,32 @@ def build_grader_messages(context: str, question: str, answer: str) -> list:
     ]
 
 
-def build_refine_messages(context: str, question: str, draft_answer: str, language: Optional[str] = None) -> list:
-    """Build LangChain message list to prune and refine ungrounded answers."""
+def build_quote_grader_messages(context: str, question: str, answer: str) -> list:
+    """Build messages for the grader that backs every fact of the answer with a quote from the context."""
+    return [
+        SystemMessage(content=SYSTEM_PROMPT_GRADER_QUOTES),
+        HumanMessage(content=f"Context:\n{context}\n\nQuestion: {question}\n\nAnswer:\n{answer}"),
+    ]
+
+
+def build_refine_messages(
+    context: str, question: str, draft_answer: str, language: Optional[str] = None, objection: str = ""
+) -> list:
+    """Build LangChain message list to prune and refine ungrounded answers.
+
+    objection: what the grader found unsupported, if it said so; the editor then fixes that claim instead of
+    rewriting the whole answer.
+    """
     system_prompt = SYSTEM_PROMPT_REFINE
     if language:
         # The "nothing verifiable" sentence the refiner may return must be in the response language too
         system_prompt = system_prompt.replace(NO_CONTEXT_RESPONSE, message("no_context", language))
     return [
         SystemMessage(content=_with_language(system_prompt, language)),
-        HumanMessage(content=f"Context:\n{context}\n\nQuestion: {question}\n\nDraft Answer:\n{draft_answer}"),
+        HumanMessage(
+            content=f"Context:\n{context}\n\nQuestion: {question}\n\nDraft Answer:\n{draft_answer}"
+            + (f"\n\nAuditor's objection: {objection}" if objection else "")
+        ),
     ]
 
 

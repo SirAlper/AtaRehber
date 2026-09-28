@@ -9,6 +9,7 @@ from src.agent.language import confirmation_reply, language_name, message, respo
 from src.agent.llm import create_chat_model, json_mode, router_model_name
 from src.agent.multi_agent.registry import AgentRegistry, agent_registry
 from src.agent.prompts import ORGANIZATION
+from src.auth.document_access import GUEST_ROLE
 from src.core.config import MAX_AGENT_STEPS
 from src.core.logger import get_logger
 
@@ -159,8 +160,12 @@ class SupervisorAgent:
         forced_agent = state.get("forced_agent")
         language = response_language(question, state.get("chat_history", []))
 
-        # 1. Honor explicit user agent selection if provided
-        if forced_agent and self.registry.get(forced_agent):
+        words = re.sub(r"[^\w\s]", " ", question.lower()).split()
+        is_greeting = bool(words) and len(words) <= 6 and all(w in GREETING_TOKENS for w in words)
+
+        # 1. Honor explicit user agent selection if provided (a greeting still gets a greeting: guests always
+        # have doc_agent forced, and "merhaba" is no document question)
+        if forced_agent and self.registry.get(forced_agent) and not is_greeting:
             logger.info(f"[Supervisor] Forced routing to agent: '{forced_agent}'")
             return {"next_agent": forced_agent, "plan": [{"agent": forced_agent, "question": question}]}
 
@@ -185,14 +190,14 @@ class SupervisorAgent:
 
         # 3. Pure greetings (every word is a greeting token) bypass LLM routing latency.
         # Any other content, e.g. "hi, list sales", goes through normal routing.
-        words = re.sub(r"[^\w\s]", " ", question.lower()).split()
-        is_greeting = bool(words) and len(words) <= 6 and all(w in GREETING_TOKENS for w in words)
         if is_greeting:
             duration_ms = int((time.time() - start_time) * 1000)
+            # Guests only ask about documents; their greeting does not offer requests or databases
+            is_guest = (state.get("user") or {}).get("role") == GUEST_ROLE
             return {
                 "next_agent": "finish",
                 "plan": [],
-                "final_answer": message("greeting", language),
+                "final_answer": message("greeting_guest" if is_guest else "greeting", language),
                 "sources": [],
                 "agent_trace": list(state.get("agent_trace", []))
                 + [
@@ -288,7 +293,9 @@ class SupervisorAgent:
                 logger.warning(f"[Supervisor] Agent '{agent}' not available, defaulting to 'doc_agent'.")
                 agent = "doc_agent"
             sub_question = str(step.get("question") or "").strip() or question
-            if any(existing["agent"] == agent and existing["question"] == sub_question for existing in plan):
+            # One step per agent: the model sometimes splits a single-topic question into sub-questions for the
+            # same agent, which only adds a synthesis step. That agent then answers the whole question.
+            if any(existing["agent"] == agent for existing in plan):
                 continue
             plan.append({"agent": agent, "question": sub_question})
         if len(plan) == 1:

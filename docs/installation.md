@@ -97,10 +97,14 @@ PASSWORD_REQUIRE_SPECIAL=false
 OLLAMA_BASE_URL=http://localhost:11434
 OLLAMA_MODEL=qwen2.5:7b
 OLLAMA_NUM_CTX=4096
+# Layers on the GPU (empty = Ollama decides; 99 = all, e.g. qwen2.5:7b on a 6 GB card):
+OLLAMA_NUM_GPU=
 OLLAMA_NUM_PARALLEL=4
 # Optional separate models for routing and answer grading (empty = OLLAMA_MODEL):
 OLLAMA_ROUTER_MODEL=
 OLLAMA_GRADER_MODEL=
+# Answer check: quotes (facts backed by copied sentences) or simple (yes/no):
+GRADER_MODE=quotes
 
 # ─── Organization & Agents ───
 ORGANIZATION_NAME=
@@ -134,11 +138,19 @@ DB_QUERY_TIMEOUT_SECONDS=15
 CORS_ORIGINS=http://localhost:8501,http://127.0.0.1:8501
 MAX_UPLOAD_SIZE_MB=50
 RATE_LIMIT_PER_MINUTE=30
+RATE_LIMIT_READS_PER_MINUTE=300
+# Guest access (visitors without an account, documents of GUEST_DOCUMENT_GROUP only):
+GUEST_ACCESS_ENABLED=false
+GUEST_DOCUMENT_GROUP=ziyaretci
+GUEST_SESSION_MINUTES=120
+GUEST_RATE_LIMIT_PER_MINUTE=10
+MAX_QUEUED_QUERIES=10
 
 # ─── Contextual Chunking & Retrieval ───
 CHUNK_SIZE=600
 CHUNK_OVERLAP=100
-RERANKER_TOP_N=3
+ARTICLE_CHUNK_SIZE=900
+RERANKER_TOP_N=4
 RAG_MIN_SIMILARITY=0.325
 RAG_MIN_RERANKER_SCORE=0.005
 

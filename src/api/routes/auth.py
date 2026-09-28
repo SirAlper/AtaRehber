@@ -4,10 +4,13 @@ Exposes endpoints for user authentication (JWT), token refresh,
 profile retrieval, and administrative user management with compliance audit logging.
 """
 
+import secrets
+from datetime import timedelta
 from typing import List
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 
 from src.auth.dependencies import get_authenticated_user, require_role
+from src.auth.document_access import GUEST_ROLE
 from src.auth.jwt_handler import (
     create_access_token,
     create_refresh_token,
@@ -25,6 +28,7 @@ from src.auth.models import (
     UserUpdate,
 )
 from src.auth.user_store import user_store, verify_password
+from src.core import config
 from src.core.config import INSECURE_DEFAULT_PASSWORD
 from src.core.audit import audit_logger
 from src.core.logger import get_logger
@@ -103,6 +107,33 @@ async def login(credentials: LoginRequest, http_req: Request):
     return _issue_tokens(user)
 
 
+@router.get("/guest", summary="Guest Access Status")
+async def guest_access_status():
+    """Whether visitors may ask questions without an account (GUEST_ACCESS_ENABLED)."""
+    return {"enabled": config.GUEST_ACCESS_ENABLED}
+
+
+@router.post("/guest", response_model=TokenResponse, summary="Start Guest Session")
+async def start_guest_session(http_req: Request):
+    """Start a session for a visitor without an account: questions about the documents shared with
+    GUEST_DOCUMENT_GROUP only. The session ends after GUEST_SESSION_MINUTES and cannot be refreshed."""
+    if not config.GUEST_ACCESS_ENABLED:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Guest access is disabled.")
+    username = f"guest-{secrets.token_hex(6)}"
+    access_token, expires_in = create_access_token(
+        username, GUEST_ROLE, expires_delta=timedelta(minutes=config.GUEST_SESSION_MINUTES)
+    )
+    await audit_logger.alog(
+        username=username,
+        role=GUEST_ROLE,
+        action="guest_session",
+        detail="Guest session started",
+        ip_address=http_req.client.host if http_req.client else None,
+        status="success",
+    )
+    return TokenResponse(access_token=access_token, role=GUEST_ROLE, username=username, expires_in=expires_in)
+
+
 @router.post("/refresh", response_model=TokenResponse)
 async def refresh_token(request: RefreshRequest, http_req: Request):
     """Exchange a valid refresh token for a new access token without re-authentication."""
@@ -152,6 +183,8 @@ async def change_my_password(
 ):
     """Change the caller's own password. Revokes all existing tokens and returns fresh ones."""
     ip_addr = http_req.client.host if http_req.client else None
+    if current_user.role == GUEST_ROLE:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Guests have no password.")
     if not verify_password(request.current_password, current_user.hashed_password):
         await audit_logger.alog(
             username=current_user.username,

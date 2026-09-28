@@ -218,7 +218,7 @@ class TestRateLimitAndHealth(unittest.TestCase):
         headers_a = {"Authorization": f"Bearer {token_a}"}
         headers_b = {"Authorization": f"Bearer {token_b}"}
 
-        with patch("src.api.main.RATE_LIMIT_PER_MINUTE", 2):
+        with patch("src.api.main.RATE_LIMIT_READS_PER_MINUTE", 2):
             for _ in range(2):
                 self.assertEqual(
                     self.client.get("/api/v1/auth/me", headers=headers_a).status_code,
@@ -229,6 +229,23 @@ class TestRateLimitAndHealth(unittest.TestCase):
             self.assertEqual(self.client.get("/api/v1/auth/me", headers=headers_b).status_code, 200)
             # Health checks are exempt
             self.assertEqual(self.client.get("/health").status_code, 200)
+
+    def test_reads_do_not_use_up_the_budget_for_changes(self):
+        """The UI reloads its panels with GETs on every click; an upload after that must still go through."""
+        token, _ = create_access_token("admin", "admin")
+        headers = {"Authorization": f"Bearer {token}"}
+        with (
+            patch("src.api.main.RATE_LIMIT_PER_MINUTE", 2),
+            patch("src.api.main.RATE_LIMIT_READS_PER_MINUTE", 100),
+        ):
+            for _ in range(10):
+                self.assertEqual(self.client.get("/api/v1/auth/me", headers=headers).status_code, 200)
+            feedback = {"question": "q", "feedback": "positive"}
+            for _ in range(2):
+                self.assertNotEqual(
+                    self.client.post("/api/v1/feedback", json=feedback, headers=headers).status_code, 429
+                )
+            self.assertEqual(self.client.post("/api/v1/feedback", json=feedback, headers=headers).status_code, 429)
 
     def test_feedback_validated_by_schema(self):
         token, _ = create_access_token("admin", "admin")

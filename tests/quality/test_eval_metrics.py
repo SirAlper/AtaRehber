@@ -25,6 +25,12 @@ def test_turkish_case_folding_and_alternatives():
     assert not metrics.fact_found("Uygun", ["İHLAL", "violation"])
 
 
+def test_digits_added_to_numbers_in_words():
+    answer = "Başvurular yarıyılın ilk on (10) iş günü içinde yapılır."
+    assert metrics.fact_found(answer, ["on iş günü"])
+    assert metrics.fact_found(answer, ["10 iş günü", "10"])
+
+
 def test_fact_recall():
     assert metrics.fact_recall("Salı ve Perşembe", [["Salı", "Tuesday"], ["Perşembe"]]) == 1.0
     assert metrics.fact_recall("Sadece Salı", [["Salı"], ["Perşembe"]]) == 0.5

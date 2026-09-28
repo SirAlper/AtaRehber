@@ -109,6 +109,8 @@ def render_sources(sources: list) -> None:
             page = page_label(st.session_state.ui_language, source)
             if page:
                 title += f" — {page}"
+            if source.get("article"):
+                title += f" — {source['article']}"
             details = [t("chunk", index=source.get("chunk_index", 0))]
             if source.get("reranker_score") is not None:
                 details.append(t("score", score=source["reranker_score"]))

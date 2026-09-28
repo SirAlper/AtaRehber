@@ -14,9 +14,10 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
 from src.api.schemas import QueryRequest, AgentsListResponse, AgentInfo, FeedbackRequest
-from src.api.state import get_multi_agent_orchestrator, query_concurrency_gate
+from src.api.state import QueueFullError, get_multi_agent_orchestrator, query_concurrency_gate
 from src.agent.multi_agent.registry import agent_registry
 from src.auth.dependencies import require_role
+from src.auth.document_access import GUEST_ROLE
 from src.auth.models import User
 from src.core import config
 from src.core.audit import audit_logger
@@ -26,6 +27,9 @@ logger = get_logger("API.Query")
 router = APIRouter(tags=["AI Query"])
 
 QUERY_FAILED_DETAIL = "Query processing failed due to an internal error."
+BUSY_DETAIL = "The assistant is busy. Please try again in a minute."
+# Roles that may ask questions; guests (visitors without an account) only reach doc_agent
+QUERY_ROLES = ("admin", "editor", "viewer", GUEST_ROLE)
 STREAM_FAILED_MESSAGE = "An internal error occurred while processing the query."
 
 
@@ -41,8 +45,15 @@ def _answer_preview(answer: str | None) -> str | None:
     return answer if config.AUDIT_STORE_QUESTIONS else None
 
 
-def _resolve_forced_agent(request: QueryRequest) -> str | None:
+def _resolve_forced_agent(request: QueryRequest, user: User) -> str | None:
+    # Guests only ask about the documents shared with them: no database, requests, or compliance checks
+    if user.role == GUEST_ROLE:
+        return "doc_agent"
     return request.agent if (request.agent and request.agent not in ("auto", "none")) else None
+
+
+def _busy() -> HTTPException:
+    return HTTPException(status_code=503, detail=BUSY_DETAIL, headers={"Retry-After": "60"})
 
 
 def _user_context(user: User) -> dict:
@@ -85,21 +96,26 @@ async def list_available_agents(
 async def query_rag(
     request: QueryRequest,
     http_req: Request,
-    current_user: User = Depends(require_role("admin", "editor", "viewer")),
+    current_user: User = Depends(require_role(*QUERY_ROLES)),
 ):
     """Execute Multi-Agent LangGraph workflow and return verified answer, reference sources, and audit status."""
     start_time = time.time()
     ip_addr = http_req.client.host if http_req.client else None
     try:
         thread_id = f"{current_user.username}_{request.session_id}" if request.session_id else None
-        forced_agent = _resolve_forced_agent(request)
+        forced_agent = _resolve_forced_agent(request, current_user)
         logger.info(
             f"Received question from '{current_user.username}' (role: {current_user.role}, thread: {thread_id}, "
             f"agent: {forced_agent or 'auto'}, length: {len(request.question)})"
         )
         logger.debug(f"Question: {request.question}")
         orchestrator = get_multi_agent_orchestrator()
-        async with query_concurrency_gate:
+        try:
+            await query_concurrency_gate.__aenter__()
+        except QueueFullError:
+            logger.warning(f"Query queue full, busy answer for '{current_user.username}'")
+            raise _busy()
+        try:
             result = await asyncio.to_thread(
                 orchestrator.query,
                 request.question,
@@ -107,6 +123,8 @@ async def query_rag(
                 forced_agent=forced_agent,
                 user=_user_context(current_user),
             )
+        finally:
+            await query_concurrency_gate.__aexit__(None, None, None)
 
         duration_ms = int((time.time() - start_time) * 1000)
         source_names = [s.get("source") for s in result.get("sources", []) if s.get("source")]
@@ -134,6 +152,8 @@ async def query_rag(
             "hallucination_grade": result.get("hallucination_grade", ""),
             "is_refined": result.get("is_refined", False),
         }
+    except HTTPException:
+        raise
     except Exception:
         duration_ms = int((time.time() - start_time) * 1000)
         await audit_logger.alog(
@@ -153,7 +173,7 @@ async def query_rag(
 async def query_rag_stream(
     request: QueryRequest,
     http_req: Request,
-    current_user: User = Depends(require_role("admin", "editor", "viewer")),
+    current_user: User = Depends(require_role(*QUERY_ROLES)),
 ):
     """Stream Multi-Agent LangGraph stage events and deliver final answer via NDJSON format.
     All streamed queries are recorded in the compliance audit trail."""
@@ -161,12 +181,15 @@ async def query_rag_stream(
     ip_addr = http_req.client.host if http_req.client else None
 
     thread_id = f"{current_user.username}_{request.session_id}" if request.session_id else None
-    forced_agent = _resolve_forced_agent(request)
+    forced_agent = _resolve_forced_agent(request, current_user)
     logger.info(
         f"Received streaming question from '{current_user.username}' (thread: {thread_id}, "
         f"agent: {forced_agent or 'auto'}, length: {len(request.question)})"
     )
     logger.debug(f"Question: {request.question}")
+    if query_concurrency_gate.is_full():
+        logger.warning(f"Query queue full, busy answer for '{current_user.username}'")
+        raise _busy()
     try:
         orchestrator = get_multi_agent_orchestrator()
     except Exception:
@@ -190,7 +213,13 @@ async def query_rag_stream(
         completed = False
         cancelled = threading.Event()
 
-        async with query_concurrency_gate:
+        try:
+            await query_concurrency_gate.__aenter__()
+        except QueueFullError:
+            # The queue filled up between the check above and now
+            yield json.dumps({"type": "error", "message": BUSY_DETAIL}, ensure_ascii=False) + "\n"
+            return
+        try:
             loop = asyncio.get_running_loop()
             async_q: asyncio.Queue = asyncio.Queue()
             sentinel = object()
@@ -262,6 +291,8 @@ async def query_rag_stream(
                         duration_ms=duration_ms,
                         status=status,
                     )
+        finally:
+            await query_concurrency_gate.__aexit__(None, None, None)
 
     return StreamingResponse(event_generator(), media_type="application/x-ndjson")
 
@@ -270,7 +301,7 @@ async def query_rag_stream(
 async def submit_feedback(
     body: FeedbackRequest,
     request: Request,
-    current_user: User = Depends(require_role("admin", "editor", "viewer")),
+    current_user: User = Depends(require_role(*QUERY_ROLES)),
 ):
     """Record user feedback for answer quality tracking."""
     ip_addr = request.client.host if request.client else None

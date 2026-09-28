@@ -13,6 +13,7 @@ sample database. Your data/ and vector_db/ folders are never read or modified.
 """
 
 import argparse
+import hashlib
 import json
 import os
 import shutil
@@ -21,7 +22,7 @@ import sys
 import tempfile
 import time
 from datetime import datetime, timezone
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from evals import metrics
 
@@ -29,6 +30,10 @@ EVALS_DIR = os.path.dirname(os.path.abspath(__file__))
 DEFAULT_DATASET = os.path.join(EVALS_DIR, "dataset.jsonl")
 DEFAULT_CORPUS = os.path.join(EVALS_DIR, "corpus")
 DEFAULT_RESULTS_DIR = os.path.join(EVALS_DIR, "results")
+DEFAULT_INDEX_CACHE = os.path.join(EVALS_DIR, ".cache")
+# Candidates (by vector similarity) the retrieval stage scores with the cross-encoder. Production uses 10; a larger
+# pool is enough for the threshold sweeps and keeps large corpora (a whole law) fast.
+DEFAULT_RETRIEVAL_POOL = 50
 STAGES = ("retrieval", "routing", "e2e")
 EVAL_USER = {"username": "eval", "role": "admin", "groups": []}
 # RAGEngine.search() default candidate pool (n_results)
@@ -63,30 +68,61 @@ def _fmt(value: Any, pct: bool = True) -> str:
 # ─────────────────────────────── Retrieval ───────────────────────────────
 
 
-def build_engine(corpus_dir: str, work_dir: str):
+def index_cache_key(corpus_dir: str) -> str:
+    """Changes whenever the corpus, the chunking settings, the loader code, or the embedding model change."""
+    from src.core import config
+    from src.rag import document_loader
+
+    digest = hashlib.sha256()
+    for name in sorted(os.listdir(corpus_dir)):
+        path = os.path.join(corpus_dir, name)
+        if os.path.isfile(path):
+            digest.update(name.encode())
+            with open(path, "rb") as f:
+                digest.update(f.read())
+    with open(document_loader.__file__, "rb") as f:
+        digest.update(f.read())
+    digest.update(
+        f"{config.CHUNK_SIZE}|{config.ARTICLE_CHUNK_SIZE}|{config.CHUNK_OVERLAP}|{config.EMBEDDING_MODEL_NAME}".encode()
+    )
+    return digest.hexdigest()[:16]
+
+
+def build_engine(corpus_dir: str, work_dir: str, cache_dir: Optional[str] = None):
+    """Index the corpus into a fresh vector store, or copy a cached index built from the same inputs."""
     from src.rag.document_loader import DocumentLoader
     from src.rag.rag_engine import RAGEngine
 
-    engine = RAGEngine(vector_db_path=os.path.join(work_dir, "vector_db"))
+    vector_db = os.path.join(work_dir, "vector_db")
+    cached = os.path.join(cache_dir, f"index_{index_cache_key(corpus_dir)}") if cache_dir else None
+    if cached and os.path.isdir(cached):
+        shutil.copytree(cached, vector_db)
+        engine = RAGEngine(vector_db_path=vector_db)
+        print(f"Using cached index {os.path.relpath(cached)}")
+        return engine, engine.collection.count()
+
+    engine = RAGEngine(vector_db_path=vector_db)
     chunks, ids, metadatas = DocumentLoader(corpus_dir).load_and_chunk_all()
     if not chunks:
         raise SystemExit(f"No supported documents found in corpus: {corpus_dir}")
     engine.add_documents(chunks, ids, metadatas)
+    if cached:
+        shutil.copytree(vector_db, cached)
     return engine, len(chunks)
 
 
-def run_retrieval(engine, cases: List[Dict[str, Any]]) -> Dict[str, Any]:
+def run_retrieval(engine, cases: List[Dict[str, Any]], pool: int = DEFAULT_RETRIEVAL_POOL) -> Dict[str, Any]:
     from src.core.config import RAG_MIN_RERANKER_SCORE, RAG_MIN_SIMILARITY, RERANKER_TOP_N
     from src.rag.rag_engine import distance_to_similarity
 
-    total_chunks = engine.collection.count()
+    pool = min(max(pool, PRODUCTION_POOL_SIZE), engine.collection.count())
     records = []
     for case in cases:
         if case["category"] not in metrics.RETRIEVAL_CATEGORIES:
             continue
-        # Score every chunk once; production selection is then replayed without extra model calls
+        # Score the candidate pool once; production selection is then replayed without extra model calls
         result = engine.search(
-            case["question"], n_results=total_chunks, min_similarity=-2.0, top_n=total_chunks, min_reranker_score=-1.0
+            case["question"], n_results=pool, min_similarity=-2.0, top_n=pool, min_reranker_score=-1.0
         )
         candidates = [
             {
@@ -204,7 +240,8 @@ def print_retrieval(section: Dict[str, Any]) -> None:
 # ─────────────────────────────── Agents ───────────────────────────────
 
 
-def build_registry(engine, work_dir: str):
+def build_registry(engine, work_dir: str, database: bool = True):
+    """Agents as in production; database=False leaves out db_agent (a deployment without a database)."""
     from src.agent.multi_agent.registry import AgentRegistry
     from src.agent.multi_agent.sub_agents.compliance_agent import ComplianceAuditorAgent
     from src.agent.multi_agent.sub_agents.db_agent import DatabaseAgent
@@ -213,12 +250,12 @@ def build_registry(engine, work_dir: str):
     from src.connectors.db_connector import DatabaseConnector
     from src.connectors.sample_db import create_sample_sqlite_db
 
-    db_path = create_sample_sqlite_db(os.path.join(work_dir, "sample_enterprise.db"))
-    connector = DatabaseConnector(database_url=f"sqlite:///{db_path}", allowed_tables=[])
-
     registry = AgentRegistry()
     registry.register(DocumentRagAgent(rag_engine=engine))
-    registry.register(DatabaseAgent(db_connector=connector))
+    if database:
+        db_path = create_sample_sqlite_db(os.path.join(work_dir, "sample_enterprise.db"))
+        connector = DatabaseConnector(database_url=f"sqlite:///{db_path}", allowed_tables=[])
+        registry.register(DatabaseAgent(db_connector=connector))
     registry.register(ComplianceAuditorAgent(rag_engine=engine))
     # Requests are filed into the temporary work directory (REQUESTS_DB under DATA_DIR)
     registry.register(ServiceRequestAgent())
@@ -277,11 +314,13 @@ def run_e2e(chat_model, registry, cases: List[Dict[str, Any]]) -> Dict[str, Any]
         answer = result.get("answer", "")
         returned_sources = {s.get("source") for s in result.get("sources", [])}
         system_refusals = message_variants("no_context") + message_variants("fallback")
-        refused = answer.strip() in system_refusals or metrics.is_refusal(answer)
+        recall = metrics.fact_recall(answer, case["expected_facts"])
+        # A refusal phrase inside an answer that has every expected fact is part of the answer ("hakları arasında
+        # fark bulunmamaktadır"), not a refusal
+        refused = answer.strip() in system_refusals or (metrics.is_refusal(answer) and recall != 1.0)
         # Did the system answer in the question's language? (None when either text gives no signal)
         question_language, answer_language = detect_language(case["question"]), detect_language(answer)
         language_match = question_language == answer_language if question_language and answer_language else None
-        recall = metrics.fact_recall(answer, case["expected_facts"])
         grade = result.get("hallucination_grade", "")
         record = {
             "id": case["id"],
@@ -374,6 +413,18 @@ def parse_args(argv=None):
     parser.add_argument("--out", default=DEFAULT_RESULTS_DIR, help="Directory for the JSON report.")
     parser.add_argument("--compare", help="Previous JSON report to compare against.")
     parser.add_argument("--keep-workdir", action="store_true", help="Keep the temporary vector store and DB.")
+    parser.add_argument(
+        "--retrieval-pool",
+        type=int,
+        default=DEFAULT_RETRIEVAL_POOL,
+        help="Candidates per question scored by the reranker in the retrieval stage.",
+    )
+    parser.add_argument("--no-index-cache", action="store_true", help="Always rebuild the index (no evals/.cache).")
+    parser.add_argument(
+        "--no-database",
+        action="store_true",
+        help="Leave out db_agent and the demo database, like a deployment with SAMPLE_DB_ENABLED=false.",
+    )
     args = parser.parse_args(argv)
 
     stages = STAGES if args.stages == "all" else tuple(s.strip() for s in args.stages.split(",") if s.strip())
@@ -423,6 +474,10 @@ def main(argv=None) -> int:
                 "reranker_top_n": config.RERANKER_TOP_N,
                 "chunk_size": config.CHUNK_SIZE,
                 "chunk_overlap": config.CHUNK_OVERLAP,
+                "article_chunk_size": config.ARTICLE_CHUNK_SIZE,
+                "ollama_num_gpu": config.OLLAMA_NUM_GPU,
+                "grader_mode": config.GRADER_MODE,
+                "database": not args.no_database,
             },
             "summary": {},
             "details": {},
@@ -443,11 +498,13 @@ def main(argv=None) -> int:
         engine = None
         if "retrieval" in args.stages or "e2e" in args.stages:
             print("Indexing corpus...")
-            engine, chunk_count = build_engine(args.corpus, work_dir)
+            engine, chunk_count = build_engine(
+                args.corpus, work_dir, cache_dir=None if args.no_index_cache else DEFAULT_INDEX_CACHE
+            )
             report["config"]["corpus_chunks"] = chunk_count
 
         if "retrieval" in args.stages:
-            section = run_retrieval(engine, cases)
+            section = run_retrieval(engine, cases, pool=args.retrieval_pool)
             report["summary"]["retrieval"] = section["summary"]
             report["details"]["retrieval"] = section
             print_retrieval(section)
@@ -456,7 +513,7 @@ def main(argv=None) -> int:
             from src.agent.llm import create_chat_model
 
             chat_model = create_chat_model()
-            registry = build_registry(engine, work_dir)
+            registry = build_registry(engine, work_dir, database=not args.no_database)
 
             if "routing" in args.stages:
                 print("\n== Routing ==")

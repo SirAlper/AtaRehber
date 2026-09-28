@@ -10,7 +10,12 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from src.auth.jwt_handler import decode_access_token
-from src.core.config import CORS_ORIGINS, RATE_LIMIT_PER_MINUTE
+from src.core.config import (
+    CORS_ORIGINS,
+    GUEST_RATE_LIMIT_PER_MINUTE,
+    RATE_LIMIT_PER_MINUTE,
+    RATE_LIMIT_READS_PER_MINUTE,
+)
 from src.core.logger import get_logger
 from src.api.state import cleanup_services, init_services
 from src.api.routes import (
@@ -62,12 +67,14 @@ app.add_middleware(
 
 _RATE_WINDOW = 60  # seconds
 _RATE_LIMIT_EXEMPT_PATHS = {"/health", "/docs", "/openapi.json", "/redoc"}
+_READ_METHODS = {"GET", "HEAD", "OPTIONS"}
 _rate_limit_store: Dict[str, Deque[float]] = defaultdict(deque)
 _last_sweep = 0.0
 
 
-def _rate_limit_key(request: Request) -> str:
-    """Identify the caller: authenticated users are limited per account, anonymous callers per IP.
+def _rate_limit_key(request: Request) -> tuple[str, str | None]:
+    """Identify the caller: (key, role). Authenticated users are limited per account (guests per session),
+    anonymous callers per IP.
 
     Keying by account matters when many users reach the API through one gateway
     (e.g. the Streamlit frontend container), which would otherwise share a single IP budget.
@@ -76,9 +83,9 @@ def _rate_limit_key(request: Request) -> str:
     if auth_header.lower().startswith("bearer "):
         token_data = decode_access_token(auth_header[7:].strip())
         if token_data is not None:
-            return f"user:{token_data.username}"
+            return f"user:{token_data.username}", token_data.role
     client_ip = request.client.host if request.client else "unknown"
-    return f"ip:{client_ip}"
+    return f"ip:{client_ip}", None
 
 
 def _sweep_rate_limit_store(now: float) -> None:
@@ -99,7 +106,15 @@ async def rate_limit_middleware(request: Request, call_next):
     if request.url.path in _RATE_LIMIT_EXEMPT_PATHS:
         return await call_next(request)
 
-    key = _rate_limit_key(request)
+    # Reads have their own, larger budget: the web UI reloads its panels with several GETs on every click,
+    # which must not use up the budget for questions and uploads
+    is_read = request.method in _READ_METHODS
+    caller, role = _rate_limit_key(request)
+    if is_read:
+        limit = RATE_LIMIT_READS_PER_MINUTE
+    else:
+        limit = GUEST_RATE_LIMIT_PER_MINUTE if role == "guest" else RATE_LIMIT_PER_MINUTE
+    key = f"{caller}:{'read' if is_read else 'write'}"
     now = time.time()
     _sweep_rate_limit_store(now)
 
@@ -107,12 +122,12 @@ async def rate_limit_middleware(request: Request, call_next):
     while timestamps and now - timestamps[0] >= _RATE_WINDOW:
         timestamps.popleft()
 
-    if len(timestamps) >= RATE_LIMIT_PER_MINUTE:
+    if len(timestamps) >= limit:
         logger.warning(f"Rate limit exceeded for {key}")
         return JSONResponse(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             content={
-                "detail": f"Rate limit exceeded. Maximum {RATE_LIMIT_PER_MINUTE} requests per minute.",
+                "detail": f"Rate limit exceeded. Maximum {limit} requests per minute.",
                 "retry_after": _RATE_WINDOW,
             },
             headers={"Retry-After": str(_RATE_WINDOW)},

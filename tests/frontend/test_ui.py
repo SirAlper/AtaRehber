@@ -113,3 +113,68 @@ def test_logged_in_chat_shows_disclaimer_and_page_numbers():
     assert "Yıllık izin 20 iş günüdür." in text
     assert "`yonetmelik.pdf` — s. 4–5" in text
     assert "Doküman Ajanı" in text
+
+
+def test_forced_password_change_sends_all_fields_and_names_empty_ones():
+    tokens = {"access_token": "t", "refresh_token": "r", "role": "admin", "username": "admin", "expires_in": 900}
+    posts = []
+
+    def fake_post(url, **kwargs):
+        posts.append((url, kwargs.get("json")))
+        return fake_response(dict(tokens, must_change_password=False))
+
+    with patch("requests.get", side_effect=fake_get), patch("requests.post", side_effect=fake_post):
+        at = AppTest.from_file(APP, default_timeout=30)
+        at.session_state["auth_token"] = "token"
+        at.session_state["user_info"] = {"username": "admin", "role": "admin"}
+        at.session_state["must_change_password"] = True
+        at.run()
+
+        # The current password is missing: the warning names it and nothing is sent
+        at.sidebar.text_input(key="cp_new").set_value("YeniSifre!2026")
+        at.sidebar.text_input(key="cp_confirm").set_value("YeniSifre!2026")
+        next(b for b in at.sidebar.button if b.label == "Şifreyi Güncelle").click().run()
+        assert any("Boş alan: Mevcut şifre" in w.value for w in at.sidebar.warning)
+        assert posts == []
+
+        at.sidebar.text_input(key="cp_current").set_value("admin123")
+        next(b for b in at.sidebar.button if b.label == "Şifreyi Güncelle").click().run()
+
+    assert not at.exception
+    assert posts == [
+        (
+            "http://127.0.0.1:8000/api/v1/auth/change-password",
+            {"current_password": "admin123", "new_password": "YeniSifre!2026"},
+        )
+    ]
+    assert at.session_state["must_change_password"] is False
+
+
+def test_guest_session_shows_only_the_chat_and_reports_a_busy_server():
+    def guest_get(url, **kwargs):
+        if url.endswith("/api/v1/auth/guest"):
+            return fake_response({"enabled": True})
+        return fake_get(url, **kwargs)
+
+    guest_token = {"access_token": "g", "role": "guest", "username": "guest-1a2b", "expires_in": 7200}
+    replies = {
+        "/api/v1/auth/guest": fake_response(guest_token),
+        "/api/v1/query": fake_response({"detail": "busy"}, 503),
+    }
+
+    with (
+        patch("requests.get", side_effect=guest_get),
+        patch("requests.post", side_effect=lambda url, **kwargs: replies[url.split("8000")[1]]),
+    ):
+        at = AppTest.from_file(APP, default_timeout=30).run()
+        next(b for b in at.sidebar.button if b.label == "👋 Misafir olarak devam et").click().run()
+        assert not at.exception
+        text = all_text(at)
+        assert "Misafir" in text
+        assert "Ziyaretçilerle paylaşılan belgelerle ilgili" in text
+        # No system details, agent choice, documents, or requests for guests
+        assert "Doküman Yükle" not in text and not at.sidebar.selectbox[1:]
+
+        at.chat_input[0].set_value("Kayıt yenileme ne zaman?").run()
+
+    assert "Asistan şu anda çok yoğun" in all_text(at)

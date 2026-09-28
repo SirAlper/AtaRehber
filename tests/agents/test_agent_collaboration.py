@@ -194,8 +194,13 @@ class TestSupervisorPlans(unittest.TestCase):
         self.assertEqual([s["agent"] for s in decision["plan"]], ["doc_agent", "compliance_agent"])
 
     def test_plan_is_capped(self):
-        decision = self.route({"steps": [step("doc_agent", str(i)) for i in range(5)]}, max_steps=2)
-        self.assertEqual(len(decision["plan"]), 2)
+        decision = self.route({"steps": [step("doc_agent", "a"), step("compliance_agent", "b")]}, max_steps=1)
+        self.assertEqual(len(decision["plan"]), 1)
+
+    def test_sub_questions_for_the_same_agent_become_one_step(self):
+        steps = [step("doc_agent", "Ders bırakma süresi?"), step("doc_agent", "Kayıt yenileme ne zaman biter?")]
+        decision = self.route({"steps": steps}, question="Dersler ne kadar süre içinde bırakılabilir?")
+        self.assertEqual(decision["plan"], [step("doc_agent", "Dersler ne kadar süre içinde bırakılabilir?")])
 
     def test_older_single_agent_format_is_accepted(self):
         decision = self.route({"agent": "compliance_agent", "reason": "r"}, question="Uygun mu?")

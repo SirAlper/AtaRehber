@@ -17,8 +17,11 @@ CORS_ORIGINS = [
 MAX_UPLOAD_SIZE_MB = int(os.getenv("MAX_UPLOAD_SIZE_MB", "50"))
 ALLOWED_UPLOAD_EXTENSIONS = {".pdf", ".docx", ".txt"}
 
-# Rate Limiting (requests per minute per user)
+# Rate Limiting (requests per minute per user). Questions, uploads, and other changes share
+# RATE_LIMIT_PER_MINUTE; reads (GET) have their own budget, because the web UI reloads its panels (status,
+# documents, requests, ...) with several GET requests on every click.
 RATE_LIMIT_PER_MINUTE = int(os.getenv("RATE_LIMIT_PER_MINUTE", "30"))
+RATE_LIMIT_READS_PER_MINUTE = int(os.getenv("RATE_LIMIT_READS_PER_MINUTE", "300"))
 
 # Failed login attempts allowed per username within LOGIN_LOCKOUT_WINDOW_SECONDS before temporary lockout
 LOGIN_MAX_FAILED_ATTEMPTS = int(os.getenv("LOGIN_MAX_FAILED_ATTEMPTS", "5"))
@@ -52,6 +55,14 @@ JWT_SECRET_FILE_PATH = os.path.join(DOCS_PATH, ".jwt_secret")
 # Built-in insecure default password; accounts using it are forced to change it before using the API
 INSECURE_DEFAULT_PASSWORD = "admin123"
 REQUIRE_DEFAULT_PASSWORD_CHANGE = os.getenv("REQUIRE_DEFAULT_PASSWORD_CHANGE", "true").lower() == "true"
+# Guest access: visitors ask questions without an account, only about documents shared with GUEST_DOCUMENT_GROUP
+# (e.g. the open education faculty's regulations). Off by default. Documents shared with that group are also
+# visible to every account.
+GUEST_ACCESS_ENABLED = os.getenv("GUEST_ACCESS_ENABLED", "false").lower() == "true"
+GUEST_DOCUMENT_GROUP = os.getenv("GUEST_DOCUMENT_GROUP", "ziyaretci").strip().lower()
+GUEST_SESSION_MINUTES = int(os.getenv("GUEST_SESSION_MINUTES", "120"))
+# Questions per minute of one guest session (accounts: RATE_LIMIT_PER_MINUTE)
+GUEST_RATE_LIMIT_PER_MINUTE = int(os.getenv("GUEST_RATE_LIMIT_PER_MINUTE", "10"))
 
 # ──────────────────────────── LLM (OLLAMA) ────────────────────────────
 # The LLM is served by Ollama (https://ollama.com); no LLM weights are loaded in this process.
@@ -61,12 +72,23 @@ OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen2.5:7b")
 # Context window in tokens. Set explicitly because some Ollama versions default to 2048 and silently
 # drop the start of longer prompts (system prompt and retrieved context).
 OLLAMA_NUM_CTX = int(os.getenv("OLLAMA_NUM_CTX", "4096"))
+# Model layers Ollama puts on the GPU; empty lets Ollama decide. Ollama keeps a safety margin and moves the last
+# layers of qwen2.5:7b to the CPU on a 6 GB card; 99 forces all layers on the GPU (about 4x faster prompt
+# processing there). Too high a value for the free VRAM makes loading the model fail.
+OLLAMA_NUM_GPU = int(os.getenv("OLLAMA_NUM_GPU", "").strip() or -1)
 # Maximum number of LLM requests the API sends to Ollama at once
 OLLAMA_NUM_PARALLEL = int(os.getenv("OLLAMA_NUM_PARALLEL", "4"))
+# Questions that may wait for a free slot; further questions are answered at once with HTTP 503 ("busy, try again
+# shortly") instead of waiting until the web UI gives up after 180 s. Roughly 180 s / seconds per question minus
+# OLLAMA_NUM_PARALLEL; 0 disables the limit.
+MAX_QUEUED_QUERIES = int(os.getenv("MAX_QUEUED_QUERIES", "10"))
 # Optional separate models per task; empty uses OLLAMA_MODEL (see src/agent/llm.py). A stronger grader catches
 # more wrong answers, a small router model keeps routing fast. Every configured model must be pulled.
 OLLAMA_ROUTER_MODEL = os.getenv("OLLAMA_ROUTER_MODEL", "").strip()
 OLLAMA_GRADER_MODEL = os.getenv("OLLAMA_GRADER_MODEL", "").strip()
+# How doc_agent checks its answers: "quotes" makes the grader back every fact with a sentence copied from the
+# documents and verifies the copies in code; "simple" asks only for yes/no (faster, less reliable).
+GRADER_MODE = os.getenv("GRADER_MODE", "quotes").strip().lower()
 
 # ──────────────────────────── ORGANIZATION ────────────────────────────
 # Name used in prompts and fixed answers, e.g. "Example University". Empty: "the organization".
@@ -116,8 +138,9 @@ LOCAL_RERANKER_PATH = os.path.join(MODELS_DIR, "bge-reranker-v2-m3")
 EMBEDDING_MODEL_NAME = LOCAL_EMBEDDING_PATH if os.path.exists(LOCAL_EMBEDDING_PATH) else "BAAI/bge-m3"
 RERANKER_MODEL_NAME = LOCAL_RERANKER_PATH if os.path.exists(LOCAL_RERANKER_PATH) else "BAAI/bge-reranker-v2-m3"
 
-# Number of top candidate chunks to pass to LLM after Cross-Encoder reranking
-RERANKER_TOP_N = int(os.getenv("RERANKER_TOP_N", "3"))
+# Number of top candidate chunks to pass to LLM after Cross-Encoder reranking. 4 instead of 3 lets an answer
+# that needs a neighbouring piece of a long article (a list of penalties) see it; no loss on the demo set (evals)
+RERANKER_TOP_N = int(os.getenv("RERANKER_TOP_N", "4"))
 # Minimum cosine similarity for a vector search candidate to reach the reranker
 RAG_MIN_SIMILARITY = float(os.getenv("RAG_MIN_SIMILARITY", "0.325"))
 # Minimum cross-encoder relevance score (0-1) for a chunk to be used as context. The bi-encoder similarity
@@ -134,6 +157,8 @@ CHAT_HISTORY_MAX_TURNS = int(os.getenv("CHAT_HISTORY_MAX_TURNS", "20"))
 # ──────────────────────────── CHUNKING CONFIGURATION ────────────────────────────
 CHUNK_SIZE = int(os.getenv("CHUNK_SIZE", "600"))
 CHUNK_OVERLAP = int(os.getenv("CHUNK_OVERLAP", "100"))
+# Laws and regulations are split by article; articles longer than this are split further
+ARTICLE_CHUNK_SIZE = int(os.getenv("ARTICLE_CHUNK_SIZE", "900"))
 
 os.environ["HF_HUB_DISABLE_TELEMETRY"] = "1"
 os.environ["TOKENIZERS_PARALLELISM"] = "false"

@@ -7,7 +7,8 @@ acl_public=False and acl_<group>=True. Chunks without acl_public (indexed before
 synced from database tables) are public.
 
 Admins and editors manage documents and see all of them; viewers only see public documents and documents
-restricted to one of their groups.
+restricted to one of their groups. Guests (visitors without an account) only see documents shared with
+GUEST_DOCUMENT_GROUP; those documents are meant for the public, so every account sees them as well.
 """
 
 import json
@@ -16,7 +17,7 @@ import re
 import threading
 from typing import Dict, Iterable, List, Optional, Union
 
-from src.core.config import DOCUMENT_ACCESS_FILE
+from src.core.config import DOCUMENT_ACCESS_FILE, GUEST_DOCUMENT_GROUP
 from src.core.logger import get_logger
 
 logger = get_logger("DocumentAccess")
@@ -25,6 +26,9 @@ GROUP_PATTERN = re.compile(r"^[a-z0-9_]{1,32}$")
 # Roles that manage documents and are never filtered
 DOCUMENT_MANAGER_ROLES = ("admin", "editor")
 PUBLIC_KEY = "acl_public"
+GUEST_ROLE = "guest"
+# First entry of a search scope that leaves out public documents: only the groups after it are searched (guests)
+ONLY_GROUPS = "*only"
 
 
 def normalize_groups(groups: Union[None, str, Iterable[str]]) -> List[str]:
@@ -59,7 +63,14 @@ def access_metadata(groups: List[str], previous_groups: Iterable[str] = ()) -> D
 
 
 def search_filter(groups: List[str]) -> dict:
-    """Vector store `where` filter for a user in `groups`: public chunks plus chunks shared with a group."""
+    """Vector store `where` filter for a scope from allowed_groups_for(): public chunks plus chunks shared with a
+    group, or only the chunks shared with the groups after ONLY_GROUPS."""
+    if groups and groups[0] == ONLY_GROUPS:
+        shared = [{group_key(g): True} for g in groups[1:]]
+        if not shared:
+            # No group: nothing may be searched ("acl_" is never set, group names are not empty)
+            return {group_key(""): True}
+        return shared[0] if len(shared) == 1 else {"$or": shared}
     # $ne also matches chunks without the key, i.e. everything indexed as public
     public = {PUBLIC_KEY: {"$ne": False}}
     if not groups:
@@ -68,10 +79,14 @@ def search_filter(groups: List[str]) -> dict:
 
 
 def allowed_groups_for(role: Optional[str], groups: Optional[Iterable[str]]) -> Optional[List[str]]:
-    """Groups to filter searches by; None means no filtering (document managers)."""
+    """Search scope of a user: None means no filtering (document managers); a list means public documents plus
+    the documents of these groups; a list starting with ONLY_GROUPS means only the documents of these groups."""
     if role in DOCUMENT_MANAGER_ROLES:
         return None
-    return list(groups or [])
+    if role == GUEST_ROLE:
+        return [ONLY_GROUPS, GUEST_DOCUMENT_GROUP]
+    # Documents shared with visitors are public information: every account sees them
+    return sorted(set(groups or []) | {GUEST_DOCUMENT_GROUP})
 
 
 class DocumentAccessStore:
@@ -131,6 +146,8 @@ class DocumentAccessStore:
         if allowed is None:
             return True
         groups = self.get(filename)
+        if allowed and allowed[0] == ONLY_GROUPS:
+            return bool(set(groups) & set(allowed[1:]))
         return not groups or bool(set(groups) & set(allowed))
 
 

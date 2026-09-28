@@ -53,12 +53,34 @@ TEXTS: Dict[str, Dict[str, str]] = {
     "confirm_password": {"tr": "Yeni şifre (tekrar)", "en": "Confirm new password"},
     "update_password": {"tr": "Şifreyi Güncelle", "en": "Update Password"},
     "password_fields_missing": {
-        "tr": "Lütfen tüm şifre alanlarını doldurun.",
-        "en": "Please fill in all password fields.",
+        "tr": "Boş alan: {fields}. Tarayıcının otomatik doldurduğu bir şifre görünse de sayfaya iletilmemiş olabilir; lütfen yeniden yazın.",
+        "en": "Empty field: {fields}. A password your browser filled in may not have reached the page yet; please type it again.",
     },
     "password_mismatch": {"tr": "Yeni şifreler eşleşmiyor.", "en": "New passwords do not match."},
     "password_changed": {"tr": "Şifre başarıyla değiştirildi.", "en": "Password changed successfully."},
     "password_change_failed": {"tr": "Şifre değiştirilemedi.", "en": "Password change failed."},
+    "guest_button": {"tr": "👋 Misafir olarak devam et", "en": "👋 Continue as guest"},
+    "guest_help": {
+        "tr": "Hesap gerekmez; yalnızca ziyaretçilerle paylaşılan belgeler hakkında soru sorabilirsiniz.",
+        "en": "No account needed; you can ask about the documents shared with visitors.",
+    },
+    "guest_failed": {"tr": "Misafir oturumu açılamadı: {error}", "en": "Could not start a guest session: {error}"},
+    "guest_badge": {"tr": "👋 Misafir", "en": "👋 Guest"},
+    "guest_end": {"tr": "Misafir oturumunu kapat", "en": "End guest session"},
+    "welcome_guest": {
+        "tr": (
+            "Merhaba! Ben kurumun yapay zekâ asistanıyım. Ziyaretçilerle paylaşılan belgelerle ilgili sorularınızı "
+            "kaynak göstererek cevaplarım. Size nasıl yardımcı olabilirim?"
+        ),
+        "en": (
+            "Hello! I am the organization's AI assistant. I answer questions about the documents shared with "
+            "visitors and show my sources. How can I help you?"
+        ),
+    },
+    "server_busy": {
+        "tr": "⏳ Asistan şu anda çok yoğun. Lütfen bir dakika sonra tekrar deneyin.",
+        "en": "⏳ The assistant is very busy right now. Please try again in a minute.",
+    },
     "auth_required": {
         "tr": "🔒 **Giriş gerekli:** Asistanı kullanmak için kenar çubuğundaki panelden giriş yapın.",
         "en": "🔒 **Authentication Required:** Please log in using the Control Panel in the sidebar to access the assistant.",

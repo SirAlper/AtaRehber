@@ -25,6 +25,7 @@ from src.services import notifier
 from src.auth.document_access import (
     DocumentAccessStore,
     access_metadata,
+    ONLY_GROUPS,
     allowed_groups_for,
     document_access_store,
     normalize_groups,
@@ -63,9 +64,17 @@ class TestAccessRules(unittest.TestCase):
     def test_managers_are_not_filtered(self):
         self.assertIsNone(allowed_groups_for("admin", ["x"]))
         self.assertIsNone(allowed_groups_for("editor", []))
-        self.assertEqual(allowed_groups_for("viewer", ["akademik"]), ["akademik"])
+        # Documents shared with visitors are public information: every account also sees them
+        self.assertEqual(allowed_groups_for("viewer", ["akademik"]), ["akademik", "ziyaretci"])
         self.assertEqual(search_filter([]), {"acl_public": {"$ne": False}})
         self.assertEqual(len(search_filter(["a", "b"])["$or"]), 3)
+
+    def test_guests_only_search_the_visitor_group(self):
+        scope = allowed_groups_for("guest", ["akademik"])
+        self.assertEqual(scope, [ONLY_GROUPS, "ziyaretci"])
+        self.assertEqual(search_filter(scope), {"acl_ziyaretci": True})
+        # No group left: nothing matches, public documents included
+        self.assertEqual(search_filter([ONLY_GROUPS]), {"acl_": True})
 
     def test_store_decides_visibility(self):
         tmp = tempfile.mkdtemp()
@@ -76,6 +85,12 @@ class TestAccessRules(unittest.TestCase):
         self.assertFalse(store.can_access("gizli.pdf", "viewer", ["idari"]))
         self.assertTrue(store.can_access("gizli.pdf", "viewer", ["akademik"]))
         self.assertTrue(store.can_access("gizli.pdf", "editor", []))
+        store.set("aof.pdf", ["ziyaretci"])
+        self.assertFalse(store.can_access("acik.pdf", "guest", []))
+        self.assertFalse(store.can_access("gizli.pdf", "guest", []))
+        self.assertTrue(store.can_access("aof.pdf", "guest", []))
+        self.assertTrue(store.can_access("aof.pdf", "viewer", ["idari"]))
+        store.set("aof.pdf", [])
         self.assertEqual(store.set("gizli.pdf", []), ["akademik"])  # returns the previous groups
         self.assertEqual(store.all(), {})
 
@@ -101,7 +116,12 @@ class TestVectorStoreFiltering(unittest.TestCase):
         engine.write_lock = threading.RLock()
         engine._stats_cache = None
         self.engine = engine
-        docs = {"acik.txt": {}, "akademik.txt": access_metadata(["akademik"]), "idari.txt": access_metadata(["idari"])}
+        docs = {
+            "acik.txt": {},
+            "akademik.txt": access_metadata(["akademik"]),
+            "idari.txt": access_metadata(["idari"]),
+            "aof.txt": access_metadata(["ziyaretci"]),
+        }
         for name, acl in docs.items():
             engine.add_documents([f"{name} içerik"], [name], [{"source": name, "chunk_index": 0, **acl}])
 
@@ -110,9 +130,13 @@ class TestVectorStoreFiltering(unittest.TestCase):
         return sorted(s["source"] for s in result["sources"])
 
     def test_users_see_public_documents_and_their_groups(self):
-        self.assertEqual(self.visible(None), ["acik.txt", "akademik.txt", "idari.txt"])
+        self.assertEqual(self.visible(None), ["acik.txt", "akademik.txt", "aof.txt", "idari.txt"])
         self.assertEqual(self.visible([]), ["acik.txt"])
         self.assertEqual(self.visible(["akademik"]), ["acik.txt", "akademik.txt"])
+        self.assertEqual(self.visible(allowed_groups_for("viewer", [])), ["acik.txt", "aof.txt"])
+
+    def test_guests_see_only_documents_shared_with_visitors(self):
+        self.assertEqual(self.visible(allowed_groups_for("guest", [])), ["aof.txt"])
 
     def test_changing_groups_revokes_the_old_group(self):
         self.engine.update_document_metadata("akademik.txt", access_metadata(["idari"], previous_groups=["akademik"]))

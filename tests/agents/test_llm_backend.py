@@ -29,6 +29,7 @@ class TestOllamaChatModel(unittest.TestCase):
             patch.object(llm, "OLLAMA_BASE_URL", "http://127.0.0.1:11434"),
             patch.object(llm, "OLLAMA_MODEL", "qwen2.5:7b"),
             patch.object(llm, "OLLAMA_NUM_CTX", 8192),
+            patch.object(llm, "OLLAMA_NUM_GPU", -1),
         ):
             model = llm.create_chat_model()
         self.assertIsInstance(model, ChatOllama)
@@ -36,6 +37,12 @@ class TestOllamaChatModel(unittest.TestCase):
         self.assertEqual(model.base_url, "http://127.0.0.1:11434")
         self.assertEqual(model.num_ctx, 8192)
         self.assertEqual(model.temperature, 0.0)
+        # OLLAMA_NUM_GPU unset: Ollama decides the GPU layers
+        self.assertIsNone(model.num_gpu)
+
+    def test_num_gpu_forces_gpu_layers(self):
+        with patch.object(llm, "OLLAMA_NUM_GPU", 99):
+            self.assertEqual(llm.create_chat_model().num_gpu, 99)
 
     def test_removed_huggingface_settings_are_reported(self):
         with (

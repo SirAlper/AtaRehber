@@ -67,6 +67,26 @@ def login(username: str, password: str) -> Tuple[bool, str]:
     return False, _detail(response) or t("login_failed")
 
 
+def guest_access_enabled() -> bool:
+    """Whether the backend allows guest sessions (GUEST_ACCESS_ENABLED)."""
+    try:
+        response = requests.get(f"{API_BASE_URL}/api/v1/auth/guest", timeout=5)
+    except Exception:
+        return False
+    return bool(_json(response, {}).get("enabled"))
+
+
+def start_guest_session() -> Tuple[bool, str]:
+    try:
+        response = requests.post(f"{API_BASE_URL}/api/v1/auth/guest", timeout=10)
+    except Exception as e:
+        return False, t("connection_error", error=e)
+    if response.status_code == 200:
+        store_tokens(response.json())
+        return True, ""
+    return False, t("guest_failed", error=_detail(response))
+
+
 def refresh_tokens() -> bool:
     refresh = st.session_state.get("refresh_token")
     if not refresh:
@@ -116,6 +136,8 @@ def ask(question: str, agent: Optional[str] = None) -> dict:
         return response.json()
     if response.status_code == 401:
         return {"status": "error", "answer": t("session_expired"), "sources": []}
+    if response.status_code == 503:
+        return {"status": "error", "answer": t("server_busy"), "sources": []}
     return {"status": "error", "answer": t("api_error", error=_detail(response)), "sources": []}
 
 

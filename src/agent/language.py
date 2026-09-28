@@ -170,6 +170,16 @@ _MESSAGES = {
             "analiz eder. Size nasıl yardımcı olabilirim?"
         ),
     },
+    "greeting_guest": {
+        "en": (
+            "Hello! I am the AI assistant of the organization. I answer questions from the documents shared with "
+            "visitors. How can I help you?"
+        ),
+        "tr": (
+            "Merhaba! Ben kurumun yapay zekâ asistanıyım. Ziyaretçilerle paylaşılan belgelerle ilgili sorularınızı "
+            "cevaplarım. Size nasıl yardımcı olabilirim?"
+        ),
+    },
     "direct_fallback": {
         "en": (
             "How can I help? Ask about the organization's documents and regulations, whether an action complies "

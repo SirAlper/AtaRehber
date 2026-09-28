@@ -5,7 +5,16 @@ import streamlit as st
 import api_client as api
 from components import BUILT_IN_AGENTS, REQUEST_STATUSES, agent_description, agent_label
 from i18n import LANGUAGES, category_label
-from session import is_logged_in, is_password_change_pending, logout, new_conversation, t, user_role
+from session import (
+    is_guest,
+    is_logged_in,
+    is_password_change_pending,
+    logout,
+    new_conversation,
+    start_conversation,
+    t,
+    user_role,
+)
 
 STAFF_ROLES = ("admin", "editor")
 
@@ -18,6 +27,12 @@ def render_sidebar() -> None:
         if is_password_change_pending():
             _password_change()
         if not is_logged_in() or is_password_change_pending():
+            return
+        if is_guest():
+            # Guests only chat: no system details, agent choice, documents, or requests
+            if st.button(t("clear_conversation"), use_container_width=True):
+                new_conversation()
+                st.rerun()
             return
         _system_status()
         _agent_choice()
@@ -52,6 +67,20 @@ def _account() -> None:
                 _show(ok, message)
                 if ok:
                     st.rerun()
+        if api.guest_access_enabled():
+            st.caption(t("guest_help"))
+            if st.button(t("guest_button"), use_container_width=True):
+                ok, message = api.start_guest_session()
+                if ok:
+                    start_conversation("welcome_guest")
+                    st.rerun()
+                st.error(message)
+    elif is_guest():
+        st.markdown(f"**{t('guest_badge')}**")
+        if st.button(t("guest_end"), use_container_width=True):
+            # Shared computers (library, kiosk): the next visitor must not see this conversation
+            start_conversation("welcome")
+            logout()
     else:
         user_info = st.session_state.user_info or {}
         role = user_info.get("role", "viewer")
@@ -66,12 +95,21 @@ def _password_change() -> None:
     """Mandatory after the first login with the default admin password."""
     st.subheader(t("change_password_title"))
     st.warning(t("change_password_required"))
-    current = st.text_input(t("current_password"), type="password", key="cp_current")
-    new = st.text_input(t("new_password"), type="password", key="cp_new")
-    confirm = st.text_input(t("confirm_password"), type="password", key="cp_confirm")
-    if st.button(t("update_password"), use_container_width=True, type="primary"):
-        if not current or not new:
-            st.warning(t("password_fields_missing"))
+    # A form sends all three fields when the button is pressed; single inputs only report their value after Enter
+    # or leaving the field. The autocomplete hints stop password managers from putting the old password into
+    # the new-password fields.
+    with st.form("password_change_form"):
+        current = st.text_input(
+            t("current_password"), type="password", key="cp_current", autocomplete="current-password"
+        )
+        new = st.text_input(t("new_password"), type="password", key="cp_new", autocomplete="new-password")
+        confirm = st.text_input(t("confirm_password"), type="password", key="cp_confirm", autocomplete="new-password")
+        submitted = st.form_submit_button(t("update_password"), use_container_width=True, type="primary")
+    if submitted:
+        empty = [label for label, value in ((t("current_password"), current), (t("new_password"), new)) if not value]
+        if empty:
+            # A browser may show a saved password it has not handed to the page yet; naming the field helps
+            st.warning(t("password_fields_missing", fields=", ".join(empty)))
         elif new != confirm:
             st.error(t("password_mismatch"))
         else:
