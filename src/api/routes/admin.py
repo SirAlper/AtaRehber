@@ -13,7 +13,15 @@ from src.auth.dependencies import require_role
 from src.auth.models import User
 from src.core.audit import audit_logger
 from src.api.maintenance import run_maintenance_once
+from src.agent.multi_agent.custom_agents import (
+    CustomAgentConfig,
+    built_in_agent_names,
+    custom_agent_store,
+    sync_custom_agents,
+)
+from src.agent.multi_agent.registry import agent_registry
 from src.agent.multi_agent.sessions import cleanup_expired_sessions
+from src.agent.multi_agent.tools import tool_catalog
 from src.api.state import index_write_lock
 from src.services.backups import BACKUP_DIR, backup_all, is_valid_backup_name, list_backups, restore_vector_db
 from src.core.logger import get_logger
@@ -214,3 +222,57 @@ async def restore_backup(
         "status": "success",
         "message": f"Restore from '{backup_name}' staged. Restart the server to apply it.",
     }
+
+
+# ── Custom agents (defined in the web UI) ──
+
+
+@router.get("/agent-tools", summary="Tools Custom Agents Can Use")
+async def list_agent_tools(language: str = Query("tr", pattern="^(tr|en)$"), _: User = Depends(require_role("admin"))):
+    """Tools that can be given to custom agents, with labels and whether they work right now (Admin only)."""
+    return {"tools": tool_catalog(language)}
+
+
+@router.get("/custom-agents", summary="List Custom Agents")
+async def list_custom_agents(_: User = Depends(require_role("admin"))):
+    """Custom agent definitions with their current availability (Admin only)."""
+    agents = custom_agent_store.all()
+    for agent in agents:
+        agent["available"] = agent_registry.is_available(agent["name"])
+    return {"agents": agents}
+
+
+@router.put("/custom-agents/{name}", summary="Create or Update Custom Agent")
+async def save_custom_agent(name: str, body: CustomAgentConfig, current_admin: User = Depends(require_role("admin"))):
+    """Create or replace a custom agent; it is available to the supervisor right away (Admin only)."""
+    if body.name != name:
+        raise HTTPException(status_code=400, detail="The name in the path and in the body differ.")
+    try:
+        record = custom_agent_store.save(body, current_admin.username, reserved=built_in_agent_names())
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    sync_custom_agents()
+    await audit_logger.alog(
+        username=current_admin.username,
+        role=current_admin.role,
+        action="custom_agent_save",
+        detail=f"Custom agent '{name}' saved (tools: {', '.join(body.tools) or 'none'}, enabled: {body.enabled})",
+        status="success",
+    )
+    return {"status": "success", "agent": record}
+
+
+@router.delete("/custom-agents/{name}", summary="Delete Custom Agent")
+async def delete_custom_agent(name: str, current_admin: User = Depends(require_role("admin"))):
+    """Delete a custom agent and remove it from the supervisor's choices (Admin only)."""
+    if not custom_agent_store.delete(name):
+        raise HTTPException(status_code=404, detail=f"Custom agent '{name}' not found.")
+    sync_custom_agents()
+    await audit_logger.alog(
+        username=current_admin.username,
+        role=current_admin.role,
+        action="custom_agent_delete",
+        detail=f"Custom agent '{name}' deleted",
+        status="success",
+    )
+    return {"status": "success"}

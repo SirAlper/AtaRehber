@@ -43,6 +43,7 @@ def render_sidebar() -> None:
         _service_requests(is_staff=role in STAFF_ROLES)
         if role == "admin":
             _database()
+            _custom_agents()
             _user_groups()
             _audit_trail()
         if st.button(t("clear_conversation"), use_container_width=True):
@@ -278,6 +279,70 @@ def _database() -> None:
         st.info(t("db_config_hint"))
     else:
         st.caption(t("db_offline"))
+    st.divider()
+
+
+def _agent_form(agent: dict, tools: list, key: str, is_new: bool) -> None:
+    """Form to create or edit a custom agent; tools are chosen by their labels."""
+    labels = {tool["name"]: tool["label"] for tool in tools}
+    with st.form(f"custom_agent_{key}"):
+        if is_new:
+            name = st.text_input(t("custom_agent_name"), help=t("custom_agent_name_help"))
+        else:
+            name = agent["name"]
+            st.caption(t("custom_agent_system_name", name=name))
+        display_name = st.text_input(t("custom_agent_display_name"), value=agent.get("display_name", ""))
+        description = st.text_area(
+            t("custom_agent_description"), value=agent.get("description", ""), help=t("custom_agent_description_help")
+        )
+        instructions = st.text_area(
+            t("custom_agent_instructions"),
+            value=agent.get("instructions", ""),
+            height=150,
+            help=t("custom_agent_instructions_help"),
+        )
+        chosen = st.multiselect(
+            t("custom_agent_tools"),
+            options=list(labels.values()),
+            default=[labels[name] for name in agent.get("tools", []) if name in labels],
+            help="\n\n".join(f"{tool['label']}: {tool['description']}" for tool in tools),
+        )
+        enabled = st.checkbox(t("custom_agent_enabled"), value=agent.get("enabled", True))
+        submitted = st.form_submit_button(t("custom_agent_create") if is_new else t("save"), type="primary")
+    if submitted:
+        by_label = {label: name for name, label in labels.items()}
+        definition = {
+            "name": name.strip(),
+            "display_name": display_name.strip(),
+            "description": description.strip(),
+            "instructions": instructions.strip(),
+            "tools": [by_label[label] for label in chosen],
+            "enabled": enabled,
+        }
+        ok, message = api.save_custom_agent(definition)
+        _show(ok, message)
+        if ok:
+            st.rerun()
+
+
+def _custom_agents() -> None:
+    """Agents defined here: what they are for, instructions, and tools; the supervisor routes to them."""
+    st.subheader(t("custom_agents_title"))
+    tools = api.get_agent_tools()
+    with st.expander(t("custom_agents_title")):
+        st.caption(t("custom_agents_help"))
+        for agent in api.get_custom_agents():
+            state = t("custom_agent_active") if agent.get("available") else t("custom_agent_inactive")
+            st.markdown(f"**{agent['display_name']}** (`{agent['name']}`) · {state}")
+            with st.popover(t("custom_agent_edit")):
+                _agent_form(agent, tools, key=agent["name"], is_new=False)
+                if st.button(t("custom_agent_delete"), key=f"custom_agent_delete_{agent['name']}"):
+                    ok, message = api.delete_custom_agent(agent["name"])
+                    _show(ok, message)
+                    if ok:
+                        st.rerun()
+        st.markdown(f"**{t('custom_agent_new')}**")
+        _agent_form({}, tools, key="new", is_new=True)
     st.divider()
 
 

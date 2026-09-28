@@ -178,3 +178,75 @@ def test_guest_session_shows_only_the_chat_and_reports_a_busy_server():
         at.chat_input[0].set_value("Kayıt yenileme ne zaman?").run()
 
     assert "Asistan şu anda çok yoğun" in all_text(at)
+
+
+def test_admin_creates_a_custom_agent_with_tools():
+    tools = [
+        {"name": "documents", "label": "📄 Belge arama", "description": "Belgeler", "available": True},
+        {"name": "calculator", "label": "🧮 Hesap makinesi", "description": "Hesap", "available": True},
+    ]
+    existing = {
+        "name": "aof_asistani",
+        "display_name": "AÖF Asistanı",
+        "description": "Açıköğretim kayıt ve sınav soruları",
+        "instructions": "Açıköğretim sorularını yanıtla.",
+        "tools": ["documents"],
+        "enabled": True,
+        "available": True,
+    }
+
+    def admin_get(url, **kwargs):
+        if url.endswith("/api/v1/admin/agent-tools"):
+            return fake_response({"tools": tools})
+        if url.endswith("/api/v1/admin/custom-agents"):
+            return fake_response({"agents": [existing]})
+        return fake_get(url, **kwargs)
+
+    saved = []
+
+    def fake_put(url, **kwargs):
+        saved.append((url, kwargs.get("json")))
+        return fake_response({"status": "success"})
+
+    with (
+        patch("requests.get", side_effect=admin_get),
+        patch("requests.put", side_effect=fake_put),
+        patch("requests.post", return_value=fake_response({})),
+        patch("requests.patch", return_value=fake_response({})),
+    ):
+        at = AppTest.from_file(APP, default_timeout=30)
+        at.session_state["auth_token"] = "token"
+        at.session_state["user_info"] = {"username": "admin", "role": "admin"}
+        at.run()
+        assert not at.exception
+        assert "**AÖF Asistanı** (`aof_asistani`) · 🟢 etkin" in all_text(at)
+
+        inputs = {ti.label: ti for ti in at.sidebar.text_input}
+        areas = {ta.label: ta for ta in at.sidebar.text_area}
+        inputs["Sistem adı"].set_value("not_asistani")
+        # The last "Görünen ad" field belongs to the new-agent form (the edit form comes first)
+        [ti for ti in at.sidebar.text_input if ti.label == "Görünen ad"][-1].set_value("Not Asistanı")
+        [ta for ta in at.sidebar.text_area if ta.label == "Hangi işler için çalışır?"][-1].set_value(
+            "Not ortalaması ve harf notu hesaplama soruları"
+        )
+        [ta for ta in at.sidebar.text_area if ta.label == "Talimat (prompt)"][-1].set_value(
+            "Vize ve final notlarından ortalamayı hesapla."
+        )
+        [ms for ms in at.sidebar.multiselect if ms.label == "Araçlar"][-1].set_value(["🧮 Hesap makinesi"])
+        assert areas  # text areas were found
+        next(b for b in reversed(at.sidebar.button) if b.label == "Ajanı oluştur").click().run()
+
+    assert not at.exception
+    assert saved == [
+        (
+            "http://127.0.0.1:8000/api/v1/admin/custom-agents/not_asistani",
+            {
+                "name": "not_asistani",
+                "display_name": "Not Asistanı",
+                "description": "Not ortalaması ve harf notu hesaplama soruları",
+                "instructions": "Vize ve final notlarından ortalamayı hesapla.",
+                "tools": ["calculator"],
+                "enabled": True,
+            },
+        )
+    ]

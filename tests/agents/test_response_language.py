@@ -42,6 +42,10 @@ from src.connectors.sample_db import create_sample_sqlite_db
         ("Based on the SQL query executed, there is 1 record. durum = 'çözüldü'", "en"),
         ("Ofiste evcil hayvan getirmek serbest mi?", "tr"),  # infinitive suffix + final question particle
         ("Bu da ne?", "tr"),
+        # "not" (a grade) is also an English word: Turkish letters decide the tie
+        ("Vize notum 50, final notum 80; vize %30 final %70 etkiliyorsa not ortalamam kaç olur?", "tr"),
+        ("Final notum geliyorsa", "tr"),  # "-yor" followed by further suffixes
+        ("I am not sure about the exam", "en"),
         # Other languages must not look Turkish (they share short words such as de, en, mi)
         ("¿Cuántos días de vacaciones tengo en la empresa?", OTHER_LANGUAGE),
         ("¿Puedo copiar mi lista de clientes en un USB?", OTHER_LANGUAGE),

@@ -201,6 +201,31 @@ def set_user_groups(username: str, groups: str) -> Tuple[bool, str]:
     return _result(response, ok_message=t("user_groups_saved"))
 
 
+def get_custom_agents() -> list:
+    return _json(_call("get", "/api/v1/admin/custom-agents", timeout=5), {}).get("agents", [])
+
+
+def get_agent_tools() -> list:
+    params = {"language": st.session_state.ui_language}
+    return _json(_call("get", "/api/v1/admin/agent-tools", params=params, timeout=5), {}).get("tools", [])
+
+
+def save_custom_agent(agent: dict) -> Tuple[bool, str]:
+    response = _call("put", f"/api/v1/admin/custom-agents/{agent['name']}", json=agent)
+    if response is not None and response.status_code == 422:
+        # Pydantic lists every invalid field; show their messages
+        try:
+            errors = response.json().get("detail", [])
+            return False, "; ".join(f"{e['loc'][-1]}: {e['msg']}" for e in errors)
+        except (ValueError, KeyError, TypeError, IndexError):
+            pass
+    return _result(response, ok_message=t("custom_agent_saved", name=agent["display_name"]))
+
+
+def delete_custom_agent(name: str) -> Tuple[bool, str]:
+    return _result(_call("delete", f"/api/v1/admin/custom-agents/{name}"), ok_message=t("custom_agent_deleted"))
+
+
 def get_database_status() -> Optional[dict]:
     return _json(_call("get", "/api/v1/database/status", timeout=5))
 
