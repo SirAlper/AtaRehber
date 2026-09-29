@@ -49,6 +49,19 @@ class BaseSubAgent(ABC):
         """
         pass
 
+    def report_progress(self, stage: str) -> None:
+        """Tell a streaming client what the agent is doing now ('searching', 'writing', 'verifying', ...).
+
+        Sent as a {"type": "progress"} event by MultiAgentOrchestrator.stream_events(); a no-op outside a
+        streamed workflow (query(), direct calls, tests).
+        """
+        try:
+            from langgraph.config import get_stream_writer
+
+            get_stream_writer()({"type": "progress", "agent": self.name, "stage": stage})
+        except Exception:
+            pass
+
     def get_routing_context(self) -> str:
         """Optional live context for the supervisor, e.g. which data this agent can reach.
 

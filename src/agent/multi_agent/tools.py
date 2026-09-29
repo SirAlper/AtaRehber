@@ -14,6 +14,7 @@ from dataclasses import dataclass, field
 from datetime import date, timedelta
 from typing import Any, Callable, Dict, List, Optional
 
+from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from langchain_core.tools import StructuredTool
 
 from src.core.logger import get_logger
@@ -288,3 +289,41 @@ def build_tools(names: List[str], run: ToolRun, state: Dict[str, Any]) -> List[S
 def tool_description(name: str) -> Optional[str]:
     spec = TOOLS.get(name)
     return spec.descriptions["en"] if spec else None
+
+
+# Model calls with tool results before the model must answer
+MAX_TOOL_ROUNDS = 4
+
+
+def run_with_tools(chat_model, messages: list, tools: list, agent_name: str = "") -> tuple:
+    """Let the model call tools until it answers: (answer, names of the tools called, status).
+
+    Without tools the model answers directly. After MAX_TOOL_ROUNDS the model answers with what the tools
+    returned so far. Tool errors are passed back to the model as text.
+    """
+    tools_called: List[str] = []
+    try:
+        if not tools:
+            return chat_model.invoke(messages).content.strip(), tools_called, "success"
+        by_name = {tool.name: tool for tool in tools}
+        model = chat_model.bind_tools(tools)
+        for _ in range(MAX_TOOL_ROUNDS):
+            response = model.invoke(messages)
+            calls = getattr(response, "tool_calls", None) or []
+            if not calls:
+                return str(response.content).strip(), tools_called, "success"
+            messages.append(AIMessage(content=response.content or "", tool_calls=calls))
+            for call in calls:
+                tool = by_name.get(call.get("name"))
+                tools_called.append(call.get("name", "?"))
+                try:
+                    output = tool.invoke(call.get("args") or {}) if tool else f"Error: unknown tool {call.get('name')}"
+                except Exception as e:
+                    logger.warning(f"[{agent_name}] Tool '{call.get('name')}' failed: {e}")
+                    output = f"Error: {e}"
+                messages.append(ToolMessage(content=str(output), tool_call_id=call.get("id") or call.get("name")))
+        messages.append(HumanMessage(content="Answer the question now with the information above."))
+        return chat_model.invoke(messages).content.strip(), tools_called, "success"
+    except Exception as e:
+        logger.error(f"[{agent_name}] Answering with tools failed: {e}")
+        return "", tools_called, "error"

@@ -37,7 +37,6 @@ DEFAULT_RETRIEVAL_POOL = 50
 STAGES = ("retrieval", "routing", "e2e")
 EVAL_USER = {"username": "eval", "role": "admin", "groups": []}
 # RAGEngine.search() default candidate pool (n_results)
-PRODUCTION_POOL_SIZE = 10
 # Cross-encoder scores are sigmoid outputs clustered near 0 and 1, so the grid is denser at the low end
 RERANKER_SWEEP_THRESHOLDS = [0.0, 0.001, 0.002, 0.005, 0.01, 0.02, 0.05, 0.1, 0.2, 0.3, 0.5]
 
@@ -111,11 +110,16 @@ def build_engine(corpus_dir: str, work_dir: str, cache_dir: Optional[str] = None
     return engine, len(chunks)
 
 
+# Candidate pools compared in the retrieval stage (RAG_CANDIDATE_POOL)
+POOL_SWEEP = (10, 15, 20, 30)
+
+
 def run_retrieval(engine, cases: List[Dict[str, Any]], pool: int = DEFAULT_RETRIEVAL_POOL) -> Dict[str, Any]:
-    from src.core.config import RAG_MIN_RERANKER_SCORE, RAG_MIN_SIMILARITY, RERANKER_TOP_N
+    from src.core.config import RAG_CANDIDATE_POOL, RAG_MIN_RERANKER_SCORE, RAG_MIN_SIMILARITY, RERANKER_TOP_N
     from src.rag.rag_engine import distance_to_similarity
 
-    pool = min(max(pool, PRODUCTION_POOL_SIZE), engine.collection.count())
+    pool = min(max(pool, RAG_CANDIDATE_POOL, *POOL_SWEEP), engine.collection.count())
+    sweep_pools = [size for size in POOL_SWEEP if size <= pool]
     records = []
     for case in cases:
         if case["category"] not in metrics.RETRIEVAL_CATEGORIES:
@@ -130,19 +134,25 @@ def run_retrieval(engine, cases: List[Dict[str, Any]], pool: int = DEFAULT_RETRI
                 "chunk_index": s["chunk_index"],
                 "similarity": round(distance_to_similarity(s["distance"], engine.distance_space), 4),
                 "reranker_score": s["reranker_score"],
+                "content": s.get("content", ""),
             }
             for s in result["sources"]
         ]
-        selected = metrics.select_like_production(
-            candidates,
-            RAG_MIN_SIMILARITY,
-            pool_size=PRODUCTION_POOL_SIZE,
-            top_n=RERANKER_TOP_N,
-            min_reranker_score=RAG_MIN_RERANKER_SCORE,
-        )
-        unfiltered = metrics.select_like_production(
-            candidates, -2.0, pool_size=PRODUCTION_POOL_SIZE, top_n=RERANKER_TOP_N
-        )
+
+        def select(pool_size: int, min_similarity: float = RAG_MIN_SIMILARITY, min_score=RAG_MIN_RERANKER_SCORE):
+            return metrics.select_like_production(
+                candidates, min_similarity, pool_size=pool_size, top_n=RERANKER_TOP_N, min_reranker_score=min_score
+            )
+
+        selected = select(RAG_CANDIDATE_POOL)
+        unfiltered = select(RAG_CANDIDATE_POOL, -2.0, None)
+        facts = case.get("expected_facts") or []
+
+        def context_recall(chunks) -> Optional[float]:
+            # Whether the facts of the expected answer are in the chunks given to the model: a chunk-level check
+            # (the right document can still be the wrong article)
+            return metrics.fact_recall("\n".join(c["content"] for c in chunks), facts) if facts else None
+
         expected = case["expected_sources"]
         relevant = [c for c in candidates if c["source"] in expected]
         rank = metrics.first_relevant_rank([c["source"] for c in selected], expected)
@@ -162,6 +172,14 @@ def run_retrieval(engine, cases: List[Dict[str, Any]], pool: int = DEFAULT_RETRI
                 "relevant_reranker_score": max((c["reranker_score"] for c in relevant), default=None),
                 "max_reranker_score": max((c["reranker_score"] for c in candidates), default=None),
                 "rejected": not selected,
+                "context_fact_recall": context_recall(selected),
+                "pool_sweep": {
+                    str(size): {
+                        "hit": metrics.first_relevant_rank([c["source"] for c in select(size)], expected) is not None,
+                        "context_fact_recall": context_recall(select(size)),
+                    }
+                    for size in sweep_pools
+                },
             }
         )
 
@@ -185,15 +203,27 @@ def run_retrieval(engine, cases: List[Dict[str, Any]], pool: int = DEFAULT_RETRI
         "mrr": metrics.mean(1.0 / r["rank"] if r["rank"] else 0.0 for r in in_scope),
         "hit_rate_without_threshold": metrics.mean(float(r["hit_without_threshold"]) for r in in_scope),
         "out_of_scope_rejection": metrics.mean(float(r["rejected"]) for r in out_of_scope),
+        # Share of the expected facts that are in the selected chunks (chunk level, see context_recall)
+        "context_fact_recall": metrics.mean(r["context_fact_recall"] for r in in_scope),
+        "candidate_pool": RAG_CANDIDATE_POOL,
         "min_similarity": RAG_MIN_SIMILARITY,
         "min_reranker_score": RAG_MIN_RERANKER_SCORE,
         "top_n": RERANKER_TOP_N,
         "recommended_min_similarity": sweep["recommended_threshold"],
         "recommended_min_reranker_score": reranker_sweep["recommended_threshold"],
     }
+    pool_rows = [
+        {
+            "pool": size,
+            "hit_rate": metrics.mean(float(r["pool_sweep"][str(size)]["hit"]) for r in in_scope),
+            "context_fact_recall": metrics.mean(r["pool_sweep"][str(size)]["context_fact_recall"] for r in in_scope),
+        }
+        for size in sweep_pools
+    ]
     return {
         "summary": summary,
         "cases": records,
+        "pool_sweep": pool_rows,
         "threshold_sweep": sweep["rows"],
         "reranker_threshold_sweep": reranker_sweep["rows"],
     }
@@ -206,6 +236,13 @@ def print_retrieval(section: Dict[str, Any]) -> None:
     print(f"  hit rate @top_n={s['top_n']}            : {_fmt(s['hit_rate'])}")
     print(f"  MRR                           : {_fmt(s['mrr'], pct=False)}")
     print(f"  hit rate without threshold    : {_fmt(s['hit_rate_without_threshold'])}")
+    print(f"  expected facts in context     : {_fmt(s['context_fact_recall'])}  (pool {s['candidate_pool']})")
+    for row in section.get("pool_sweep", []):
+        marker = " <- current" if row["pool"] == s["candidate_pool"] else ""
+        print(
+            f"    pool {row['pool']:>3}: hit {_fmt(row['hit_rate'])} / facts in context "
+            f"{_fmt(row['context_fact_recall'])}{marker}"
+        )
     print(
         f"  out-of-scope rejected         : {_fmt(s['out_of_scope_rejection'])}  ({s['out_of_scope_cases']} questions)"
     )
@@ -332,6 +369,11 @@ def run_e2e(chat_model, registry, cases: List[Dict[str, Any]]) -> Dict[str, Any]
             "fact_recall": recall,
             "answer_correct": recall == 1.0 if recall is not None else None,
             "source_hit": bool(returned_sources & set(case["expected_sources"])) if case["expected_sources"] else None,
+            # Facts of the expected answer in the returned sources (chunk level) and evidence shown with the answer
+            "context_fact_recall": metrics.fact_recall(
+                "\n".join(src.get("content", "") for src in result.get("sources", [])), case["expected_facts"]
+            ),
+            "has_evidence": any(src.get("evidence") for src in result.get("sources", [])),
             "refused": refused,
             "language_match": language_match,
             "hallucination_grade": grade,
@@ -360,6 +402,9 @@ def run_e2e(chat_model, registry, cases: List[Dict[str, Any]]) -> Dict[str, Any]
         "answer_accuracy": rate(answerable, "answer_correct"),
         "fact_recall": metrics.mean(r["fact_recall"] for r in answerable),
         "source_hit_rate": rate(records, "source_hit"),
+        "context_fact_recall": metrics.mean(r["context_fact_recall"] for r in records),
+        # Verified answers that show the sentence they rely on
+        "evidence_rate": rate([r for r in records if r["grounded"]], "has_evidence"),
         "grounded_rate": rate(records, "grounded"),
         # Answerable questions the system refused (too strict) vs. unanswerable questions it answered (hallucination risk)
         "false_refusal_rate": rate(answerable, "refused"),
@@ -386,6 +431,8 @@ def print_e2e(section: Dict[str, Any]) -> None:
         print(f"    {category:<27} : {_fmt(value)}")
     print(f"  fact recall                   : {_fmt(s['fact_recall'])}")
     print(f"  source hit rate               : {_fmt(s['source_hit_rate'])}")
+    print(f"  expected facts in sources     : {_fmt(s['context_fact_recall'])}")
+    print(f"  verified answers with evidence: {_fmt(s['evidence_rate'])}")
     print(f"  grounded (Self-RAG passed)    : {_fmt(s['grounded_rate'])}")
     print(f"  false refusals                : {_fmt(s['false_refusal_rate'])}")
     print(f"  out-of-scope refused          : {_fmt(s['out_of_scope_refusal_rate'])}")

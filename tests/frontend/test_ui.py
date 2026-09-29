@@ -3,6 +3,7 @@
 The app runs headless with streamlit.testing.AppTest; HTTP calls to the backend are mocked.
 """
 
+import json
 import os
 import string
 from unittest.mock import MagicMock, patch
@@ -78,41 +79,74 @@ def fake_get(url, **kwargs):
     return fake_response({}, status=404)
 
 
-def test_logged_in_chat_shows_disclaimer_and_page_numbers():
-    answer = {
+def fake_stream(events, status=200):
+    """Response of /query-stream: one JSON event per line."""
+    response = MagicMock(status_code=status)
+    response.iter_lines.return_value = [json.dumps(event, ensure_ascii=False) for event in events]
+    return response
+
+
+def chat_answer(role="viewer"):
+    source = {
+        "source": "yonetmelik.pdf",
+        "chunk_index": 2,
+        "page": 4,
+        "page_end": 5,
+        "article": "Madde 12 – Yıllık izin",
+        "reranker_score": 0.98,
+        "content": "[YÖNETMELİK | Madde 12 – Yıllık izin]\n(2) Yıllık izin 20 iş günüdür. Yarısı yaz döneminde kullanılır.",
+        "evidence": [{"text": "(2) Yıllık izin 20 iş günüdür.", "citation": "Madde 12/2"}],
+        "used": True,
+    }
+    other = {"source": "yonetmelik.pdf", "chunk_index": 7, "article": "Madde 20 – Mazeret", "content": "Mazeret izni."}
+    done = {
+        "type": "done",
         "answer": "Yıllık izin 20 iş günüdür.",
         "active_agent": "doc_agent",
         "hallucination_grade": "yes",
         "is_refined": False,
         "agent_trace": [],
-        "sources": [
-            {
-                "source": "yonetmelik.pdf",
-                "chunk_index": 2,
-                "page": 4,
-                "page_end": 5,
-                "reranker_score": 0.98,
-                "content": "Madde 12 - Yıllık izin 20 iş günüdür.",
-            }
-        ],
+        "sources": [source, other],
     }
+    events = [
+        {"type": "agent_selected", "agent": "doc_agent", "display_name": "Document & Regulation Specialist"},
+        {"type": "progress", "agent": "doc_agent", "stage": "searching"},
+        {"type": "progress", "agent": "doc_agent", "stage": "verifying"},
+        done,
+    ]
     with (
         patch("requests.get", side_effect=fake_get),
-        patch("requests.post", return_value=fake_response(answer)),
+        patch("requests.post", return_value=fake_stream(events)) as post,
     ):
         at = AppTest.from_file(APP, default_timeout=30)
         at.session_state["auth_token"] = "token"
-        at.session_state["user_info"] = {"username": "ogrenci", "role": "viewer"}
+        at.session_state["user_info"] = {"username": "kullanici", "role": role}
         at.run()
         assert "yapay zekâ tarafından üretilir" in all_text(at)
 
         at.chat_input[0].set_value("Yıllık izin kaç gün?").run()
-
+    assert post.call_args.args[0].endswith("/api/v1/query-stream")
     assert not at.exception
+    return at
+
+
+def test_chat_shows_evidence_and_clean_sources():
+    at = chat_answer()
     text = all_text(at)
     assert "Yıllık izin 20 iş günüdür." in text
-    assert "`yonetmelik.pdf` — s. 4–5" in text
     assert "Doküman Ajanı" in text
+    # The sentence the answer relies on, with article and paragraph
+    assert "Dayanak</b> · Madde 12/2" in text and "“(2) Yıllık izin 20 iş günüdür.”" in text
+    # Sources: document name without extension, page, article; the used one first, the evidence in bold
+    assert "**1. 📄 yonetmelik — s. 4–5 — Madde 12 – Yıllık izin**" in text
+    assert "**(2) Yıllık izin 20 iş günüdür.**" in text
+    assert "İlgili olabilecek diğer bölümler" in text
+    # Students do not see retrieval details; the loader's header line is not repeated
+    assert "parça #" not in text and "skor" not in text and "[YÖNETMELİK" not in text
+
+
+def test_staff_see_retrieval_details():
+    assert "parça #2 · skor 0.98" in all_text(chat_answer(role="editor"))
 
 
 def test_forced_password_change_sends_all_fields_and_names_empty_ones():
@@ -159,7 +193,7 @@ def test_guest_session_shows_only_the_chat_and_reports_a_busy_server():
     guest_token = {"access_token": "g", "role": "guest", "username": "guest-1a2b", "expires_in": 7200}
     replies = {
         "/api/v1/auth/guest": fake_response(guest_token),
-        "/api/v1/query": fake_response({"detail": "busy"}, 503),
+        "/api/v1/query-stream": fake_response({"detail": "busy"}, 503),
     }
 
     with (

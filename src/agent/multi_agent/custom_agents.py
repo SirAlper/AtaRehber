@@ -15,14 +15,14 @@ import time
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
-from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
+from langchain_core.messages import HumanMessage, SystemMessage
 from pydantic import BaseModel, Field, field_validator
 
 from src.agent.grading import grade_objection, is_grade_passed
 from src.agent.language import language_instruction, message, response_language
 from src.agent.multi_agent.base import BaseSubAgent
 from src.agent.multi_agent.registry import AgentRegistry, agent_registry
-from src.agent.multi_agent.tools import TOOLS, ToolRun, available_tools, build_tools
+from src.agent.multi_agent.tools import TOOLS, ToolRun, available_tools, build_tools, run_with_tools
 from src.agent.prompts import ORGANIZATION
 from src.agent.self_rag import grade_answer, refine_answer
 from src.core.config import CUSTOM_AGENTS_FILE
@@ -34,8 +34,6 @@ NAME_PATTERN = re.compile(r"^[a-z][a-z0-9_]{2,39}$")
 # Names of workflow nodes and routing keywords; built-in agents are added at validation time
 RESERVED_NAMES = {"supervisor", "auto", "none", "finish", "multi_agent", "synthesize", "record_turn", "error"}
 MAX_CUSTOM_AGENTS = 20
-# Model calls with tool results before the agent must answer
-MAX_TOOL_ROUNDS = 4
 
 
 class CustomAgentConfig(BaseModel):
@@ -207,7 +205,7 @@ class CustomAgent(BaseSubAgent):
         user_text = ("Recent conversation:\n" + "\n".join(history) + "\n\n" if history else "") + question
         messages = [SystemMessage(content=self._system_prompt(tool_names, language)), HumanMessage(content=user_text)]
 
-        answer, tools_called, status = self._run(messages, tools)
+        answer, tools_called, status = run_with_tools(self.chat_model, messages, tools, self.name)
 
         grade, is_refined = "", False
         if status == "success" and run.documents_used:
@@ -249,38 +247,6 @@ class CustomAgent(BaseSubAgent):
         if grade:
             result.update(hallucination_grade=grade, is_refined=is_refined)
         return result
-
-    def _run(self, messages: list, tools: list) -> tuple:
-        """Let the model call tools until it answers: (answer, names of the tools called, status)."""
-        tools_called: List[str] = []
-        try:
-            if not tools:
-                return self.chat_model.invoke(messages).content.strip(), tools_called, "success"
-            by_name = {tool.name: tool for tool in tools}
-            model = self.chat_model.bind_tools(tools)
-            for _ in range(MAX_TOOL_ROUNDS):
-                response = model.invoke(messages)
-                calls = getattr(response, "tool_calls", None) or []
-                if not calls:
-                    return str(response.content).strip(), tools_called, "success"
-                messages.append(AIMessage(content=response.content or "", tool_calls=calls))
-                for call in calls:
-                    tool = by_name.get(call.get("name"))
-                    tools_called.append(call.get("name", "?"))
-                    try:
-                        output = (
-                            tool.invoke(call.get("args") or {}) if tool else f"Error: unknown tool {call.get('name')}"
-                        )
-                    except Exception as e:
-                        logger.warning(f"[{self.name}] Tool '{call.get('name')}' failed: {e}")
-                        output = f"Error: {e}"
-                    messages.append(ToolMessage(content=str(output), tool_call_id=call.get("id") or call.get("name")))
-            # Out of rounds: answer with what the tools returned so far
-            messages.append(HumanMessage(content="Answer the question now with the information above."))
-            return self.chat_model.invoke(messages).content.strip(), tools_called, "success"
-        except Exception as e:
-            logger.error(f"[{self.name}] Custom agent failed: {e}")
-            return "", tools_called, "error"
 
 
 def built_in_agent_names(registry: AgentRegistry = agent_registry) -> set:

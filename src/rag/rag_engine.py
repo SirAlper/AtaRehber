@@ -9,6 +9,7 @@ from src.core.config import (
     VECTOR_DB_PATH,
     RERANKER_TOP_N,
     RAG_DEVICE,
+    RAG_CANDIDATE_POOL,
     RAG_MIN_SIMILARITY,
     RAG_MIN_RERANKER_SCORE,
 )
@@ -37,6 +38,9 @@ def distance_to_similarity(distance: float, space: str) -> float:
 
 class RAGEngine:
     """Two-Stage Retrieval Engine combining Bi-Encoder vector search with Cross-Encoder reranking."""
+
+    # Incremented on every index change; cached answers of an older version are not reused
+    index_version: int = 0
 
     def __init__(self, vector_db_path: Optional[str] = None):
         device = RAG_DEVICE
@@ -91,6 +95,7 @@ class RAGEngine:
         with self.write_lock:
             self.collection.upsert(documents=documents, embeddings=embeddings, ids=ids, metadatas=metadatas)
             self._stats_cache = None
+            self.index_version += 1
         logger.info(f"Successfully indexed {len(documents)} chunks.")
 
     def delete_document(self, filename: str) -> int:
@@ -102,6 +107,7 @@ class RAGEngine:
                 if ids:
                     self.collection.delete(ids=ids)
                     self._stats_cache = None
+                    self.index_version += 1
             if ids:
                 logger.info(f"Deleted {len(ids)} chunks belonging to '{filename}'.")
                 return len(ids)
@@ -116,6 +122,8 @@ class RAGEngine:
             ids = self.collection.get(where={"source": filename}).get("ids", [])
             if ids:
                 self.collection.update(ids=ids, metadatas=[dict(metadata) for _ in ids])
+                # Access groups changed: answers cached for the old access must not be reused
+                self.index_version += 1
         return len(ids)
 
     def get_stats(self) -> dict:
@@ -147,7 +155,7 @@ class RAGEngine:
     def search(
         self,
         query: str,
-        n_results: int = 10,
+        n_results: Optional[int] = None,
         min_similarity: Optional[float] = None,
         top_n: Optional[int] = None,
         min_reranker_score: Optional[float] = None,
@@ -159,7 +167,7 @@ class RAGEngine:
         documents and documents shared with one of these groups (document-level access control).
 
         Retrieval Workflow:
-        1. Query ChromaDB for candidate pool (n_results=10).
+        1. Query ChromaDB for candidate pool (n_results, default RAG_CANDIDATE_POOL).
         2. Filter out candidates below min_similarity (cosine, independent of the collection's metric).
         3. Score remaining candidates with Cross-Encoder [Query, Chunk] pairs and drop those below
            min_reranker_score (default RAG_MIN_RERANKER_SCORE), so off-topic questions get no context.
@@ -168,7 +176,7 @@ class RAGEngine:
         if self.collection.count() == 0:
             return {"context": "", "sources": []}
 
-        actual_n = min(n_results, self.collection.count())
+        actual_n = min(n_results or RAG_CANDIDATE_POOL, self.collection.count())
         q_embedding = self.embedding_model.encode(query, normalize_embeddings=True).tolist()
         query_args = {}
         if allowed_groups is not None:

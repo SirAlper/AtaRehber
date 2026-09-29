@@ -105,6 +105,12 @@ OLLAMA_ROUTER_MODEL=
 OLLAMA_GRADER_MODEL=
 # Answer check: quotes (facts backed by copied sentences) or simple (yes/no):
 GRADER_MODE=quotes
+# Reuse verified answers to first questions (0 = off):
+ANSWER_CACHE_SIZE=256
+ANSWER_CACHE_MINUTES=1440
+# Experimental answer modes (off by default):
+ANSWER_EVIDENCE_FIRST=false
+DOC_AGENT_TOOLS=false
 
 # ─── Organization & Agents ───
 ORGANIZATION_NAME=
@@ -150,6 +156,7 @@ MAX_QUEUED_QUERIES=10
 CHUNK_SIZE=600
 CHUNK_OVERLAP=100
 ARTICLE_CHUNK_SIZE=900
+RAG_CANDIDATE_POOL=10
 RERANKER_TOP_N=4
 RAG_MIN_SIMILARITY=0.325
 RAG_MIN_RERANKER_SCORE=0.005

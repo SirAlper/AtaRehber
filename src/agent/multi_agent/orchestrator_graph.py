@@ -444,11 +444,16 @@ class MultiAgentOrchestrator:
         app, config = self._app_and_config(thread_id)
         final_state: Dict[str, Any] = {}
 
-        for chunk in app.stream(
+        for mode, chunk in app.stream(
             self._turn_input(question, forced_agent, user, bool(thread_id)),
             config=config,
-            stream_mode="updates",
+            stream_mode=["updates", "custom"],
         ):
+            if mode == "custom":
+                # Progress reported by an agent while it works (BaseSubAgent.report_progress)
+                if isinstance(chunk, dict) and chunk.get("type") == "progress":
+                    yield chunk
+                continue
             for node, update in chunk.items():
                 update = update or {}
                 final_state.update(update)

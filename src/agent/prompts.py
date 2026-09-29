@@ -1,3 +1,4 @@
+import re
 from typing import Optional
 
 from langchain_core.messages import SystemMessage, HumanMessage
@@ -33,6 +34,15 @@ SYSTEM_PROMPT_RAG = (
     "göre'), also state what that provision says for the question, e.g. the specific penalty.\n"
     "7. When the Context shows an article or section number for the rule you use, cite it (e.g. 'Madde 30').\n"
     "8. Ensure sentences and bullet points are fully and cleanly finished."
+)
+
+# ANSWER_EVIDENCE_FIRST: copying the supporting sentence before answering keeps a small model from mixing up two
+# rules of one sentence or two neighbouring list items
+EVIDENCE_FIRST_RULE = (
+    "Reply in exactly this format:\n"
+    'EVIDENCE: "<the sentence(s) of the Context your answer relies on, copied word for word>"\n'
+    "ANSWER: <your answer>\n"
+    "Write EVIDENCE: none if the Context does not answer the question. Keep the words EVIDENCE and ANSWER."
 )
 
 SYSTEM_PROMPT_GRADER = (
@@ -93,10 +103,17 @@ def _with_language(system_prompt: str, language: Optional[str]) -> str:
     return f"{system_prompt}\n{language_instruction(language)}" if language else system_prompt
 
 
-def build_rag_messages(context: str, question: str, chat_history: list = None, language: Optional[str] = None) -> list:
+def build_rag_messages(
+    context: str,
+    question: str,
+    chat_history: list = None,
+    language: Optional[str] = None,
+    evidence_first: bool = False,
+) -> list:
     """Build LangChain message list for enterprise RAG response generation.
 
     language: response language code ('tr', 'en'); None leaves the language to the model.
+    evidence_first: the model copies its evidence before answering (EVIDENCE / ANSWER lines, see split_evidence).
     """
     history_str = ""
     if chat_history:
@@ -108,10 +125,31 @@ def build_rag_messages(context: str, question: str, chat_history: list = None, l
         if history_lines:
             history_str = "Recent Conversation History:\n" + "\n".join(history_lines) + "\n\n"
 
+    system_prompt = f"{SYSTEM_PROMPT_RAG}\n{EVIDENCE_FIRST_RULE}" if evidence_first else SYSTEM_PROMPT_RAG
     return [
-        SystemMessage(content=_with_language(SYSTEM_PROMPT_RAG, language)),
+        SystemMessage(content=_with_language(system_prompt, language)),
         HumanMessage(content=f"{history_str}Context:\n{context}\n\nQuestion: {question}"),
     ]
+
+
+# Markers of an evidence-first reply; the model sometimes translates them into the answer language
+_ANSWER_MARKER = re.compile(r"^\s*\**(ANSWER|CEVAP|YANIT)\**\s*:\s*", re.IGNORECASE | re.MULTILINE)
+_EVIDENCE_MARKER = re.compile(r"^\s*\**(EVIDENCE|DAYANAK|KANIT)\**\s*:", re.IGNORECASE | re.MULTILINE)
+_QUOTED = re.compile(r'"([^"\n]{8,})"|“([^”\n]{8,})”')
+
+
+def split_evidence(reply: str) -> tuple:
+    """(quotes, answer) of an evidence-first reply; a reply without the markers is all answer."""
+    text = str(reply or "").strip()
+    answer_marker = _ANSWER_MARKER.search(text)
+    if not answer_marker:
+        if _EVIDENCE_MARKER.match(text):
+            # Only evidence: drop the evidence line so it is not shown as the answer
+            text = text.split("\n", 1)[1].strip() if "\n" in text else ""
+        return [], text
+    evidence = text[: answer_marker.start()]
+    quotes = [a or b for a, b in _QUOTED.findall(evidence)]
+    return quotes, text[answer_marker.end() :].strip()
 
 
 def build_grader_messages(context: str, question: str, answer: str) -> list:
