@@ -254,6 +254,17 @@ _MESSAGES = {
         "en": "A system error occurred while generating the audit report. Please try again later.",
         "tr": "Denetim raporu oluşturulurken bir sistem hatası oluştu. Lütfen daha sonra tekrar deneyin.",
     },
+    # Added when the documents do not answer the question, for users who can file requests
+    "request_hint_not_found": {
+        "en": (
+            "💡 If you like, I can pass this question on to the responsible unit: just write "
+            "“open a request about this”."
+        ),
+        "tr": (
+            "💡 İsterseniz bu soruyu ilgili birime iletmek için talep oluşturabilirim: “bununla ilgili talep oluştur” "
+            "yazmanız yeterli."
+        ),
+    },
     "request_created": {
         "en": "✅ Your request has been filed: **#{id}**, {title}\n\nCategory: {category} · Status: open",
         "tr": "✅ Talebiniz oluşturuldu: **#{id}**, {title}\n\nKategori: {category} · Durum: açık",

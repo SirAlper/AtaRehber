@@ -6,7 +6,7 @@ from typing import Any, Dict, Generator, List, Optional, Tuple
 from langgraph.graph import StateGraph, END
 from langgraph.checkpoint.memory import MemorySaver
 
-from src.agent.language import response_language
+from src.agent.language import message, response_language
 from src.agent.llm import create_chat_model, grader_model_name, router_model_name
 from src.agent.multi_agent.base import BaseSubAgent
 from src.agent.multi_agent.state import MultiAgentState
@@ -14,6 +14,7 @@ from src.agent.multi_agent.registry import AgentRegistry, agent_registry
 from src.agent.multi_agent.supervisor import SupervisorAgent
 from src.agent.grading import is_grade_passed
 from src.agent.prompts import build_grader_messages, build_synthesis_messages
+from src.auth.document_access import GUEST_ROLE
 import src.agent.multi_agent.sub_agents  # noqa: F401  Ensures built-in sub-agents are loaded & registered
 from src.core.config import (
     CHAT_HISTORY_MAX_TURNS,
@@ -141,22 +142,41 @@ class MultiAgentOrchestrator:
             return effective[0]["agent"]
         return MULTI_AGENT
 
-    @classmethod
-    def _record_turn(cls, state: MultiAgentState) -> Dict[str, Any]:
+    def _record_turn(self, state: MultiAgentState) -> Dict[str, Any]:
         """Append the completed turn to the persisted conversation history."""
-        active_agent = cls._active_agent(state)
+        active_agent = self._active_agent(state)
+        answer = self._with_request_hint(state, state.get("final_answer", ""))
         history = list(state.get("chat_history", []))
         history.append(
             {
                 "question": state.get("question", ""),
-                "answer": state.get("final_answer", ""),
+                "answer": answer,
                 "agent": active_agent,
             }
         )
         return {
             "chat_history": history[-CHAT_HISTORY_MAX_TURNS:],
             "active_agent": active_agent,
+            "final_answer": answer,
         }
+
+    def _with_request_hint(self, state: Dict[str, Any], answer: str) -> str:
+        """Offer a service request when the documents did not answer the question.
+
+        Covers every way of not finding it: nothing retrieved, the model or the refiner saying so, and answers
+        that failed the check. Only for users who can file requests (logged in, not guests).
+        """
+        user = state.get("user") or {}
+        if not user.get("username") or user.get("role") == GUEST_ROLE:
+            return answer
+        if not self.registry.is_available("request_agent"):
+            return answer
+        language = response_language(state.get("question", ""), state.get("chat_history", []))
+        not_found = message("no_context", language) in answer
+        unverified = (state.get("verification") or {}).get("level") == "unverified"
+        if not (not_found or unverified):
+            return answer
+        return f"{answer}\n\n{message('request_hint_not_found', language)}"
 
     def _make_step_node(self, agent: BaseSubAgent):
         """Graph node running `agent` on the current plan step, recording its result and any handoff."""
