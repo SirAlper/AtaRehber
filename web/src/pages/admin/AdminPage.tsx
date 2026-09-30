@@ -41,19 +41,19 @@ export default function AdminPage() {
           <span className="gradient-text">{t("admin.title")}</span>
         </h1>
         <nav className="glass mb-4 flex gap-1 overflow-x-auto p-1.5" aria-label={t("admin.title")}>
-          <Tab to="documents" icon={<FileText className="h-4 w-4" />} label={t("admin.documents")} />
+          <Tab to="/admin/documents" icon={<FileText className="h-4 w-4" />} label={t("admin.documents")} />
           {isAdmin && (
             <>
-              <Tab to="users" icon={<Users className="h-4 w-4" />} label={t("admin.users")} />
-              <Tab to="agents" icon={<Bot className="h-4 w-4" />} label={t("admin.agents")} />
-              <Tab to="review" icon={<SearchCheck className="h-4 w-4" />} label={t("admin.review")} />
-              <Tab to="audit" icon={<Activity className="h-4 w-4" />} label={t("admin.audit")} />
-              <Tab to="system" icon={<ServerCog className="h-4 w-4" />} label={t("admin.system")} />
+              <Tab to="/admin/users" icon={<Users className="h-4 w-4" />} label={t("admin.users")} />
+              <Tab to="/admin/agents" icon={<Bot className="h-4 w-4" />} label={t("admin.agents")} />
+              <Tab to="/admin/review" icon={<SearchCheck className="h-4 w-4" />} label={t("admin.review")} />
+              <Tab to="/admin/audit" icon={<Activity className="h-4 w-4" />} label={t("admin.audit")} />
+              <Tab to="/admin/system" icon={<ServerCog className="h-4 w-4" />} label={t("admin.system")} />
             </>
           )}
         </nav>
         <Routes>
-          <Route index element={<Navigate to="documents" replace />} />
+          <Route index element={<Navigate to="/admin/documents" replace />} />
           <Route path="documents" element={<DocumentsTab />} />
           {isAdmin && (
             <>
@@ -64,7 +64,7 @@ export default function AdminPage() {
               <Route path="system" element={<SystemTab />} />
             </>
           )}
-          <Route path="*" element={<Navigate to="documents" replace />} />
+          <Route path="*" element={<Navigate to="/admin/documents" replace />} />
         </Routes>
       </div>
     </div>
