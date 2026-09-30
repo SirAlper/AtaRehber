@@ -66,6 +66,23 @@ services:
       - rag_network
 
   # ───────────────────────────────────────────────────────────────────────────
+  # Web: the React web UI (http://localhost:8080). nginx serves it and forwards /api to the backend.
+  # Runs next to the Streamlit UI during the transition.
+  # ───────────────────────────────────────────────────────────────────────────
+  web:
+    build:
+      context: ./web
+      dockerfile: Dockerfile
+    container_name: rag_agents_web
+    restart: unless-stopped
+    ports:
+      - "8080:80"
+    depends_on:
+      - backend
+    networks:
+      - rag_network
+
+  # ───────────────────────────────────────────────────────────────────────────
   # Ollama: serves the LLM. GPU acceleration: add -f docker-compose.gpu.yml
   # No host port is published (the backend uses the internal network), so this does not
   # clash with an Ollama already running on the host. Use: docker compose exec ollama ollama list

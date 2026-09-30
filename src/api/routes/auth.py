@@ -6,8 +6,8 @@ profile retrieval, and administrative user management with compliance audit logg
 
 import secrets
 from datetime import timedelta
-from typing import List
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from typing import List, Optional
+from fastapi import APIRouter, Body, Depends, HTTPException, Request, Response, status
 
 from src.auth.dependencies import get_authenticated_user, require_role
 from src.auth.document_access import GUEST_ROLE
@@ -37,6 +37,32 @@ logger = get_logger("API.Auth")
 router = APIRouter(prefix="/api/v1/auth", tags=["Authentication & Access Control"])
 
 
+# HttpOnly cookie holding the refresh token of browser clients ("X-Token-Transport: cookie")
+REFRESH_COOKIE = "olr_refresh"
+REFRESH_COOKIE_PATH = "/api/v1/auth"
+
+
+def _wants_cookie(http_req: Request) -> bool:
+    return http_req.headers.get("x-token-transport", "").lower() == "cookie"
+
+
+def _deliver(tokens: TokenResponse, http_req: Request, response: Response) -> TokenResponse:
+    """Browser clients get the refresh token as an HttpOnly cookie (not readable by page scripts) instead of in
+    the body; other clients (the Streamlit UI, scripts) keep receiving it in the body."""
+    if _wants_cookie(http_req) and tokens.refresh_token:
+        response.set_cookie(
+            REFRESH_COOKIE,
+            tokens.refresh_token,
+            max_age=config.REFRESH_TOKEN_EXPIRE_DAYS * 24 * 60 * 60,
+            path=REFRESH_COOKIE_PATH,
+            httponly=True,
+            secure=config.REFRESH_COOKIE_SECURE,
+            samesite="strict",
+        )
+        tokens.refresh_token = None
+    return tokens
+
+
 def _issue_tokens(user: User) -> TokenResponse:
     access_token, expires_in = create_access_token(user.username, user.role, token_version=user.token_version)
     refresh_token, _ = create_refresh_token(user.username, user.role, token_version=user.token_version)
@@ -52,7 +78,7 @@ def _issue_tokens(user: User) -> TokenResponse:
 
 
 @router.post("/login", response_model=TokenResponse)
-async def login(credentials: LoginRequest, http_req: Request):
+async def login(credentials: LoginRequest, http_req: Request, response: Response):
     """Authenticate with username and password to obtain JWT access and refresh tokens."""
     ip_addr = http_req.client.host if http_req.client else None
 
@@ -104,7 +130,7 @@ async def login(credentials: LoginRequest, http_req: Request):
         status="success",
     )
     logger.info(f"User '{user.username}' logged in successfully (role: {user.role}).")
-    return _issue_tokens(user)
+    return _deliver(_issue_tokens(user), http_req, response)
 
 
 @router.get("/guest", summary="Guest Access Status")
@@ -135,10 +161,11 @@ async def start_guest_session(http_req: Request):
 
 
 @router.post("/refresh", response_model=TokenResponse)
-async def refresh_token(request: RefreshRequest, http_req: Request):
-    """Exchange a valid refresh token for a new access token without re-authentication."""
+async def refresh_token(http_req: Request, response: Response, request: Optional[RefreshRequest] = Body(default=None)):
+    """Exchange a valid refresh token (body, or the HttpOnly cookie of browser clients) for new tokens."""
     ip_addr = http_req.client.host if http_req.client else None
-    token_data = decode_refresh_token(request.refresh_token)
+    token = (request.refresh_token if request else None) or http_req.cookies.get(REFRESH_COOKIE) or ""
+    token_data = decode_refresh_token(token)
     if token_data is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -166,7 +193,14 @@ async def refresh_token(request: RefreshRequest, http_req: Request):
         ip_address=ip_addr,
         status="success",
     )
-    return _issue_tokens(user)
+    return _deliver(_issue_tokens(user), http_req, response)
+
+
+@router.post("/logout", summary="Log Out (Browser Clients)")
+async def logout(response: Response):
+    """Remove the refresh token cookie of a browser client. Access tokens expire on their own."""
+    response.delete_cookie(REFRESH_COOKIE, path=REFRESH_COOKIE_PATH)
+    return {"status": "success"}
 
 
 @router.get("/me", response_model=UserResponse)
@@ -179,6 +213,7 @@ async def get_my_profile(current_user: User = Depends(get_authenticated_user)):
 async def change_my_password(
     request: ChangePasswordRequest,
     http_req: Request,
+    response: Response,
     current_user: User = Depends(get_authenticated_user),
 ):
     """Change the caller's own password. Revokes all existing tokens and returns fresh ones."""
@@ -223,7 +258,7 @@ async def change_my_password(
         ip_address=ip_addr,
         status="success",
     )
-    return _issue_tokens(updated)
+    return _deliver(_issue_tokens(updated), http_req, response)
 
 
 @router.post("/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED)

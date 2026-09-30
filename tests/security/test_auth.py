@@ -126,6 +126,38 @@ class TestAuthAPIEndpoints(unittest.TestCase):
         self.assertEqual(resp.status_code, 200, resp.text)
         return resp.json()["access_token"]
 
+    def test_browser_clients_keep_the_refresh_token_in_an_httponly_cookie(self):
+        client = TestClient(app)
+        cookie = {"X-Token-Transport": "cookie"}
+        login = client.post(
+            "/api/v1/auth/login", json={"username": "test_viewer", "password": "ViewerPass123"}, headers=cookie
+        )
+        self.assertEqual(login.status_code, 200, login.text)
+        # Not in the body, where a page script could read it
+        self.assertIsNone(login.json()["refresh_token"])
+        set_cookie = login.headers["set-cookie"]
+        for attribute in ("olr_refresh=", "HttpOnly", "SameSite=strict", "Path=/api/v1/auth"):
+            self.assertIn(attribute.lower(), set_cookie.lower())
+
+        # The browser sends the cookie back; no body needed
+        refreshed = client.post("/api/v1/auth/refresh", headers=cookie)
+        self.assertEqual(refreshed.status_code, 200, refreshed.text)
+        self.assertEqual(refreshed.json()["username"], "test_viewer")
+        self.assertIsNone(refreshed.json()["refresh_token"])
+
+        self.assertEqual(client.post("/api/v1/auth/logout").status_code, 200)
+        self.assertEqual(client.post("/api/v1/auth/refresh", headers=cookie).status_code, 401)
+
+    def test_other_clients_still_get_the_refresh_token_in_the_body(self):
+        client = TestClient(app)
+        login = client.post("/api/v1/auth/login", json={"username": "test_viewer", "password": "ViewerPass123"})
+        refresh_token = login.json()["refresh_token"]
+        self.assertTrue(refresh_token)
+        self.assertNotIn("set-cookie", login.headers)
+        refreshed = client.post("/api/v1/auth/refresh", json={"refresh_token": refresh_token})
+        self.assertEqual(refreshed.status_code, 200)
+        self.assertTrue(refreshed.json()["refresh_token"])
+
     def test_login_success_and_failure(self):
         """Test login endpoint with valid and invalid credentials."""
         # Success

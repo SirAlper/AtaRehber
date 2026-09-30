@@ -35,6 +35,7 @@ The containerized deployment runs three services on an internal Docker bridge ne
 * **Separate images:**
   * [`Dockerfile`](../Dockerfile) builds the **backend** in two stages. A builder stage compiles dependencies, and a `python:3.12-slim` runtime stage copies only the installed packages and the `src/` code. PyTorch is installed from the CPU wheel index; it only runs the embedding and reranker models (a CUDA build can be selected with the `TORCH_INDEX_URL` build argument).
   * The **LLM** runs in the official `ollama/ollama` image. Its models are stored in the `ollama_data` volume.
+  * [`web/Dockerfile`](../web/Dockerfile) builds the **React web UI** (`web` service, port 8080): Node builds the static files, and an `nginx` image serves them and forwards `/api` and `/health` to the backend ([`web/deploy/nginx.conf`](../web/deploy/nginx.conf)), so the browser talks to one address. It runs next to the Streamlit UI during the transition.
   * [`Dockerfile.frontend`](../Dockerfile.frontend) builds a lightweight **Streamlit** image with only `streamlit` and `requests`, since the UI talks to the backend over HTTP and needs no ML stack.
 * **Non-root containers:** Both images run as user `app` (uid/gid `1000`).
 * **Zero-Bloat Image:** Retrieval model weights, vector indexes, documents and databases are mounted as host volumes, never baked into the image. `.env` files are excluded from the build context, so secrets never end up in image layers.
@@ -93,7 +94,8 @@ docker compose up -d --build --no-deps backend frontend
 On the first start (options A and B), `ollama-pull` downloads `OLLAMA_MODEL` (~4.7 GB for `qwen2.5:7b`). The UI and API are available right away; questions work once the download has finished (`docker compose logs -f ollama-pull`).
 
 ### Step 3: Access Applications
-* **Streamlit Web UI:** `http://localhost:8501`
+* **Web UI (React):** `http://localhost:8080`
+* **Streamlit Web UI (previous interface):** `http://localhost:8501`
 * **FastAPI Swagger API:** `http://localhost:8000/docs`
 * **Healthcheck API:** `http://localhost:8000/health` (unauthenticated liveness probe; the frontend starts once it reports healthy)
 
@@ -108,7 +110,7 @@ On the first start (options A and B), `ollama-pull` downloads `OLLAMA_MODEL` (~4
 
 ## 🔒 HTTPS Reverse Proxy
 
-Use HTTPS for every deployment that other people access. `docker-compose.https.yml` adds an nginx proxy that terminates TLS on port 443 (port 80 redirects to it) and stops publishing the backend (8000) and UI (8501) ports on the host, so only the proxy is reachable from the network.
+Use HTTPS for every deployment that other people access. `docker-compose.https.yml` adds an nginx proxy that terminates TLS on port 443 (port 80 redirects to it) and stops publishing the backend (8000) and UI (8501, 8080) ports on the host, so only the proxy is reachable from the network.
 
 1. Put the certificate files in `deploy/certs/` (git-ignored):
    * `fullchain.pem`: the certificate followed by the intermediate certificates
@@ -129,11 +131,11 @@ What the proxy serves (`deploy/nginx/nginx.conf`):
 
 | Path | Target | Notes |
 | :--- | :--- | :--- |
-| `/` | Streamlit UI | WebSocket upgrade enabled |
+| `/` | Streamlit UI | WebSocket upgrade enabled. To serve the React web UI instead, set `proxy_pass http://web;` in this block (the `web` upstream is already defined). |
 | `/api/` | REST API | For API clients and portal integrations; every endpoint needs a JWT. Remove the block to serve only the UI. |
 | `/health` | Backend liveness probe | |
 
-The proxy also sets HSTS and other security headers, allows uploads up to 50 MB (keep in sync with `MAX_UPLOAD_SIZE_MB`), and passes the client IP to the backend (`FORWARDED_ALLOW_IPS=*` is safe only because the backend port is not published). If browser-based clients call the API directly, add the HTTPS origin to `CORS_ORIGINS`. CI validates the nginx configuration and checks that the override publishes no backend or UI ports.
+The proxy also sets HSTS and other security headers, allows uploads up to 50 MB (keep in sync with `MAX_UPLOAD_SIZE_MB`), sets `REFRESH_COOKIE_SECURE=true` so the web UI's refresh token cookie is sent over HTTPS only, and passes the client IP to the backend (`FORWARDED_ALLOW_IPS=*` is safe only because the backend port is not published). If browser-based clients call the API directly, add the HTTPS origin to `CORS_ORIGINS`. CI validates the nginx configuration and checks that the override publishes no backend or UI ports.
 
 ---
 
@@ -155,6 +157,8 @@ ADMIN_DEFAULT_PASSWORD=admin123
 REQUIRE_DEFAULT_PASSWORD_CHANGE=true
 ACCESS_TOKEN_EXPIRE_MINUTES=60
 REFRESH_TOKEN_EXPIRE_DAYS=7
+# Web UI: send its refresh token cookie over HTTPS only (true behind HTTPS; the HTTPS compose sets it):
+REFRESH_COOKIE_SECURE=false
 LOGIN_MAX_FAILED_ATTEMPTS=5
 LOGIN_LOCKOUT_WINDOW_SECONDS=900
 # Optional custom HMAC secret (randomly generated and saved to data/.jwt_secret if empty):

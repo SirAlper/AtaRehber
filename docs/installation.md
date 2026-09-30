@@ -78,6 +78,8 @@ ADMIN_DEFAULT_USERNAME=admin
 ADMIN_DEFAULT_PASSWORD=admin123
 ACCESS_TOKEN_EXPIRE_MINUTES=60
 REFRESH_TOKEN_EXPIRE_DAYS=7
+# Web UI: send its refresh token cookie over HTTPS only (true behind HTTPS; the HTTPS compose sets it):
+REFRESH_COOKIE_SECURE=false
 # The default admin123 password must be changed at first login:
 REQUIRE_DEFAULT_PASSWORD_CHANGE=true
 # Temporary per-account lockout after repeated failed logins:
@@ -250,8 +252,19 @@ uvicorn src.main:app --host 0.0.0.0 --port 8000
 > [!TIP]
 > Avoid `--reload` outside development: every file change restarts the API and reloads the embedding and reranker models (~2 GB).
 
-### Frontend (Streamlit Dashboard):
-In a separate terminal window:
+### Web UI (React):
+Needs [Node.js](https://nodejs.org/) 20.19 or newer (Vite 7). In a separate terminal window:
+```bash
+cd web
+npm install        # once
+npm run dev        # http://localhost:5173, forwards /api to the backend on port 8000
+```
+* **Web UI:** `http://localhost:5173` (another backend address: `API_URL=http://host:8000 npm run dev`)
+* **Production build:** `npm run build` writes static files to `web/dist/`; serve them with the `web` Docker service or any web server that forwards `/api` to the backend and answers unknown paths with `index.html`.
+* **Checks:** `npm run typecheck` and `npm test`.
+
+### Streamlit UI (previous interface):
+The Streamlit UI still works during the transition. In a separate terminal window:
 ```bash
 streamlit run ui/app.py
 ```

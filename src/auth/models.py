@@ -76,7 +76,8 @@ class LoginRequest(BaseModel):
 
 
 class RefreshRequest(BaseModel):
-    refresh_token: str
+    # Browser clients send no body: the refresh token comes from the HttpOnly cookie
+    refresh_token: Optional[str] = None
 
 
 class ChangePasswordRequest(BaseModel):
