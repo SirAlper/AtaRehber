@@ -61,6 +61,16 @@ def parse_number(text: str):
     return total + group
 
 
+def spelled_numbers(text: str) -> set:
+    """Values of all numbers written in words, small ones included ('iki ek sınav' -> {2})."""
+    values = set()
+    for match in _NUMBER_RE.finditer(text):
+        value = parse_number(match.group(0))
+        if value is not None:
+            values.add(float(value))
+    return values
+
+
 def annotate_numbers(text: str) -> str:
     """Append the digits to Turkish numbers written in words: 'en az elli beş puan' -> 'en az elli beş (55) puan'."""
 

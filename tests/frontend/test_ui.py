@@ -284,3 +284,28 @@ def test_admin_creates_a_custom_agent_with_tools():
             },
         )
     ]
+
+
+def test_verification_levels_are_explained():
+    def ask(verification):
+        done = {
+            "type": "done",
+            "answer": "Süre 15 gündür.",
+            "active_agent": "doc_agent",
+            "hallucination_grade": "yes" if verification["level"] == "verified" else "partial: x",
+            "is_refined": True,
+            "agent_trace": [],
+            "sources": [{"source": "kanun.txt", "chunk_index": 1, "article": "Madde 54", "content": "metin"}],
+            "verification": verification,
+        }
+        with patch("requests.get", side_effect=fake_get), patch("requests.post", return_value=fake_stream([done])):
+            at = AppTest.from_file(APP, default_timeout=30)
+            at.session_state["auth_token"] = "token"
+            at.session_state["user_info"] = {"username": "kullanici", "role": "viewer"}
+            at.run()
+            at.chat_input[0].set_value("Süre?").run()
+        assert not at.exception
+        return "\n".join([all_text(at)] + [w.value for w in at.warning])
+
+    assert "Kısmen doğrulandı" in ask({"level": "partial", "issues": ["partial"]})
+    assert "geçici bir maddeye dayanıyor" in ask({"level": "verified", "issues": ["transitional"]})

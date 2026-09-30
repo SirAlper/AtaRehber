@@ -26,3 +26,6 @@ class MultiAgentState(TypedDict, total=False):
     sources: List[Dict[str, Any]]  # Consolidated list of sources from all contributing agents
     hallucination_grade: str  # Grounding verdict from Self-RAG capable agents
     is_refined: bool  # Whether the answer was pruned by the refine step
+    # Outcome of the answer check: {"level": "verified" | "partial" | "unverified", "issues": [...]}; empty when the
+    # answer was not checked (greetings, database answers, compliance reports, requests)
+    verification: Dict[str, Any]

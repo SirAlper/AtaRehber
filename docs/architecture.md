@@ -173,6 +173,19 @@ Admins define agents in the web UI: a purpose (the supervisor routes by it), ins
 
 The verdict and refinement flag are returned as `hallucination_grade` and `is_refined`.
 
+### Answer check (`src/agent/verification.py`)
+`doc_agent` and custom agents check every answer based on documents with `verify_answer()`:
+1. **Grader verdict** with quotes (step 2 above). A rejection gets a **second opinion** (`GRADER_SECOND_OPINION`): the grader is shown the first objection and asked to check it against the context, since the 7B grader rejects correct answers now and then.
+2. **Code checks** the grader cannot be trusted with:
+   * **Numbers** (`GRADER_NUMBER_CHECK`): every number of the answer (references such as "Madde 30" or "2547 sayılı" left out) must be in the grader's quotes (digits or words), the question, or a tool result. The grader may quote the right sentence and still accept "30 days" where it says "15 days".
+   * **Transitional articles** (`GRADER_TRANSITIONAL_CHECK`): if all evidence comes from a `Geçici Madde` or footnote while a provision in force was also retrieved, the answer is sent back once with that objection (superseded values such as "65 points" instead of the "55 points" in force). If the refined answer still relies on it, it is shown with a warning.
+3. A failed check is **refined once** with the objection and checked again.
+4. Still failed: the sentences of the answer the quotes support (all their numbers quoted, or most word stems) are shown as a **partial answer**; if none are, the safe fallback.
+
+The outcome travels with the answer as `verification: {"level": "verified" | "partial" | "unverified", "issues": [...]}` (issues: `transitional`, `partial`); a combined answer gets the weakest level of its parts. The web UI shows 🛡️ verified, ⚠️ partly verified, or "could not be verified" with the sections that may help. Answers that are not verified are recorded with status `warning` in the audit trail and listed for admins with the answers users rated down (`GET /api/v1/admin/review`, "Answers to Review" in the sidebar), which shows where the documents do not answer clearly.
+
+A stronger grader than the answer model catches more of what the 7B model shares blind spots on; set `OLLAMA_GRADER_MODEL` when the GPU has room for a second model (it does not on a 6 GB card).
+
 ### Around the guard (`doc_agent`)
 * **Follow-up questions:** with a conversation, short questions (up to 6 words, "Peki doktora için?") and questions that refer back ("bunun", "that") are rewritten into a standalone search query first; long standalone questions are searched as asked (`needs_rewrite()`).
 * **Evidence:** the grader's quotes that really occur in the context are matched to the sentences of the sources they were copied from (`src/rag/evidence.py`); a verified answer's sources carry them as `evidence` (`[{"text", "citation"}]`, the citation with article and paragraph, e.g. `Madde 30/2`) and `used: true`, used sources first. The web UI shows them as "📌 Evidence" under the answer.

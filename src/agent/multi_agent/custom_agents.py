@@ -18,13 +18,13 @@ from typing import Any, Dict, List, Optional
 from langchain_core.messages import HumanMessage, SystemMessage
 from pydantic import BaseModel, Field, field_validator
 
-from src.agent.grading import grade_objection, is_grade_passed
+
 from src.agent.language import language_instruction, message, response_language
 from src.agent.multi_agent.base import BaseSubAgent
 from src.agent.multi_agent.registry import AgentRegistry, agent_registry
 from src.agent.multi_agent.tools import TOOLS, ToolRun, available_tools, build_tools, run_with_tools
 from src.agent.prompts import ORGANIZATION
-from src.agent.self_rag import grade_answer, refine_answer
+from src.agent.verification import VERIFIED, verify_answer
 from src.core.config import CUSTOM_AGENTS_FILE
 from src.core.logger import get_logger
 
@@ -208,22 +208,27 @@ class CustomAgent(BaseSubAgent):
         answer, tools_called, status = run_with_tools(self.chat_model, messages, tools, self.name)
 
         grade, is_refined = "", False
+        verification = None
+        sources = run.sources
         if status == "success" and run.documents_used:
-            # Every tool result is context: a computed deadline is then grounded like a quoted rule
-            context = run.context()
-            if not context:
+            # Tool results are context too: a computed deadline is grounded like a quoted rule
+            if not run.document_context():
                 answer = message("no_context", language)
             else:
-                grader = self.grader_model
-                grade = grade_answer(grader, context, question, answer, agent_name=self.name)
-                if not is_grade_passed(grade):
-                    answer = refine_answer(
-                        self.chat_model, context, question, answer, language, grade_objection(grade), self.name
-                    )
-                    is_refined = True
-                    grade = grade_answer(grader, context, question, answer, agent_name=self.name)
-                    if not is_grade_passed(grade):
-                        answer = message("fallback", language)
+                verification = verify_answer(
+                    self.chat_model,
+                    self.grader_model,
+                    run.document_context(),
+                    question,
+                    answer,
+                    run.sources,
+                    language,
+                    tool_context=run.tool_context(),
+                    agent_name=self.name,
+                    progress=self.report_progress,
+                )
+                answer, sources, grade = verification.answer, verification.sources, verification.grade
+                is_refined = verification.is_refined
         if status != "success":
             answer = message("fallback", language)
 
@@ -234,18 +239,18 @@ class CustomAgent(BaseSubAgent):
             "tools_called": tools_called,
             "sources_count": len(run.sources),
             "duration_ms": int((time.time() - start_time) * 1000),
-            "status": status if not grade or is_grade_passed(grade) else "unverified",
+            "status": status if verification is None or verification.level == VERIFIED else verification.level,
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
         if grade:
             trace_entry["hallucination_grade"] = grade
         result = {
             "final_answer": answer,
-            "sources": run.sources,
+            "sources": sources,
             "agent_trace": list(state.get("agent_trace", [])) + [trace_entry],
         }
-        if grade:
-            result.update(hallucination_grade=grade, is_refined=is_refined)
+        if verification:
+            result.update(hallucination_grade=grade, is_refined=is_refined, verification=verification.as_dict())
         return result
 
 

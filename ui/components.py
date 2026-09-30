@@ -102,14 +102,28 @@ def render_trace(trace: list) -> None:
                 st.caption(t("search_query", query=step["search_query"]))
 
 
+def verification_level(message: dict) -> str:
+    """'verified', 'partial', 'unverified', or '' (not checked); older messages only have `verified`."""
+    level = (message.get("verification") or {}).get("level")
+    if level:
+        return level
+    if message.get("verified") is None:
+        return ""
+    return "verified" if message.get("verified") else "unverified"
+
+
 def render_verification(message: dict) -> None:
     if not message.get("sources"):
         return
-    if message.get("is_refined") and message.get("verified"):
-        st.caption(t("audit_refined"))
-    elif message.get("verified"):
-        st.caption(t("audit_verified"))
-    elif message.get("verified") is False:
+    level = verification_level(message)
+    issues = (message.get("verification") or {}).get("issues", [])
+    if level == "verified":
+        st.caption(t("audit_refined") if message.get("is_refined") else t("audit_verified"))
+        if "transitional" in issues:
+            st.warning(t("audit_transitional"))
+    elif level == "partial":
+        st.warning(t("audit_partial"))
+    elif level == "unverified":
         st.caption(t("audit_unverified"))
         # No verified answer: point to the sections that may still help
         sections = list(dict.fromkeys(section_label(source) for source in message["sources"]))[:3]
@@ -205,7 +219,7 @@ def render_assistant_message(message: dict, text: str) -> None:
     if message.get("active_agent"):
         render_agent_badge(message["active_agent"], message.get("agents"))
     st.markdown(text)
-    if message.get("verified"):
+    if verification_level(message) in ("verified", "partial"):
         render_evidence(message.get("sources", []))
     if message.get("agent_trace"):
         render_trace(message["agent_trace"])

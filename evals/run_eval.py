@@ -35,6 +35,9 @@ DEFAULT_INDEX_CACHE = os.path.join(EVALS_DIR, ".cache")
 # pool is enough for the threshold sweeps and keeps large corpora (a whole law) fast.
 DEFAULT_RETRIEVAL_POOL = 50
 STAGES = ("retrieval", "routing", "e2e")
+# Stages run only when named: "grader" needs the answer-check dataset (evals/build_grader_dataset.py)
+EXTRA_STAGES = ("grader",)
+DEFAULT_GRADER_DATASET = os.path.join(EVALS_DIR, "grader_dataset_university.jsonl")
 EVAL_USER = {"username": "eval", "role": "admin", "groups": []}
 # RAGEngine.search() default candidate pool (n_results)
 # Cross-encoder scores are sigmoid outputs clustered near 0 and 1, so the grid is denser at the low end
@@ -448,6 +451,67 @@ def print_e2e(section: Dict[str, Any]) -> None:
 # ─────────────────────────────── Main ───────────────────────────────
 
 
+def load_grader_dataset(path: str) -> List[Dict[str, Any]]:
+    with open(path, encoding="utf-8") as f:
+        return [json.loads(line) for line in f if line.strip() and not line.startswith("#")]
+
+
+def run_grader(engine, chat_model, items: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """Answer check on correct answers and wrong copies of them (see evals/build_grader_dataset.py).
+
+    'grader_only' is the grader's first verdict (the check before this stage existed); 'full' adds the second
+    opinion and the code checks, as doc_agent runs it before refining.
+    """
+    from src.agent.verification import check_answer
+
+    records = []
+    for item in items:
+        start = time.perf_counter()
+        result = engine.search(item["question"])
+        check = check_answer(
+            chat_model, result.get("context", ""), item["question"], item["answer"], result.get("sources", [])
+        )
+        records.append(
+            {
+                "id": item["id"],
+                "kind": item["kind"],
+                "grader_only": check.first_verdict,
+                "full": check.passed,
+                "grade": check.grade,
+                "latency_s": round(time.perf_counter() - start, 2),
+            }
+        )
+        print(
+            f"  {item['id']:<24} grader {'pass' if check.first_verdict else 'FAIL'}  full {'pass' if check.passed else 'FAIL'}"
+        )
+
+    def accepted(kind, mode):
+        return metrics.mean(float(r[mode]) for r in records if r["kind"] == kind)
+
+    kinds = sorted({r["kind"] for r in records})
+    summary = {
+        mode: {
+            "correct_accepted": accepted("original", mode),
+            **{
+                f"wrong_rejected_{kind}": 1 - accepted(kind, mode)
+                for kind in kinds
+                if kind != "original" and accepted(kind, mode) is not None
+            },
+        }
+        for mode in ("grader_only", "full")
+    }
+    summary["items"] = len(records)
+    return {"summary": summary, "cases": records}
+
+
+def print_grader(section: Dict[str, Any]) -> None:
+    s = section["summary"]
+    print("\n== Answer check ==")
+    print(f"  items: {s['items']}                     grader only  full check")
+    for metric in s["full"]:
+        print(f"  {metric:<32}: {_fmt(s['grader_only'].get(metric)):>10}  {_fmt(s['full'][metric]):>10}")
+
+
 def parse_args(argv=None):
     parser = argparse.ArgumentParser(description="Evaluate retrieval, routing and answer quality.")
     parser.add_argument(
@@ -468,6 +532,9 @@ def parse_args(argv=None):
     )
     parser.add_argument("--no-index-cache", action="store_true", help="Always rebuild the index (no evals/.cache).")
     parser.add_argument(
+        "--grader-dataset", default=DEFAULT_GRADER_DATASET, help="Answer-check dataset for the 'grader' stage."
+    )
+    parser.add_argument(
         "--no-database",
         action="store_true",
         help="Leave out db_agent and the demo database, like a deployment with SAMPLE_DB_ENABLED=false.",
@@ -475,7 +542,7 @@ def parse_args(argv=None):
     args = parser.parse_args(argv)
 
     stages = STAGES if args.stages == "all" else tuple(s.strip() for s in args.stages.split(",") if s.strip())
-    unknown = set(stages) - set(STAGES)
+    unknown = set(stages) - set(STAGES) - set(EXTRA_STAGES)
     if unknown:
         parser.error(f"unknown stage(s): {', '.join(sorted(unknown))}")
     args.stages = stages
@@ -531,7 +598,7 @@ def main(argv=None) -> int:
         }
         print(f"Evaluating {len(cases)} cases, stages: {', '.join(args.stages)}")
 
-        if "routing" in args.stages or "e2e" in args.stages:
+        if {"routing", "e2e", "grader"} & set(args.stages):
             from src.agent.llm import check_ollama
 
             # Fail fast instead of recording an error for every question
@@ -543,7 +610,7 @@ def main(argv=None) -> int:
 
         # Routing only needs the agents' descriptions, not the vector store
         engine = None
-        if "retrieval" in args.stages or "e2e" in args.stages:
+        if {"retrieval", "e2e", "grader"} & set(args.stages):
             print("Indexing corpus...")
             engine, chunk_count = build_engine(
                 args.corpus, work_dir, cache_dir=None if args.no_index_cache else DEFAULT_INDEX_CACHE
@@ -577,6 +644,16 @@ def main(argv=None) -> int:
                 report["summary"]["e2e"] = section["summary"]
                 report["details"]["e2e"] = section
                 print_e2e(section)
+
+        if "grader" in args.stages:
+            from src.agent.llm import create_chat_model
+
+            items = load_grader_dataset(args.grader_dataset)
+            print(f"\n== Checking {len(items)} answers ==")
+            section = run_grader(engine, create_chat_model(), items)
+            report["summary"]["grader"] = section["summary"]
+            report["details"]["grader"] = section
+            print_grader(section)
 
         os.makedirs(args.out, exist_ok=True)
         stamp = datetime.now().strftime("%Y%m%d_%H%M%S")

@@ -73,6 +73,7 @@ def answer(prompt: str) -> dict:
         # None: the answer was not checked (compliance reports, requests) and gets no verification note
         "verified": grade_passed(response["hallucination_grade"]) if response.get("hallucination_grade") else None,
         "is_refined": response.get("is_refined", False),
+        "verification": response.get("verification") or {},
         "active_agent": response.get("active_agent", "supervisor"),
         "agents": response.get("agents", []),
         "agent_trace": response.get("agent_trace", []),

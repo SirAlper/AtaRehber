@@ -105,6 +105,10 @@ OLLAMA_ROUTER_MODEL=
 OLLAMA_GRADER_MODEL=
 # Answer check: quotes (facts backed by copied sentences) or simple (yes/no):
 GRADER_MODE=quotes
+# Answer check: second opinion on rejections, number check, transitional-article check:
+GRADER_SECOND_OPINION=true
+GRADER_NUMBER_CHECK=true
+GRADER_TRANSITIONAL_CHECK=true
 # Reuse verified answers to first questions (0 = off):
 ANSWER_CACHE_SIZE=256
 ANSWER_CACHE_MINUTES=1440
