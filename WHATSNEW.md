@@ -15,6 +15,10 @@ This document provides a comprehensive log of new features, architectural upgrad
 * **Nothing from the internet:** the font and all libraries are bundled; `npm run build` writes static files.
 * **Deployment:** the `web` compose service (port 8080) serves the build with nginx and forwards `/api` to the backend, streaming answers as they come. The HTTPS proxy defines it as an upstream (see [Docker Deployment](docs/docker_deployment.md#-https-reverse-proxy)). CI checks types, runs the web tests, and builds the image.
 
+### Improved: service requests from the chat
+* **Requests about the conversation:** "open a request about this" takes its subject from the last turns; before, the agent saw only the message itself.
+* **Clearer drafts:** the title states the user's problem as the user put it, the category is shown by name ("Diğer", not `other`), and the draft says how to change it.
+
 ### Improved: token security for browsers
 * **Refresh token in an HttpOnly cookie:** browser clients send `X-Token-Transport: cookie` and get the refresh token as a cookie that page scripts cannot read; the web UI keeps the access token in memory only. `POST /api/v1/auth/logout` deletes the cookie; `REFRESH_COOKIE_SECURE=true` sends it over HTTPS only (set by the HTTPS compose). Other clients get the refresh token in the body as before.
 

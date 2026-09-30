@@ -17,7 +17,7 @@ from typing import Any, Dict, Optional
 
 from langchain_core.messages import HumanMessage, SystemMessage
 
-from src.agent.language import confirmation_reply, language_name, message, response_language
+from src.agent.language import category_label, confirmation_reply, language_name, message, response_language
 from src.agent.llm import json_mode
 from src.agent.multi_agent.base import BaseSubAgent
 from src.agent.multi_agent.registry import register_agent
@@ -35,8 +35,11 @@ Decide the action:
 - "create": the user wants to open, file, or report something (a fault, a maintenance need, an access, account, or booking request).
 - "list": the user asks about the status of their own existing requests.
 Allowed categories: {categories}. Pick the closest one; use "other" when none fits.
-Write the title and description in {language}. The title is a short summary (at most 12 words). The description
-contains only details the user actually gave (place, device, time, what is wrong); never invent details.
+Write the title and description in {language}, with correct spelling. The title states the user's problem or need
+as the user sees it (at most 12 words); do not reinterpret it into something the user did not ask for. When the
+message refers to the earlier conversation ("this", "about that", "bununla ilgili"), take the subject from the
+recent conversation given before the message. The description contains only details the user actually gave
+(place, device, time, what is wrong, or what the earlier answer lacked); never invent details.
 
 Output ONLY this JSON, with no other text:
 {{"action": "create", "category": "<category>", "title": "<title>", "description": "<description>"}}
@@ -60,7 +63,8 @@ class ServiceRequestAgent(BaseSubAgent):
     def execute(self, state: Dict[str, Any]) -> Dict[str, Any]:
         start_time = time.time()
         question = state.get("question", "").strip()
-        language = response_language(question, state.get("chat_history", []))
+        chat_history = state.get("chat_history", [])
+        language = response_language(question, chat_history)
         user = state.get("user") or {}
         username = user.get("username")
 
@@ -80,7 +84,7 @@ class ServiceRequestAgent(BaseSubAgent):
             )
 
         # 2. New request or status question
-        extracted = self._extract(question, language)
+        extracted = self._extract(question, language, chat_history)
         if extracted["action"] == "list":
             return self._list(state, username, language, start_time)
 
@@ -103,7 +107,7 @@ class ServiceRequestAgent(BaseSubAgent):
             "request_confirm",
             language,
             title=draft["title"],
-            category=draft["category"],
+            category=category_label(draft["category"], language),
             description=draft["summary"],
         )
         return self._result(state, confirm_text, "request_draft", "awaiting_confirmation", start_time, pending=draft)
@@ -146,7 +150,13 @@ class ServiceRequestAgent(BaseSubAgent):
             logger.error(f"[{self.name}] Audit log for request #{record['id']} failed: {e}")
 
         parts = [
-            message("request_created", language, id=record["id"], title=record["title"], category=record["category"])
+            message(
+                "request_created",
+                language,
+                id=record["id"],
+                title=record["title"],
+                category=category_label(record["category"], language),
+            )
         ]
         if notified:
             parts.append(message("request_notified", language))
@@ -168,23 +178,30 @@ class ServiceRequestAgent(BaseSubAgent):
             answer = message("request_list_empty", language)
         else:
             lines = [
-                f"- **#{r['id']}** `{r['status']}` {r['title']} ({r['category']})"
+                f"- **#{r['id']}** `{r['status']}` {r['title']} ({category_label(r['category'], language)})"
                 + (f": {r['resolution_note']}" if r.get("resolution_note") else "")
                 for r in requests
             ]
             answer = message("request_list_header", language) + "\n" + "\n".join(lines)
         return self._result(state, answer, "request_list", "success", start_time)
 
-    def _extract(self, question: str, language: str) -> Dict[str, str]:
+    def _extract(self, question: str, language: str, chat_history=()) -> Dict[str, str]:
         """Ask the model for action/category/title/description; fall back to simple rules."""
         prompt = REQUEST_EXTRACTION_PROMPT.format(
             organization=ORGANIZATION,
             categories=", ".join(config.REQUEST_CATEGORIES),
             language=language_name(language),
         )
+        # "Open a request about this" names its subject only in the earlier turns
+        history = [
+            f"User: {turn.get('question', '')}\nAssistant: {turn.get('answer', '')[:600]}"
+            for turn in list(chat_history or [])[-3:]
+            if turn.get("question") and turn.get("answer")
+        ]
+        user_text = ("Recent conversation:\n" + "\n".join(history) + "\n\nMessage:\n" if history else "") + question
         try:
             response = json_mode(self.chat_model).invoke(
-                [SystemMessage(content=prompt), HumanMessage(content=question)]
+                [SystemMessage(content=prompt), HumanMessage(content=user_text)]
             )
             text = re.sub(r"^```(?:json)?\s*|\s*```$", "", response.content.strip(), flags=re.IGNORECASE)
             data = json.loads(text)

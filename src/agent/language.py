@@ -238,17 +238,18 @@ _MESSAGES = {
         "tr": "Denetim raporu oluşturulurken bir sistem hatası oluştu. Lütfen daha sonra tekrar deneyin.",
     },
     "request_created": {
-        "en": "✅ Your request has been filed: **#{id}**, {title}\n\nCategory: `{category}` · Status: open",
-        "tr": "✅ Talebiniz oluşturuldu: **#{id}**, {title}\n\nKategori: `{category}` · Durum: açık",
+        "en": "✅ Your request has been filed: **#{id}**, {title}\n\nCategory: {category} · Status: open",
+        "tr": "✅ Talebiniz oluşturuldu: **#{id}**, {title}\n\nKategori: {category} · Durum: açık",
     },
     "request_confirm": {
         "en": (
-            "Shall I file this request?\n\n**Title:** {title}\n**Category:** `{category}`\n**Details:** {description}"
-            "\n\nReply **yes** to file it or **no** to discard it."
+            "Shall I file this request?\n\n**Title:** {title}\n**Category:** {category}\n**Details:** {description}"
+            "\n\nReply **yes** to file it or **no** to discard it. To change it, describe the request again."
         ),
         "tr": (
-            "Şu talebi oluşturmamı onaylıyor musunuz?\n\n**Başlık:** {title}\n**Kategori:** `{category}`\n"
-            "**Açıklama:** {description}\n\nOnaylamak için **evet**, vazgeçmek için **hayır** yazın."
+            "Şu talebi oluşturmamı onaylıyor musunuz?\n\n**Başlık:** {title}\n**Kategori:** {category}\n"
+            "**Açıklama:** {description}\n\nOnaylamak için **evet**, vazgeçmek için **hayır** yazın. "
+            "Değiştirmek için talebi yeniden yazabilirsiniz."
         ),
     },
     "request_discarded": {
@@ -297,6 +298,23 @@ def message(key: str, language: str, **values) -> str:
     variants = _MESSAGES[key]
     text = variants.get(language, variants[DEFAULT_LANGUAGE])
     return text.format(**values) if values else text
+
+
+_CATEGORY_LABELS = {
+    "it_support": {"en": "IT support", "tr": "Bilgi İşlem"},
+    "facilities": {"en": "Facilities", "tr": "Yapı ve Teknik İşler"},
+    "academic": {"en": "Academic", "tr": "Akademik"},
+    "administrative": {"en": "Administrative", "tr": "İdari"},
+    "other": {"en": "Other", "tr": "Diğer"},
+}
+
+
+def category_label(category: str, language: str) -> str:
+    """Name of a built-in request category in `language`; custom categories are shown as configured."""
+    labels = _CATEGORY_LABELS.get(category)
+    if not labels:
+        return category
+    return labels.get(language, labels[DEFAULT_LANGUAGE])
 
 
 def message_variants(key: str) -> tuple:

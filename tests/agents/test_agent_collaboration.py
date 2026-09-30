@@ -29,6 +29,7 @@ class ScriptedLLM:
         self.synthesis = synthesis
         self.grade = grade
         self.request = request or REQUEST_DRAFT
+        self.request_inputs = []
 
     def invoke(self, messages):
         system = messages[0].content
@@ -39,6 +40,7 @@ class ScriptedLLM:
         if "factual auditor" in system:
             return SimpleNamespace(content=self.grade)
         if "service request" in system:
+            self.request_inputs.append(messages[-1].content)
             return SimpleNamespace(content=json.dumps(self.request))
         raise AssertionError(f"unexpected prompt: {system[:80]}")
 
@@ -254,6 +256,9 @@ class TestServiceRequestFlow(unittest.TestCase):
         orchestrator = self.orchestrator([{"steps": [step("request_agent", "x")]}])
         first = orchestrator.query("B204'te projektör bozuk, arıza kaydı aç", thread_id="t1", user=self.user)
         self.assertIn("onaylıyor musunuz", first["answer"])
+        # The category by name, not the internal key
+        self.assertIn("**Kategori:** Bilgi İşlem", first["answer"])
+        self.assertNotIn("it_support", first["answer"])
         self.assertEqual(self.store.list(), [])
 
         second = orchestrator.query("Evet", thread_id="t1", user=self.user)  # no routing LLM call needed
@@ -267,6 +272,14 @@ class TestServiceRequestFlow(unittest.TestCase):
         self.llm.plans.append({"steps": [], "direct_response": "?"})
         orchestrator.query("evet", thread_id="t1", user=self.user)
         self.assertEqual(len(self.store.list()), 1)
+
+    def test_a_request_about_the_earlier_answer_gets_its_subject_from_the_conversation(self):
+        orchestrator = self.orchestrator([{"steps": [step("doc_agent", "q")]}, {"steps": [step("request_agent", "x")]}])
+        orchestrator.query("Yaz okulunda kaç ders alabilirim?", thread_id="t6", user=self.user)
+        orchestrator.query("Bu cevap yetersizdi, bununla ilgili talep oluştur", thread_id="t6", user=self.user)
+        extractor_input = self.llm.request_inputs[-1]
+        self.assertIn("Yaz okulunda kaç ders alabilirim?", extractor_input)
+        self.assertTrue(extractor_input.endswith("Bu cevap yetersizdi, bununla ilgili talep oluştur"))
 
     def test_no_discards_the_draft(self):
         orchestrator = self.orchestrator([{"steps": [step("request_agent", "x")]}])
