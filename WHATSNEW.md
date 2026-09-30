@@ -17,6 +17,7 @@ This document provides a comprehensive log of new features, architectural upgrad
 
 ### Improved: service requests from the chat
 * **Requests about the conversation:** "open a request about this" takes its subject from the last turns; before, the agent saw only the message itself.
+* **Users learn that they can:** greetings and thanks ("teşekkürler", "sağ olun", now answered without a model call) end with a hint on how to open a request, for logged-in users who can file them (not for guests). The web UI's request suggestion is a concrete example and is not shown to guests.
 * **Clearer drafts:** the title states the user's problem as the user put it, the category is shown by name ("Diğer", not `other`), and the draft says how to change it.
 
 ### Improved: token security for browsers

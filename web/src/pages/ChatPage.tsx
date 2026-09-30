@@ -182,7 +182,11 @@ export function ChatPage() {
     }
   }
 
-  const suggestions = t("chat.suggestions", { returnObjects: true }) as string[];
+  const suggestions = [
+    ...(t("chat.suggestions", { returnObjects: true }) as string[]),
+    // Guests cannot file requests
+    ...(isGuest ? [] : [t("chat.requestSuggestion")]),
+  ];
   const history = conversations.filter((c) => c.messages.length);
 
   return (

@@ -47,6 +47,41 @@ GREETING_TOKENS = frozenset(
     }
 )
 
+# Thanks and goodbyes ("çok teşekkür ederim", "sağ olun", "thanks a lot"): every word is one of these, and at
+# least one is a thanks or goodbye word, so "çok" or "you" alone is not taken for thanks
+THANKS_WORDS = frozenset(
+    {
+        "teşekkür",
+        "teşekkürler",
+        "tesekkur",
+        "tesekkurler",
+        "tşk",
+        "tşkler",
+        "tsk",
+        "sağol",
+        "sagol",
+        "sağolun",
+        "sagolun",
+        "eyvallah",
+        "görüşürüz",
+        "gorusuruz",
+        "hoşçakal",
+        "hoscakal",
+        "hoşçakalın",
+        "hoscakalin",
+        "thanks",
+        "thank",
+        "thx",
+        "bye",
+        "goodbye",
+    }
+)
+THANKS_TOKENS = THANKS_WORDS | frozenset(
+    {"çok", "cok", "ederim", "ederiz"}
+    | {"you", "very", "much", "a", "lot", "so", "for", "the", "help", "yardım", "yardımınız", "için", "icin"}
+    | {"tamam", "anladım", "anladim", "harika", "süper", "super", "bilgi", "bilgiler", "ok", "okay", "great"}
+)
+
 SUPERVISOR_SYSTEM_PROMPT = """You are the supervisor of an AI assistant team at {organization}.
 Your task is to analyze the user's message and route it to the most qualified specialist sub-agent(s), or answer directly if the message is a greeting or a question about what you can do.
 
@@ -162,10 +197,18 @@ class SupervisorAgent:
 
         words = re.sub(r"[^\w\s]", " ", question.lower()).split()
         is_greeting = bool(words) and len(words) <= 6 and all(w in GREETING_TOKENS for w in words)
+        # "sağ ol" and "hoşça kal" are written apart as often as together
+        thanks_words = re.sub(r"\b(sağ|sag|hoşça|hosca) (ol|olun|kal|kalın|kalin)\b", r"\1\2", " ".join(words)).split()
+        is_thanks = (
+            bool(thanks_words)
+            and len(thanks_words) <= 8
+            and all(w in THANKS_TOKENS for w in thanks_words)
+            and any(w in THANKS_WORDS for w in thanks_words)
+        )
 
         # 1. Honor explicit user agent selection if provided (a greeting still gets a greeting: guests always
         # have doc_agent forced, and "merhaba" is no document question)
-        if forced_agent and self.registry.get(forced_agent) and not is_greeting:
+        if forced_agent and self.registry.get(forced_agent) and not (is_greeting or is_thanks):
             logger.info(f"[Supervisor] Forced routing to agent: '{forced_agent}'")
             return {"next_agent": forced_agent, "plan": [{"agent": forced_agent, "question": question}]}
 
@@ -188,24 +231,31 @@ class SupervisorAgent:
                 ],
             }
 
-        # 3. Pure greetings (every word is a greeting token) bypass LLM routing latency.
+        # 3. Pure greetings and thanks (every word a greeting or thanks token) bypass LLM routing latency.
         # Any other content, e.g. "hi, list sales", goes through normal routing.
-        if is_greeting:
-            duration_ms = int((time.time() - start_time) * 1000)
+        if is_greeting or is_thanks:
+            user = state.get("user") or {}
             # Guests only ask about documents; their greeting does not offer requests or databases
-            is_guest = (state.get("user") or {}).get("role") == GUEST_ROLE
+            is_guest = user.get("role") == GUEST_ROLE
+            if is_greeting:
+                answer = message("greeting_guest" if is_guest else "greeting", language)
+            else:
+                answer = message("thanks", language)
+            # Tell users who can file requests that they can, where they will read it
+            if user.get("username") and not is_guest and self.registry.is_available("request_agent"):
+                answer += "\n\n" + message("request_hint", language)
             return {
                 "next_agent": "finish",
                 "plan": [],
-                "final_answer": message("greeting_guest" if is_guest else "greeting", language),
+                "final_answer": answer,
                 "sources": [],
                 "agent_trace": list(state.get("agent_trace", []))
                 + [
                     {
                         "agent": "supervisor",
                         "display_name": "Supervisor Orchestrator",
-                        "action": "direct_greeting",
-                        "duration_ms": duration_ms,
+                        "action": "direct_greeting" if is_greeting else "direct_thanks",
+                        "duration_ms": int((time.time() - start_time) * 1000),
                         "status": "success",
                         "timestamp": datetime.now(timezone.utc).isoformat(),
                     }

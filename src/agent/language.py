@@ -168,13 +168,30 @@ _MESSAGES = {
     "greeting": {
         "en": (
             "Hello! I am your AI assistant. My specialist agents answer questions from the organization's "
-            "documents and regulations, check whether an action complies with the rules, open service requests, "
-            "and analyze connected databases. How can I help you today?"
+            "documents and regulations, check whether an action complies with the rules, and analyze connected "
+            "databases. How can I help you today?"
         ),
         "tr": (
             "Merhaba! Ben yapay zekâ asistanınızım. Uzman ajanlarım kurum dokümanları ve mevzuattan soruları "
-            "cevaplar, bir işlemin kurallara uygunluğunu değerlendirir, talep kaydı açar ve bağlı veritabanlarını "
-            "analiz eder. Size nasıl yardımcı olabilirim?"
+            "cevaplar, bir işlemin kurallara uygunluğunu değerlendirir ve bağlı veritabanlarını analiz eder. "
+            "Size nasıl yardımcı olabilirim?"
+        ),
+    },
+    "thanks": {
+        "en": "You're welcome! Ask me anytime if you have another question.",
+        "tr": "Rica ederim! Başka bir sorunuz olursa her zaman sorabilirsiniz.",
+    },
+    # Added to greetings and thanks for users who can file requests, so they learn that they can
+    "request_hint": {
+        "en": (
+            "💡 If something is not working (a device, your account, a room), just ask me to open a request, e.g. "
+            "“Open a request: the projector in room B204 does not work.” You can also ask about the status of "
+            "your requests."
+        ),
+        "tr": (
+            "💡 Bir sorun yaşarsanız (çalışmayan bir cihaz, hesap veya derslik sorunu) benden talep oluşturmamı "
+            "isteyebilirsiniz, örneğin: “Talep oluştur: B204'teki projektör çalışmıyor.” Taleplerinizin durumunu "
+            "da sorabilirsiniz."
         ),
     },
     "greeting_guest": {
