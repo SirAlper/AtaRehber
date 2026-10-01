@@ -11,7 +11,7 @@ DOCS_PATH = os.getenv("DATA_DIR", os.path.join(BASE_DIR, "data"))
 # ──────────────────────────── API & SECURITY CONFIGURATION ────────────────────────────
 CORS_ORIGINS = [
     origin.strip()
-    for origin in os.getenv("CORS_ORIGINS", "http://localhost:8501,http://127.0.0.1:8501").split(",")
+    for origin in os.getenv("CORS_ORIGINS", "http://localhost:8080,http://127.0.0.1:8080").split(",")
     if origin.strip()
 ]
 MAX_UPLOAD_SIZE_MB = int(os.getenv("MAX_UPLOAD_SIZE_MB", "50"))
@@ -85,6 +85,11 @@ OLLAMA_NUM_PARALLEL = int(os.getenv("OLLAMA_NUM_PARALLEL", "4"))
 # shortly") instead of waiting until the web UI gives up after 180 s. Roughly 180 s / seconds per question minus
 # OLLAMA_NUM_PARALLEL; 0 disables the limit.
 MAX_QUEUED_QUERIES = int(os.getenv("MAX_QUEUED_QUERIES", "10"))
+# Questions first check that Ollama answers and has the models, so an outage gets a clear "language model not
+# available" (HTTP 503) instead of the "could not be verified" fallback. The result is reused for
+# LLM_STATUS_CACHE_SECONDS; false skips the check.
+LLM_STATUS_CHECK = os.getenv("LLM_STATUS_CHECK", "true").lower() == "true"
+LLM_STATUS_CACHE_SECONDS = float(os.getenv("LLM_STATUS_CACHE_SECONDS", "10"))
 # Optional separate models per task; empty uses OLLAMA_MODEL (see src/agent/llm.py). A stronger grader catches
 # more wrong answers, a small router model keeps routing fast. Every configured model must be pulled.
 OLLAMA_ROUTER_MODEL = os.getenv("OLLAMA_ROUTER_MODEL", "").strip()
@@ -179,6 +184,11 @@ DOCUMENT_ACCESS_FILE = os.path.join(DOCS_PATH, "document_access.json")
 CUSTOM_AGENTS_FILE = os.path.join(DOCS_PATH, "custom_agents.json")
 # Staff answers to questions the documents did not answer; searched like a document (see src/services/faq.py)
 FAQ_FILE = os.path.join(DOCS_PATH, "faq.json")
+# Web UI texts admins change in the web UI (name, welcome, example questions; see src/services/ui_settings.py)
+UI_SETTINGS_FILE = os.path.join(DOCS_PATH, "ui_settings.json")
+# Default language of the web UI ("tr" or "en"; each user can switch) and a disclaimer for both languages
+UI_LANGUAGE = os.getenv("UI_LANGUAGE", "tr")
+UI_DISCLAIMER = os.getenv("UI_DISCLAIMER", "").strip()
 CHAT_HISTORY_MAX_TURNS = int(os.getenv("CHAT_HISTORY_MAX_TURNS", "20"))
 
 # ──────────────────────────── CHUNKING CONFIGURATION ────────────────────────────

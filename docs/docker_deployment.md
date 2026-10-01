@@ -25,9 +25,9 @@ The containerized deployment runs three services on an internal Docker bridge ne
 │  └───────────────────▲─────────────────────────────────────▲──────────────────┘  │
 │                      │ (internal: 8000)                    │ (internal: 11434)   │
 │  ┌───────────────────┴─────────────────┐  ┌────────────────┴──────────────────┐  │
-│  │        rag_agents_frontend          │  │        rag_agents_ollama          │  │
-│  │ Streamlit (Port 8501, light image)  │  │ LLM server (GPU via override),    │  │
-│  │                                     │  │ internal network only             │  │
+│  │            rag_agents_web           │  │        rag_agents_ollama          │  │
+│  │ nginx (Port 8080): web UI,          │  │ LLM server (GPU via override),    │  │
+│  │ forwards /api to the backend        │  │ internal network only             │  │
 │  └─────────────────────────────────────┘  └───────────────────────────────────┘  │
 └──────────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -35,9 +35,8 @@ The containerized deployment runs three services on an internal Docker bridge ne
 * **Separate images:**
   * [`Dockerfile`](../Dockerfile) builds the **backend** in two stages. A builder stage compiles dependencies, and a `python:3.12-slim` runtime stage copies only the installed packages and the `src/` code. PyTorch is installed from the CPU wheel index; it only runs the embedding and reranker models (a CUDA build can be selected with the `TORCH_INDEX_URL` build argument).
   * The **LLM** runs in the official `ollama/ollama` image. Its models are stored in the `ollama_data` volume.
-  * [`web/Dockerfile`](../web/Dockerfile) builds the **React web UI** (`web` service, port 8080): Node builds the static files, and an `nginx` image serves them and forwards `/api` and `/health` to the backend ([`web/deploy/nginx.conf`](../web/deploy/nginx.conf)), so the browser talks to one address. It runs next to the Streamlit UI during the transition. Without the HTTPS override the backend sees this container as the client of every login and token refresh, so these share the rate limit of that one address (`RATE_LIMIT_PER_MINUTE`; calls without a bearer token are counted by IP); that is fine for trying it out, but shared deployments should use the [HTTPS reverse proxy](#-https-reverse-proxy), which passes the real client IP.
-  * [`Dockerfile.frontend`](../Dockerfile.frontend) builds a lightweight **Streamlit** image with only `streamlit` and `requests`, since the UI talks to the backend over HTTP and needs no ML stack.
-* **Non-root containers:** Both images run as user `app` (uid/gid `1000`).
+  * [`web/Dockerfile`](../web/Dockerfile) builds the **React web UI** (`web` service, port 8080): Node builds the static files, and an `nginx` image serves them and forwards `/api` and `/health` to the backend ([`web/deploy/nginx.conf`](../web/deploy/nginx.conf)), so the browser talks to one address. Its name, texts, and default language come from the backend (`UI_LANGUAGE`, `UI_DISCLAIMER`, and **Administration → Appearance**). Without the HTTPS override the backend sees this container as the client of every login and token refresh, so these share the rate limit of that one address (`RATE_LIMIT_PER_MINUTE`; calls without a bearer token are counted by IP); that is fine for trying it out, but shared deployments should use the [HTTPS reverse proxy](#-https-reverse-proxy), which passes the real client IP.
+* **Non-root backend:** The backend image runs as user `app` (uid/gid `1000`).
 * **Zero-Bloat Image:** Retrieval model weights, vector indexes, documents and databases are mounted as host volumes, never baked into the image. `.env` files are excluded from the build context, so secrets never end up in image layers.
 * **Data Persistence:** Rebuilding or recreating containers keeps your documents, audit log (`audit.db`), user accounts (`users.json`), JWT secret (`.jwt_secret`), conversation checkpoints (`multi_agent_conversations.db`), vector collections, and backups.
 
@@ -86,18 +85,17 @@ docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d --build
 ```
 
 #### Option C: Use an Ollama Already Running on the Host
-Set `OLLAMA_BASE_URL=http://host.docker.internal:11434` in `.env` (Docker Desktop; on Linux use the host IP), pull the model on the host (`ollama pull qwen2.5:7b`), and start only the backend and frontend:
+Set `OLLAMA_BASE_URL=http://host.docker.internal:11434` in `.env` (Docker Desktop; on Linux use the host IP), pull the model on the host (`ollama pull qwen2.5:7b`), and start only the backend and the web UI:
 ```bash
-docker compose up -d --build --no-deps backend frontend
+docker compose up -d --build --no-deps backend web
 ```
 
 On the first start (options A and B), `ollama-pull` downloads `OLLAMA_MODEL` (~4.7 GB for `qwen2.5:7b`). The UI and API are available right away; questions work once the download has finished (`docker compose logs -f ollama-pull`).
 
 ### Step 3: Access Applications
 * **Web UI (React):** `http://localhost:8080`
-* **Streamlit Web UI (previous interface):** `http://localhost:8501`
 * **FastAPI Swagger API:** `http://localhost:8000/docs`
-* **Healthcheck API:** `http://localhost:8000/health` (unauthenticated liveness probe; the frontend starts once it reports healthy)
+* **Healthcheck API:** `http://localhost:8000/health` (unauthenticated liveness probe)
 
 > [!NOTE]
 > **Initial Admin Credentials:**
@@ -110,7 +108,7 @@ On the first start (options A and B), `ollama-pull` downloads `OLLAMA_MODEL` (~4
 
 ## 🔒 HTTPS Reverse Proxy
 
-Use HTTPS for every deployment that other people access. `docker-compose.https.yml` adds an nginx proxy that terminates TLS on port 443 (port 80 redirects to it) and stops publishing the backend (8000) and UI (8501, 8080) ports on the host, so only the proxy is reachable from the network.
+Use HTTPS for every deployment that other people access. `docker-compose.https.yml` adds an nginx proxy that terminates TLS on port 443 (port 80 redirects to it) and stops publishing the backend (8000) and web UI (8080) ports on the host, so only the proxy is reachable from the network.
 
 1. Put the certificate files in `deploy/certs/` (git-ignored):
    * `fullchain.pem`: the certificate followed by the intermediate certificates
@@ -131,8 +129,8 @@ What the proxy serves (`deploy/nginx/nginx.conf`):
 
 | Path | Target | Notes |
 | :--- | :--- | :--- |
-| `/` | Streamlit UI | WebSocket upgrade enabled. To serve the React web UI instead, set `proxy_pass http://web;` in this block (the `web` upstream is already defined). |
-| `/api/` | REST API | For API clients and portal integrations; every endpoint needs a JWT. Remove the block to serve only the UI. |
+| `/` | Web UI (`web` service) | Static files; the web UI calls `/api/` on the same address. |
+| `/api/` | REST API | Used by the web UI and by API clients and portal integrations; every endpoint except the login and the UI texts needs a JWT. |
 | `/health` | Backend liveness probe | |
 
 The proxy also sets HSTS and other security headers, allows uploads up to 50 MB (keep in sync with `MAX_UPLOAD_SIZE_MB`), sets `REFRESH_COOKIE_SECURE=true` so the web UI's refresh token cookie is sent over HTTPS only, and passes the client IP to the backend (`FORWARDED_ALLOW_IPS=*` is safe only because the backend port is not published). If browser-based clients call the API directly, add the HTTPS origin to `CORS_ORIGINS`. CI validates the nginx configuration and checks that the override publishes no backend or UI ports.
@@ -179,7 +177,7 @@ DB_MAX_ROWS=50
 DB_QUERY_TIMEOUT_SECONDS=15
 
 # ─── API & Security ───
-CORS_ORIGINS=http://localhost:8501,http://127.0.0.1:8501,http://frontend:8501
+CORS_ORIGINS=http://localhost:8080,http://127.0.0.1:8080
 MAX_UPLOAD_SIZE_MB=50
 RATE_LIMIT_PER_MINUTE=30
 RATE_LIMIT_READS_PER_MINUTE=300
@@ -275,10 +273,10 @@ docker run --rm --gpus all nvidia/cuda:12.1.0-base-ubuntu22.04 nvidia-smi
 ```
 
 ### 2. Port Conflicts:
-If port `8000` or `8501` is already in use on your host machine, update the port mapping in `docker-compose.yml`:
+If port `8000` or `8080` is already in use on your host machine, update the port mapping in `docker-compose.yml`:
 ```yaml
 ports:
-  - "8080:8000"  # Changes host backend port to 8080
+  - "8001:8000"  # Changes host backend port to 8001
 ```
 
 ### 3. `PermissionError` on `/app/data`, `/app/vector_db`, or `/app/backups`:

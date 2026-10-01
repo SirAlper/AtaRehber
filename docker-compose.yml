@@ -19,7 +19,8 @@ services:
       - path: .env
         required: false
     environment:
-      - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:8501,http://127.0.0.1:8501,http://frontend:8501}
+      # The web UI calls the API on its own origin (its nginx forwards /api); list other origins that call the API
+      - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:8080,http://127.0.0.1:8080}
       - RAG_DEVICE=${RAG_DEVICE:-cpu}
       - MAX_UPLOAD_SIZE_MB=${MAX_UPLOAD_SIZE_MB:-50}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
@@ -44,30 +45,8 @@ services:
       - rag_network
 
   # ───────────────────────────────────────────────────────────────────────────
-  # Frontend: Streamlit Web UI Management Dashboard & Assistant Chat
-  # ───────────────────────────────────────────────────────────────────────────
-  frontend:
-    build:
-      context: .
-      dockerfile: Dockerfile.frontend
-    container_name: rag_agents_frontend
-    restart: unless-stopped
-    ports:
-      - "8501:8501"
-    environment:
-      - API_BASE_URL=http://backend:8000
-      # UI language ("tr" or "en"; users can switch in the sidebar) and an optional custom disclaimer
-      - UI_LANGUAGE=${UI_LANGUAGE:-tr}
-      - UI_DISCLAIMER=${UI_DISCLAIMER:-}
-    depends_on:
-      backend:
-        condition: service_healthy
-    networks:
-      - rag_network
-
-  # ───────────────────────────────────────────────────────────────────────────
-  # Web: the React web UI (http://localhost:8080). nginx serves it and forwards /api to the backend.
-  # Runs next to the Streamlit UI during the transition.
+  # Web: the web UI (http://localhost:8080). nginx serves it and forwards /api to the backend.
+  # Its language, name and texts come from the backend (UI_LANGUAGE, UI_DISCLAIMER, Admin > Appearance).
   # ───────────────────────────────────────────────────────────────────────────
   web:
     build:

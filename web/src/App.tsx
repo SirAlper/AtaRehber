@@ -4,6 +4,7 @@ import { Navigate, Route, Routes } from "react-router-dom";
 import { useAuth } from "@/auth/AuthContext";
 import { Layout } from "@/components/Layout";
 import { Spinner } from "@/components/ui";
+import { useUiSettings } from "@/lib/uiSettings";
 import { ChangePasswordPage } from "@/pages/ChangePasswordPage";
 import { ChatPage } from "@/pages/ChatPage";
 import { LoginPage } from "@/pages/LoginPage";
@@ -22,6 +23,8 @@ function Splash() {
 
 export default function App() {
   const { user, ready, isStaff, isGuest } = useAuth();
+  // The organization's name and texts, for the login page too
+  useUiSettings();
   if (!ready) return <Splash />;
   if (!user) return <LoginPage />;
   if (user.must_change_password) return <ChangePasswordPage />;

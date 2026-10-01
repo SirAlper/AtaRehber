@@ -15,6 +15,7 @@ vi.mock("@/pages/admin/ReviewTab", () => ({ ReviewTab: () => <p>ReviewTab</p> })
 vi.mock("@/pages/admin/StatsTab", () => ({ StatsTab: () => <p>StatsTab</p> }));
 vi.mock("@/pages/admin/AuditTab", () => ({ AuditTab: () => <p>AuditTab</p> }));
 vi.mock("@/pages/admin/SystemTab", () => ({ SystemTab: () => <p>SystemTab</p> }));
+vi.mock("@/pages/admin/AppearanceTab", () => ({ AppearanceTab: () => <p>AppearanceTab</p> }));
 
 function Location() {
   return <output data-testid="location">{useLocation().pathname}</output>;

@@ -1,4 +1,4 @@
-import { Activity, Bot, FileText, Gauge, SearchCheck, ServerCog, Users } from "lucide-react";
+import { Activity, Bot, FileText, Gauge, Palette, SearchCheck, ServerCog, Users } from "lucide-react";
 import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { Navigate, NavLink, Route, Routes } from "react-router-dom";
@@ -6,6 +6,7 @@ import { Navigate, NavLink, Route, Routes } from "react-router-dom";
 import { useAuth } from "@/auth/AuthContext";
 import { cn } from "@/lib/utils";
 import { AgentsTab } from "@/pages/admin/AgentsTab";
+import { AppearanceTab } from "@/pages/admin/AppearanceTab";
 import { AuditTab } from "@/pages/admin/AuditTab";
 import { DocumentsTab } from "@/pages/admin/DocumentsTab";
 import { ReviewTab } from "@/pages/admin/ReviewTab";
@@ -51,6 +52,7 @@ export default function AdminPage() {
               <Tab to="/admin/agents" icon={<Bot className="h-4 w-4" />} label={t("admin.agents")} />
               <Tab to="/admin/stats" icon={<Gauge className="h-4 w-4" />} label={t("admin.stats")} />
               <Tab to="/admin/audit" icon={<Activity className="h-4 w-4" />} label={t("admin.audit")} />
+              <Tab to="/admin/appearance" icon={<Palette className="h-4 w-4" />} label={t("admin.appearance")} />
               <Tab to="/admin/system" icon={<ServerCog className="h-4 w-4" />} label={t("admin.system")} />
             </>
           )}
@@ -65,6 +67,7 @@ export default function AdminPage() {
               <Route path="agents" element={<AgentsTab />} />
               <Route path="stats" element={<StatsTab />} />
               <Route path="audit" element={<AuditTab />} />
+              <Route path="appearance" element={<AppearanceTab />} />
               <Route path="system" element={<SystemTab />} />
             </>
           )}

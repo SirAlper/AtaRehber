@@ -17,7 +17,7 @@ Language support has three layers, and a language counts as supported only when 
 
 The response language follows each question, so a user can switch languages within a session. A question without language cues, such as a bare ticket code (`SR-2026-103?`), inherits the language of the session's earlier questions; English is the default.
 
-Compliance verdict labels (`[COMPLIANT]`, `[VIOLATION / PROHIBITED]`, …) stay in English in every language so they remain machine-readable. Both web UIs (React and Streamlit) are in Turkish and English; users switch the language with one click (the React UI remembers the choice in the browser).
+Compliance verdict labels (`[COMPLIANT]`, `[VIOLATION / PROHIBITED]`, …) stay in English in every language so they remain machine-readable. The web UI is in Turkish and English; `UI_LANGUAGE` sets the default, and users switch the language with one click (the choice is remembered in the browser).
 
 ---
 

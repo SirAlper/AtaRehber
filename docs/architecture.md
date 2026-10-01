@@ -9,7 +9,7 @@
 ```text
 ┌──────────────────────────────────────────────────────────────────────────────────┐
 │                            Enterprise Client Layer                               │
-│  React Web UI (8080) · Streamlit UI (8501)  │   External Workplace Apps / Bots   │
+│  Web UI (React, 8080)                       │   External Workplace Apps / Bots   │
 └────────────────────────────────────────┬─────────────────────────────────────────┘
                                          │ HTTP REST (Bearer JWT), NDJSON stream
                                          ▼
@@ -256,12 +256,12 @@ A stronger grader than the answer model catches more of what the 7B model shares
 * **Separate server:** The LLM runs in an [Ollama](https://ollama.com) server (`OLLAMA_BASE_URL`, default model `qwen2.5:7b`). The API process loads no LLM weights, so it starts quickly, and switching models is a matter of `ollama pull <model>` plus `OLLAMA_MODEL`.
 * **Explicit context window:** Requests set `num_ctx` (`OLLAMA_NUM_CTX`, default 4096) because some Ollama versions default to 2048 tokens and silently drop the beginning of longer prompts, i.e. the system prompt and retrieved context.
 * **Availability check:** At startup the API checks that the server is reachable and the model is pulled, and logs an actionable error (`ollama pull …`) otherwise. The API still starts, so documents, users, and the audit log remain usable; `GET /api/v1/stats` reports the state as `llm_status`.
-* **Concurrency:** Queries are capped by `asyncio.Semaphore(OLLAMA_NUM_PARALLEL)`. Match it to the server's own `OLLAMA_NUM_PARALLEL` setting. At most `MAX_QUEUED_QUERIES` (default 10) further questions wait for a slot; beyond that the API answers HTTP 503 at once and the web UI says the assistant is busy, instead of a timeout after 180 s. A good value is about 180 s divided by the seconds a question takes, minus `OLLAMA_NUM_PARALLEL`.
+* **Concurrency:** Queries are capped by `asyncio.Semaphore(OLLAMA_NUM_PARALLEL)`. Match it to the server's own `OLLAMA_NUM_PARALLEL` setting. At most `MAX_QUEUED_QUERIES` (default 10) further questions wait for a slot; beyond that the API answers HTTP 503 at once and the web UI says the assistant is busy, instead of a timeout after 180 s. A question that arrives while Ollama is down or lacks a model gets HTTP 503 with `X-Error-Code: llm_unavailable` (`LLM_STATUS_CHECK`), and the web UI says the language model is not running. A good value is about 180 s divided by the seconds a question takes, minus `OLLAMA_NUM_PARALLEL`.
 * **Model choice is measured:** on the evaluation set, `qwen2.5:7b` answers 95% of the questions correctly versus 73% for the previous in-process 1.5B model (see [Evaluation](evaluation.md#-current-results)).
 
 ### 4. Transport Security & Telemetry
 * **HTTPS:** `docker-compose.https.yml` puts an nginx reverse proxy with TLS, HSTS, and security headers in front of the UI and API and stops publishing the backend and UI ports ([Docker Deployment](docker_deployment.md#-https-reverse-proxy)).
-* **No telemetry:** ChromaDB's anonymized telemetry is disabled in code, Streamlit usage statistics are disabled (`.streamlit/config.toml`, and an environment variable in the Docker image), and the Hugging Face Hub runs in offline mode once the models are downloaded.
+* **No telemetry:** ChromaDB's anonymized telemetry is disabled in code, the web UI loads no external scripts or fonts, and the Hugging Face Hub runs in offline mode once the models are downloaded.
 
 ### 4b. File Upload Hardening & Path Traversal Prevention
 * **Path Traversal Protection:** `os.path.basename()` sanitization plus a canonical-path containment check (`os.path.commonpath`) against the data directory.
@@ -293,7 +293,7 @@ Defense in depth, from application layer to database engine. See [Database Conne
 * **Name Validation:** Only plain backup directory names created by the backup endpoint are accepted.
 
 ### 8. Rate Limiting & DoS Protection
-* **Sliding Window Middleware:** Limits questions, uploads, and other changes to `RATE_LIMIT_PER_MINUTE` (default 30) and reads (`GET`) to `RATE_LIMIT_READS_PER_MINUTE` (default 300) per authenticated account, or per client IP for anonymous requests; the web UI reloads its panels with several reads on every click. Keying by account prevents all users behind the Streamlit container (a single IP) from sharing one budget.
+* **Sliding Window Middleware:** Limits questions, uploads, and other changes to `RATE_LIMIT_PER_MINUTE` (default 30) and reads (`GET`) to `RATE_LIMIT_READS_PER_MINUTE` (default 300) per authenticated account, or per client IP for anonymous requests; the web UI reloads its panels with several reads on every click. Keying by account prevents all users behind one gateway (a single IP) from sharing one budget.
 * **Automated Throttling:** Excess requests receive HTTP 429 with a `Retry-After` header. `/health` and API docs are exempt. Idle entries are purged periodically.
 
 ### 9. Centralized Logging & Error Handling (`src.core.logger`)

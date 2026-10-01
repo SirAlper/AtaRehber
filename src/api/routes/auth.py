@@ -48,7 +48,7 @@ def _wants_cookie(http_req: Request) -> bool:
 
 def _deliver(tokens: TokenResponse, http_req: Request, response: Response) -> TokenResponse:
     """Browser clients get the refresh token as an HttpOnly cookie (not readable by page scripts) instead of in
-    the body; other clients (the Streamlit UI, scripts) keep receiving it in the body."""
+    the body; other clients (scripts, integrations) keep receiving it in the body."""
     if _wants_cookie(http_req) and tokens.refresh_token:
         response.set_cookie(
             REFRESH_COOKIE,

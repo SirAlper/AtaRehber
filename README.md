@@ -33,7 +33,7 @@
 * 🌐 **Multilingual, Answers in the User's Language:** Multilingual search across enterprise corpora with BGE-M3 dense vectors. Every agent answers in the language of the question (Turkish or English), including fixed messages such as "not found" and error texts, even when the documents or table data are in another language. Mandarin Chinese, Hindi, and Spanish are coming next (see [Language Support](docs/language_support.md)).
 * 📏 **Measured Quality:** A labeled evaluation harness (`python -m evals.run_eval`) measures retrieval, routing, and answer accuracy with the real models and compares runs before and after a change (see [Measured Quality](#-measured-quality)).
 * 🏛️ **Pilot-Ready Operations:** HTTPS reverse proxy, configurable retention for audit entries and conversations, an option to keep question text out of the audit log, scheduled full backups, and no telemetry (see [Data Protection](docs/data_protection.md)).
-* 🖥️ **Full-Stack Suite:** Ready-to-use FastAPI REST gateway (with Swagger OpenAPI docs) paired with a React web UI in Turkish and English (`web/`): chat with live progress, evidence and sources, service requests, and administration, with light and dark themes and an AI disclaimer. The previous Streamlit UI (`ui/`) still works during the transition.
+* 🖥️ **Full-Stack Suite:** Ready-to-use FastAPI REST gateway (with Swagger OpenAPI docs) paired with a React web UI in Turkish and English (`web/`): chat with live progress, evidence and sources, service requests, and administration, with light and dark themes and an AI disclaimer. Admins set the assistant's name, welcome text, and example questions for their organization (**Administration → Appearance**).
 
 ---
 
@@ -91,7 +91,7 @@ python -m venv .venv
 
 # Install PyTorch (CPU is enough: it only runs the embedding and reranker models) and project requirements
 pip install torch --index-url https://download.pytorch.org/whl/cpu
-pip install -r requirements.txt -r requirements-ui.txt
+pip install -r requirements.txt
 ```
 
 ### 2. Download Models (One-time Setup)
@@ -112,10 +112,6 @@ uvicorn src.main:app --host 0.0.0.0 --port 8000 --reload
 # Terminal 2: Web UI (React, needs Node.js 20.19+)
 cd web && npm install && npm run dev
 # Web UI: http://localhost:5173
-
-# Or the previous Streamlit UI
-streamlit run ui/app.py
-# Web Dashboard: http://localhost:8501
 ```
 
 > [!NOTE]
@@ -156,11 +152,10 @@ OpenLocalRagAgents/
 ├── models/                # Local retrieval model weights (BGE-M3, BGE-Reranker); the LLM lives in Ollama
 ├── vector_db/             # ChromaDB persistent vector collection
 ├── backups/               # Full backups (index + data) and staged index restores
-├── tests/                 # Tests by topic: agents/, rag/, api/, security/, data/, frontend/, quality/, performance/
+├── tests/                 # Tests by topic: agents/, rag/, api/, security/, data/, quality/, performance/
 ├── evals/                 # Quality evaluation harness (labeled datasets, corpora incl. a university law, run_eval.py)
 │
 ├── web/                   # Web UI: React + TypeScript + Vite (chat, requests, admin), Dockerfile with nginx
-├── ui/                    # Streamlit UI: app.py (chat), sidebar.py, components.py, api_client.py, session.py, i18n.py
 ├── src/
 │   ├── core/              # Infrastructure: settings (config), logging, hash-chained audit trail
 │   ├── auth/              # JWT tokens, user store, roles, password policy, login throttling, document access groups
@@ -175,14 +170,12 @@ OpenLocalRagAgents/
 ├── .github/workflows/     # CI: lint, tests (Python 3.12-3.14), PostgreSQL/MySQL integration, Docker builds
 ├── examples/              # Developer examples (custom sub-agents)
 ├── Dockerfile             # Backend multi-stage image (CPU default, CUDA via build arg)
-├── Dockerfile.frontend    # Lightweight Streamlit UI image
-├── docker-compose.yml     # Multi-service compose definition (Backend + Web + Streamlit + Ollama)
+├── docker-compose.yml     # Multi-service compose definition (Backend + Web + Ollama)
 ├── docker-compose.gpu.yml # NVIDIA GPU passthrough override
 ├── docker-compose.https.yml # HTTPS reverse proxy override (nginx)
 ├── deploy/                # nginx configuration and TLS certificate folder
 ├── download_model.py      # Downloads the embedding and reranker models to ./models
 ├── requirements.txt       # Backend runtime dependencies
-├── requirements-ui.txt    # Streamlit UI dependencies
 ├── requirements-dev.txt   # Test & lint tooling
 ├── .env.example           # Every setting with its default and a comment
 ├── ruff.toml              # Lint and format settings (same as CI)
