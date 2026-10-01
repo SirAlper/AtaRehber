@@ -5,6 +5,7 @@ import { useEffect, useRef } from "react";
 
 import { isThinking } from "@/lib/activity";
 import { createWorld, render, resizeWorld, step, type World } from "@/lib/cells";
+import { setHueShift } from "@/lib/palette";
 
 // The field is drawn at most this many pixels and scaled up by the browser, which also softens its edges (a blur
 // filter would render as speckles without GPU acceleration)
@@ -16,8 +17,9 @@ function fieldSize() {
   return [Math.ceil(window.innerWidth / scale), Math.ceil(window.innerHeight / scale)];
 }
 
-/** Calm while idle; faster, dividing, merging, and changing colour while the assistant thinks. Still for users
- * who prefer reduced motion. */
+/** Calm while idle; gathering and merging while the assistant thinks (the site's colours turn to a new palette),
+ * scattering to new places when the answer is in (the colours turn back). Still for users who prefer reduced
+ * motion. */
 function LivingColors() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
@@ -32,7 +34,6 @@ function LivingColors() {
     canvas.width = width;
     canvas.height = height;
 
-    let energy = 0;
     let last = performance.now();
     let frame = 0;
     const draw = (now: number) => {
@@ -43,11 +44,11 @@ function LivingColors() {
       if (!still) {
         // Hidden tabs pause; a long gap must not throw the cells across the screen
         const dt = Math.min(elapsed / 1000, 0.1);
-        // Speeds up and calms down over a few seconds
-        energy += ((isThinking() ? 1 : 0) - energy) * Math.min(1, dt * 0.6);
-        step(world, dt, energy);
+        step(world, dt, isThinking());
+        // The site's brand colours turn with the background
+        setHueShift(world.paletteShift);
       }
-      render(world, image.data, document.documentElement.classList.contains("dark"), energy);
+      render(world, image.data, document.documentElement.classList.contains("dark"));
       context.putImageData(image, 0, 0);
     };
     frame = requestAnimationFrame(draw);
@@ -63,6 +64,7 @@ function LivingColors() {
     window.addEventListener("resize", onResize);
     return () => {
       cancelAnimationFrame(frame);
+      setHueShift(0);
       window.removeEventListener("resize", onResize);
     };
   }, []);
@@ -73,12 +75,12 @@ function LivingColors() {
 export function Background() {
   return (
     <div aria-hidden className="pointer-events-none fixed inset-0 -z-10 overflow-hidden">
-      <div className="absolute inset-0 bg-gradient-to-br from-violet-50 via-white to-fuchsia-50 dark:from-[#0c0718] dark:via-[#110a24] dark:to-[#1a0b2e]" />
+      <div className="absolute inset-0 bg-gradient-to-br from-violet-50 via-white to-fuchsia-50 dark:from-night-950 dark:via-night-900 dark:to-night-800" />
       <LivingColors />
       <div
         className="absolute inset-0 opacity-[0.35] dark:opacity-[0.18]"
         style={{
-          backgroundImage: "radial-gradient(rgb(124 58 237 / 0.35) 1px, transparent 1px)",
+          backgroundImage: "radial-gradient(color-mix(in oklab, var(--color-violet-600) 35%, transparent) 1px, transparent 1px)",
           backgroundSize: "22px 22px",
           maskImage: "radial-gradient(ellipse at center, black 30%, transparent 75%)",
           WebkitMaskImage: "radial-gradient(ellipse at center, black 30%, transparent 75%)",
@@ -99,8 +101,8 @@ export function Logo({ className = "h-9 w-9" }: { className?: string }) {
     <svg viewBox="0 0 64 64" className={className} aria-hidden>
       <defs>
         <linearGradient id="logo-gradient" x1="0" y1="0" x2="1" y2="1">
-          <stop offset="0" stopColor="#8b5cf6" />
-          <stop offset="1" stopColor="#d946ef" />
+          <stop offset="0" style={{ stopColor: "var(--color-violet-500)" }} />
+          <stop offset="1" style={{ stopColor: "var(--color-fuchsia-500)" }} />
         </linearGradient>
       </defs>
       <rect width="64" height="64" rx="16" fill="url(#logo-gradient)" />
@@ -109,9 +111,9 @@ export function Logo({ className = "h-9 w-9" }: { className?: string }) {
         fill="#fff"
         fillOpacity=".95"
       />
-      <circle cx="26" cy="32" r="2.5" fill="#8b5cf6" />
-      <circle cx="32" cy="32" r="2.5" fill="#a855f7" />
-      <circle cx="38" cy="32" r="2.5" fill="#d946ef" />
+      <circle cx="26" cy="32" r="2.5" style={{ fill: "var(--color-violet-500)" }} />
+      <circle cx="32" cy="32" r="2.5" style={{ fill: "var(--color-purple-500)" }} />
+      <circle cx="38" cy="32" r="2.5" style={{ fill: "var(--color-fuchsia-500)" }} />
     </svg>
   );
 }
