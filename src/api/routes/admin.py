@@ -24,6 +24,8 @@ from src.agent.multi_agent.sessions import cleanup_expired_sessions
 from src.agent.multi_agent.tools import tool_catalog
 from src.api.state import index_write_lock
 from src.services.backups import BACKUP_DIR, backup_all, is_valid_backup_name, list_backups, restore_vector_db
+from src.services.agent_stats import agent_stats
+from src.services.review import review_items
 from src.core.logger import get_logger
 
 logger = get_logger("API.Admin")
@@ -278,19 +280,21 @@ async def delete_custom_agent(name: str, current_admin: User = Depends(require_r
     return {"status": "success"}
 
 
-@router.get("/review", summary="Answers to Review")
-async def list_answers_to_review(limit: int = Query(30, ge=1, le=200), _: User = Depends(require_role("admin"))):
-    """Recent answers that could not be (fully) verified and answers users rated down (Admin only).
+@router.get("/agent-stats", summary="Agent Performance")
+async def get_agent_stats(days: int = Query(30, ge=1, le=365), _: User = Depends(require_role("admin"))):
+    """Per agent over the last `days` days: questions, median and 90th-percentile duration, answers that could not
+    be fully verified or found, errors, and the users' thumbs up/down (Admin only)."""
+    return await agent_stats(days)
 
-    They show which questions the documents do not answer clearly; with AUDIT_STORE_QUESTIONS=false only the
+
+@router.get("/review", summary="Answers to Review")
+async def list_answers_to_review(
+    limit: int = Query(30, ge=1, le=200), _: User = Depends(require_role("admin", "editor"))
+):
+    """Recent answers that could not be (fully) verified or found, and answers users rated down (admins, editors).
+
+    They show which questions the documents do not answer clearly; staff answer them in the FAQ
+    (POST /api/v1/admin/faq), which also removes them from this list. With AUDIT_STORE_QUESTIONS=false only the
     question length is known.
     """
-    unverified = []
-    for action in ("query", "query_stream"):
-        unverified += await audit_logger.aquery_logs(action=action, status="warning", limit=limit)
-    feedback = await audit_logger.aquery_logs(action="feedback", limit=limit * 3)
-    negative = [entry for entry in feedback if str(entry.get("detail", "")).startswith("[NEGATIVE]")]
-    items = [{**entry, "reason": "unverified"} for entry in unverified]
-    items += [{**entry, "reason": "negative_feedback"} for entry in negative]
-    items.sort(key=lambda entry: entry.get("timestamp", ""), reverse=True)
-    return {"items": items[:limit]}
+    return {"items": await review_items(limit)}

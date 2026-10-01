@@ -35,9 +35,11 @@ DEFAULT_INDEX_CACHE = os.path.join(EVALS_DIR, ".cache")
 # pool is enough for the threshold sweeps and keeps large corpora (a whole law) fast.
 DEFAULT_RETRIEVAL_POOL = 50
 STAGES = ("retrieval", "routing", "e2e")
-# Stages run only when named: "grader" needs the answer-check dataset (evals/build_grader_dataset.py)
-EXTRA_STAGES = ("grader",)
+# Stages run only when named: "grader" needs the answer-check dataset (evals/build_grader_dataset.py), "agents"
+# measures plans, combined answers, and questions back (evals/dataset_agents.jsonl)
+EXTRA_STAGES = ("grader", "agents")
 DEFAULT_GRADER_DATASET = os.path.join(EVALS_DIR, "grader_dataset_university.jsonl")
+DEFAULT_AGENTS_DATASET = os.path.join(EVALS_DIR, "dataset_agents.jsonl")
 EVAL_USER = {"username": "eval", "role": "admin", "groups": []}
 # RAGEngine.search() default candidate pool (n_results)
 # Cross-encoder scores are sigmoid outputs clustered near 0 and 1, so the grid is denser at the low end
@@ -455,6 +457,83 @@ def print_e2e(section: Dict[str, Any]) -> None:
 # ─────────────────────────────── Main ───────────────────────────────
 
 
+def load_agents_dataset(path: str) -> List[Dict[str, Any]]:
+    with open(path, encoding="utf-8") as f:
+        return [json.loads(line) for line in f if line.strip() and not line.lstrip().startswith("#")]
+
+
+def run_agents(chat_model, registry, cases: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """Plans (which agents a question needs), the combined answers' facts, and questions back.
+
+    plan cases: the supervisor must plan exactly the expected agents (asked without a conversation, so it cannot
+    ask back); with expected_facts the whole workflow answers and the facts are looked up in the answer.
+    clarify / no_clarify cases: asked in a conversation (whole workflow), the assistant should (not) ask back.
+    """
+    from langgraph.checkpoint.memory import MemorySaver
+
+    from src.agent.multi_agent.orchestrator_graph import MultiAgentOrchestrator
+    from src.agent.multi_agent.supervisor import SupervisorAgent
+
+    supervisor = SupervisorAgent(chat_model=chat_model, registry=registry)
+    orchestrator = MultiAgentOrchestrator(chat_model=chat_model, registry=registry, checkpointer=MemorySaver())
+    records = []
+    for case in cases:
+        record: Dict[str, Any] = {"id": case["id"], "kind": case["kind"]}
+        start = time.perf_counter()
+        if case["kind"] == "plan":
+            decision = supervisor.route({"question": case["question"], "chat_history": [], "agent_trace": []})
+            planned = [step["agent"] for step in decision.get("plan") or []]
+            record.update(
+                planned=planned,
+                uses=[step.get("uses") for step in decision.get("plan") or []],
+                correct=sorted(planned) == sorted(case["expected_agents"]),
+            )
+            if case.get("expected_facts"):
+                result = orchestrator.query(case["question"], user=EVAL_USER)
+                record.update(
+                    answer=result.get("answer", ""),
+                    agents=result.get("agents", []),
+                    fact_recall=metrics.fact_recall(result.get("answer", ""), case["expected_facts"]),
+                )
+            mark = "ok" if record["correct"] else "XX"
+            print(f"  [{mark}] {case['id']:<14} -> {planned}  facts: {_fmt(record.get('fact_recall'))}")
+        else:
+            # In a conversation, through the whole workflow: doc_agent asks back after seeing the rules
+            result = orchestrator.query(case["question"], thread_id=f"eval-{case['id']}", user=EVAL_USER)
+            clarification = result.get("clarification")
+            record.update(asked_back=bool(clarification), clarification=clarification)
+            record["correct"] = record["asked_back"] == (case["kind"] == "clarify")
+            mark = "ok" if record["correct"] else "XX"
+            print(f"  [{mark}] {case['id']:<14} asked back: {record['asked_back']}  {clarification or ''}")
+        record["latency_s"] = round(time.perf_counter() - start, 2)
+        records.append(record)
+
+    def share(kind_filter, key="correct"):
+        rows = [r for r in records if kind_filter(r)]
+        return metrics.mean(float(r[key]) for r in rows) if rows else None
+
+    plans = [r for r in records if r["kind"] == "plan"]
+    summary = {
+        "plan_accuracy": share(lambda r: r["kind"] == "plan"),
+        "composite_plan_accuracy": share(lambda r: r["kind"] == "plan" and r["id"].startswith("ag-plan")),
+        "single_plan_accuracy": share(lambda r: r["kind"] == "plan" and r["id"].startswith("ag-single")),
+        "fact_recall": metrics.mean(r["fact_recall"] for r in plans if r.get("fact_recall") is not None),
+        "clarify_rate_ambiguous": share(lambda r: r["kind"] == "clarify", "asked_back"),
+        "clarify_rate_clear": share(lambda r: r["kind"] == "no_clarify", "asked_back"),
+    }
+    return {"summary": summary, "cases": records}
+
+
+def print_agents(section: Dict[str, Any]) -> None:
+    s = section["summary"]
+    print(f"  plans right                      : {_fmt(s['plan_accuracy'])}")
+    print(f"    composite questions            : {_fmt(s['composite_plan_accuracy'])}")
+    print(f"    single questions (not split)   : {_fmt(s['single_plan_accuracy'])}")
+    print(f"  facts in the answers             : {_fmt(s['fact_recall'])}")
+    print(f"  asked back on ambiguous questions: {_fmt(s['clarify_rate_ambiguous'])}")
+    print(f"  asked back on clear questions    : {_fmt(s['clarify_rate_clear'])} (lower is better)")
+
+
 def load_grader_dataset(path: str) -> List[Dict[str, Any]]:
     with open(path, encoding="utf-8") as f:
         return [json.loads(line) for line in f if line.strip() and not line.startswith("#")]
@@ -539,6 +618,9 @@ def parse_args(argv=None):
         "--grader-dataset", default=DEFAULT_GRADER_DATASET, help="Answer-check dataset for the 'grader' stage."
     )
     parser.add_argument(
+        "--agents-dataset", default=DEFAULT_AGENTS_DATASET, help="Collaboration dataset for the 'agents' stage."
+    )
+    parser.add_argument(
         "--no-database",
         action="store_true",
         help="Leave out db_agent and the demo database, like a deployment with SAMPLE_DB_ENABLED=false.",
@@ -602,7 +684,7 @@ def main(argv=None) -> int:
         }
         print(f"Evaluating {len(cases)} cases, stages: {', '.join(args.stages)}")
 
-        if {"routing", "e2e", "grader"} & set(args.stages):
+        if {"routing", "e2e", "grader", "agents"} & set(args.stages):
             from src.agent.llm import check_ollama
 
             # Fail fast instead of recording an error for every question
@@ -614,7 +696,7 @@ def main(argv=None) -> int:
 
         # Routing only needs the agents' descriptions, not the vector store
         engine = None
-        if {"retrieval", "e2e", "grader"} & set(args.stages):
+        if {"retrieval", "e2e", "grader", "agents"} & set(args.stages):
             print("Indexing corpus...")
             engine, chunk_count = build_engine(
                 args.corpus, work_dir, cache_dir=None if args.no_index_cache else DEFAULT_INDEX_CACHE
@@ -648,6 +730,18 @@ def main(argv=None) -> int:
                 report["summary"]["e2e"] = section["summary"]
                 report["details"]["e2e"] = section
                 print_e2e(section)
+
+        if "agents" in args.stages:
+            from src.agent.llm import create_chat_model
+
+            agent_cases = load_agents_dataset(args.agents_dataset)
+            print(f"\n== Agent collaboration ({len(agent_cases)} cases) ==")
+            section = run_agents(
+                create_chat_model(), build_registry(engine, work_dir, database=not args.no_database), agent_cases
+            )
+            report["summary"]["agents"] = section["summary"]
+            report["details"]["agents"] = section
+            print_agents(section)
 
         if "grader" in args.stages:
             from src.agent.llm import create_chat_model

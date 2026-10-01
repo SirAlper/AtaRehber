@@ -11,7 +11,7 @@ The system is centered around an **Intelligent Supervisor Orchestrator**. Whenev
 
 ## 🧩 Agents Without Code (Web UI)
 
-Admins create agents in the web UI under **Administration → Custom Agents** (in the Streamlit UI: **🧩 Custom Agents** in the sidebar), or with `PUT /api/v1/admin/custom-agents/{name}`:
+Agents created this way also get the asking user's unit, program, and level, and in multi-step plans the answers of the earlier steps they build on. Admins create agents in the web UI under **Administration → Custom Agents** (in the Streamlit UI: **🧩 Custom Agents** in the sidebar), or with `PUT /api/v1/admin/custom-agents/{name}`:
 
 | Field | Meaning |
 | :--- | :--- |
@@ -87,7 +87,9 @@ Write your domain business logic, query execution, or calculations, and return a
 | `question` | The question for your step: the user's question, or the sub-question the supervisor gave your agent in a multi-step plan. |
 | `chat_history` | Previous turns of this session: `[{"question": ..., "answer": ..., "agent": ...}, ...]` (empty for the first turn or session-less requests). Use it to resolve follow-ups such as *"and last month?"*. |
 | `agent_trace` | Trace entries recorded so far this turn (the supervisor's routing entry and earlier steps). |
-| `user` | The asking user: `{"username", "role", "groups"}` (empty for internal calls such as evaluations). Use `self.search_groups(state)` for document searches. |
+| `user` | The asking user: `{"username", "role", "groups", "profile"}` (empty for internal calls such as evaluations). Use `self.search_groups(state)` for document searches, and `profile_note(state.get("user"))` (`src/auth/profile.py`) to tell your prompt the user's unit, program, and level. |
+| `step_context` | Answers of earlier plan steps your step builds on (`"uses"` in the plan): `[{"agent", "question", "answer"}]`, empty otherwise. `step_context_text()` (`src/agent/prompts.py`) formats them for a prompt. |
+| `has_session`, `clarified`, `plan` | Whether the user can answer a question back (a conversation), whether this turn already answers one, and this turn's plan. An agent may ask back only when `has_session` is true, `clarified` is false, and the plan has one step. |
 
 **Keys your agent should return:**
 
@@ -98,8 +100,10 @@ Write your domain business logic, query execution, or calculations, and return a
 | `agent_trace` | ✅ | The incoming `agent_trace` **plus** your own entry (the list is replaced, not merged). |
 | `hallucination_grade`, `is_refined` | Optional | Set these if your agent verifies grounding (as `doc_agent` does). |
 | `handoff` | Optional | `{"to": "<agent name>", "reason": "..."}` hands the same question to another agent (once per question, only to available agents). The handoff replaces your answer. |
+| `verification` | Optional | `{"level": "verified" \| "partial" \| "unverified", "issues": [...]}`; `"issues": ["not_found"]` lists the question for staff to answer in the FAQ. |
+| `clarification`, `pending_clarification` | Optional | Ask the user one question back instead of answering: `{"question", "options"}` and `{"question": <the question to complete>}` (see `src/agent/multi_agent/clarify.py`). The supervisor routes the next message together with that question. |
 
-Do not write `chat_history`: the workflow's `record_turn` step appends the turn after your agent returns. Any new state key must also be declared in `MultiAgentState` (`src/agent/multi_agent/state.py`), because LangGraph silently drops undeclared keys.
+Do not write `chat_history`: the workflow's `record_turn` step appends the turn after your agent returns. Your step is given up after `AGENT_STEP_TIMEOUT_SECONDS` (default 180); keep slow work (large queries, many model calls) below that. Any new state key must also be declared in `MultiAgentState` (`src/agent/multi_agent/state.py`), because LangGraph silently drops undeclared keys.
 
 ---
 

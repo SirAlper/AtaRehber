@@ -18,6 +18,14 @@ export interface UserProfile {
   created_at?: string | null;
   must_change_password?: boolean;
   groups: string[];
+  /** unit (faculty, directorate), program, level; agents answer for them */
+  profile?: Profile;
+}
+
+export interface Profile {
+  unit?: string;
+  program?: string;
+  level?: string;
 }
 
 export interface Evidence {
@@ -57,7 +65,13 @@ export interface TraceEntry {
   from_agent?: string;
   target_agent?: string;
   combined_agents?: string[];
-  plan?: { agent: string; question: string }[];
+  plan?: { agent: string; question: string; uses?: number[] }[];
+}
+
+/** A question the assistant asked back, with answers to pick. */
+export interface Clarification {
+  question: string;
+  options: string[];
 }
 
 export interface QueryResult {
@@ -69,6 +83,7 @@ export interface QueryResult {
   hallucination_grade?: string;
   is_refined?: boolean;
   verification?: Verification;
+  clarification?: Clarification | null;
 }
 
 /** One line of /api/v1/query-stream (NDJSON). */
@@ -152,6 +167,40 @@ export interface AuditEntry {
   ip_address?: string;
   duration_ms?: number;
   reason?: string;
+  /** Review items: the question text ("" when questions are not stored) */
+  question?: string;
+}
+
+export interface FaqEntry {
+  id: string;
+  question: string;
+  answer: string;
+  groups: string[];
+  author: string;
+  created_at: string;
+  updated_at?: string;
+  asked: { username: string; question: string }[];
+}
+
+/** A staff answer to a question the user asked. */
+export interface FaqNotice {
+  id: string;
+  question: string;
+  answer: string;
+  updated_at: string;
+}
+
+export interface AgentStat {
+  agent: string;
+  questions: number;
+  warnings: number;
+  errors: number;
+  positive: number;
+  negative: number;
+  median_ms: number;
+  p90_ms: number;
+  warning_rate: number;
+  error_rate: number;
 }
 
 export interface Backup {

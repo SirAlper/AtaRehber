@@ -33,17 +33,21 @@ function Markdown({ text }: { text: string }) {
   );
 }
 
-function AssistantMessage({
+export function AssistantMessage({
   message,
   staff,
   onFeedback,
+  onPick,
 }: {
   message: ChatMessage;
   staff: boolean;
   onFeedback: (value: "positive" | "negative") => void;
+  /** Answers a question the assistant asked back; only for the latest answer */
+  onPick?: (option: string) => void;
 }) {
   const result = message.result;
   const showEvidence = result && (level(result) === "verified" || level(result) === "partial");
+  const options = result?.clarification?.options ?? [];
   return (
     <div className="group flex gap-3">
       <Logo className="mt-1 h-8 w-8 shrink-0 drop-shadow" />
@@ -53,7 +57,21 @@ function AssistantMessage({
         {result && (
           <>
             <AgentBadge result={result} />
-            <Markdown text={result.answer} />
+            {result.clarification ? (
+              // The question back; its options become buttons below instead of a list
+              <Markdown text={result.clarification.question} />
+            ) : (
+              <Markdown text={result.answer} />
+            )}
+            {options.length > 0 && (
+              <div className="mt-3 flex flex-wrap gap-2">
+                {options.map((option) => (
+                  <Button key={option} variant="secondary" size="sm" disabled={!onPick} onClick={() => onPick?.(option)}>
+                    {option}
+                  </Button>
+                ))}
+              </div>
+            )}
             {showEvidence && <EvidenceList sources={result.sources} />}
             <VerificationNote result={result} />
             <SourcesPanel sources={result.sources} staff={staff} />
@@ -173,7 +191,8 @@ export function ChatPage() {
     const question = active.messages[index - 1]?.content ?? "";
     update(active.id, (c) => ({ ...c, messages: c.messages.map((m) => (m.id === message.id ? { ...m, feedback: value } : m)) }));
     try {
-      await api("/api/v1/feedback", { json: { question, feedback: value } });
+      // The rated agent counts in the per-agent statistics
+      await api("/api/v1/feedback", { json: { question, feedback: value, agent: message.result?.active_agent ?? "" } });
       toast(t("chat.thanks"));
     } catch (e) {
       toast(t("common.error", { error: e instanceof Error ? e.message : String(e) }), "error");
@@ -321,7 +340,7 @@ export function ChatPage() {
             </div>
           ) : (
             <div className="mx-auto max-w-3xl space-y-5 py-2" lang={i18n.language}>
-              {active.messages.map((message) =>
+              {active.messages.map((message, index) =>
                 message.role === "user" ? (
                   <UserMessage key={message.id} text={message.content} />
                 ) : (
@@ -330,6 +349,8 @@ export function ChatPage() {
                     message={message}
                     staff={isStaff}
                     onFeedback={(value) => void sendFeedback(message, value)}
+                    // Only the latest question back can still be answered
+                    onPick={index === active.messages.length - 1 && !busy ? (option) => void ask(option) : undefined}
                   />
                 ),
               )}

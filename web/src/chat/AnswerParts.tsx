@@ -4,7 +4,9 @@ import {
   Bot,
   ChevronDown,
   Copy,
+  Database,
   FileText,
+  Inbox,
   GitBranch,
   Quote,
   ShieldAlert,
@@ -52,8 +54,25 @@ export function level(result: QueryResult) {
 export function VerificationNote({ result }: { result: QueryResult }) {
   const { t } = useTranslation();
   const current = level(result);
-  if (!current || !result.sources.length) return null;
   const issues = result.verification?.issues ?? [];
+  if (issues.includes("not_found")) {
+    // Unanswered: staff see it in their review list and may answer it
+    return (
+      <p className="mt-3 flex items-center gap-1.5 text-xs text-slate-600 dark:text-slate-300">
+        <Inbox className="h-4 w-4 text-violet-500" />
+        {t("verification.notFound")}
+      </p>
+    );
+  }
+  if (current === "verified" && issues.includes("data")) {
+    return (
+      <p className="mt-3 flex items-center gap-1.5 text-xs font-medium text-emerald-700 dark:text-emerald-300">
+        <Database className="h-4 w-4" />
+        {t("verification.data")}
+      </p>
+    );
+  }
+  if (!current || !result.sources.length) return null;
   if (current === "verified") {
     return (
       <div className="mt-3 space-y-2">

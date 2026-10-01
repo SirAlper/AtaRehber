@@ -23,8 +23,9 @@ from src.agent.language import language_instruction, message, response_language
 from src.agent.multi_agent.base import BaseSubAgent
 from src.agent.multi_agent.registry import AgentRegistry, agent_registry
 from src.agent.multi_agent.tools import TOOLS, ToolRun, available_tools, build_tools, run_with_tools
-from src.agent.prompts import ORGANIZATION
-from src.agent.verification import VERIFIED, verify_answer
+from src.agent.prompts import ORGANIZATION, step_context_text
+from src.agent.verification import NOT_FOUND, UNVERIFIED, VERIFIED, verify_answer
+from src.auth.profile import profile_note
 from src.core.config import CUSTOM_AGENTS_FILE
 from src.core.logger import get_logger
 
@@ -178,7 +179,7 @@ class CustomAgent(BaseSubAgent):
     def get_info(self) -> Dict[str, str]:
         return {**super().get_info(), "custom": True, "tools": self.tools}
 
-    def _system_prompt(self, tools: List[str], language: str) -> str:
+    def _system_prompt(self, tools: List[str], language: str, user_note: str = "") -> str:
         rules = "".join(f"{TOOL_RULES[name]}\n" for name in tools)
         prompt = SYSTEM_RULES.format(
             display_name=self.display_name,
@@ -186,6 +187,8 @@ class CustomAgent(BaseSubAgent):
             instructions=self.definition["instructions"],
             tool_rules=rules,
         )
+        if user_note:
+            prompt = f"{prompt}\n{user_note}"
         return f"{prompt}\n{language_instruction(language)}"
 
     def execute(self, state: Dict[str, Any]) -> Dict[str, Any]:
@@ -202,8 +205,15 @@ class CustomAgent(BaseSubAgent):
             for turn in chat_history[-3:]
             if turn.get("question") and turn.get("answer")
         ]
-        user_text = ("Recent conversation:\n" + "\n".join(history) + "\n\n" if history else "") + question
-        messages = [SystemMessage(content=self._system_prompt(tool_names, language)), HumanMessage(content=user_text)]
+        earlier_steps = step_context_text(state.get("step_context"))
+        user_text = (
+            ("Recent conversation:\n" + "\n".join(history) + "\n\n" if history else "") + earlier_steps + question
+        )
+        user_note = profile_note(state.get("user"))
+        messages = [
+            SystemMessage(content=self._system_prompt(tool_names, language, user_note)),
+            HumanMessage(content=user_text),
+        ]
 
         answer, tools_called, status = run_with_tools(self.chat_model, messages, tools, self.name)
 
@@ -223,7 +233,7 @@ class CustomAgent(BaseSubAgent):
                     answer,
                     run.sources,
                     language,
-                    tool_context=run.tool_context(),
+                    tool_context="\n".join(filter(None, [run.tool_context(), earlier_steps.strip(), user_note])),
                     agent_name=self.name,
                     progress=self.report_progress,
                 )
@@ -251,6 +261,9 @@ class CustomAgent(BaseSubAgent):
         }
         if verification:
             result.update(hallucination_grade=grade, is_refined=is_refined, verification=verification.as_dict())
+        if run.documents_used and message("no_context", language) in answer:
+            # Searched the documents and found nothing: listed for staff to answer (like doc_agent)
+            result["verification"] = {"level": UNVERIFIED, "issues": [NOT_FOUND]}
         return result
 
 

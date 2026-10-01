@@ -115,6 +115,11 @@ ORGANIZATION_NAME = os.getenv("ORGANIZATION_NAME", "").strip()
 MAX_AGENT_STEPS = int(os.getenv("MAX_AGENT_STEPS", "3"))
 # Maximum number of times per question a failing agent may hand the task to another agent
 MAX_AGENT_HANDOFFS = int(os.getenv("MAX_AGENT_HANDOFFS", "1"))
+# Ask one question back when a question can mean things with different answers ("İzin süresi ne kadar?")
+CLARIFY_QUESTIONS = os.getenv("CLARIFY_QUESTIONS", "true").lower() == "true"
+# Seconds one agent step may take; a slower step is answered with "could not be completed in time" and the other
+# steps still count (0 = no limit)
+AGENT_STEP_TIMEOUT_SECONDS = int(os.getenv("AGENT_STEP_TIMEOUT_SECONDS", "180"))
 
 # ──────────────────────────── SERVICE REQUESTS & NOTIFICATIONS ────────────────────────────
 # Categories the request agent files requests under
@@ -172,6 +177,8 @@ REQUESTS_DB = os.path.join(DOCS_PATH, "requests.db")
 DOCUMENT_ACCESS_FILE = os.path.join(DOCS_PATH, "document_access.json")
 # Agents defined by admins in the web UI (name, purpose, instructions, tools)
 CUSTOM_AGENTS_FILE = os.path.join(DOCS_PATH, "custom_agents.json")
+# Staff answers to questions the documents did not answer; searched like a document (see src/services/faq.py)
+FAQ_FILE = os.path.join(DOCS_PATH, "faq.json")
 CHAT_HISTORY_MAX_TURNS = int(os.getenv("CHAT_HISTORY_MAX_TURNS", "20"))
 
 # ──────────────────────────── CHUNKING CONFIGURATION ────────────────────────────

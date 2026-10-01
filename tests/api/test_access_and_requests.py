@@ -243,8 +243,27 @@ class TestUserGroupsAndQueryContext(unittest.TestCase):
         self.assertEqual(response.status_code, 200, response.text)
         self.assertEqual(
             orchestrator.query.call_args.kwargs["user"],
-            {"username": "context_viewer", "role": "viewer", "groups": ["akademik"]},
+            {"username": "context_viewer", "role": "viewer", "groups": ["akademik"], "profile": {}},
         )
+
+    def test_admins_record_a_profile_that_reaches_the_agents(self):
+        admin = ensure_user("profile_admin", "admin")
+        headers = ensure_user("profile_student", "viewer")
+        profile = {"unit": " Mühendislik  Fakültesi ", "program": "Bilgisayar Mühendisliği", "level": ""}
+        response = self.client.patch("/api/v1/auth/users/profile_student", headers=admin, json={"profile": profile})
+        self.assertEqual(response.status_code, 200, response.text)
+        cleaned = {"unit": "Mühendislik Fakültesi", "program": "Bilgisayar Mühendisliği"}
+        self.assertEqual(response.json()["profile"], cleaned)
+        self.assertEqual(self.client.get("/api/v1/auth/me", headers=headers).json()["profile"], cleaned)
+
+        orchestrator = MagicMock()
+        orchestrator.query.return_value = {"answer": "a", "sources": [], "active_agent": "doc_agent", "agents": []}
+        with patch("src.api.routes.query.get_multi_agent_orchestrator", return_value=orchestrator):
+            self.client.post("/api/v1/query", headers=headers, json={"question": "Bölümümde devam zorunlu mu?"})
+        self.assertEqual(orchestrator.query.call_args.kwargs["user"]["profile"], cleaned)
+
+        bad = self.client.patch("/api/v1/auth/users/profile_student", headers=admin, json={"profile": {"age": "20"}})
+        self.assertEqual(bad.status_code, 400)
 
 
 class TestRequestStore(unittest.TestCase):

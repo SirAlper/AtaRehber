@@ -26,7 +26,7 @@ from src.core import config
 from src.core.audit import audit_logger
 from src.core.logger import get_logger
 from src.services.notifier import notify_new_request
-from src.services.service_requests import get_request_store, normalize_category
+from src.services.service_requests import OPEN_STATUSES, get_request_store, normalize_category
 
 logger = get_logger("MultiAgent.RequestAgent")
 
@@ -34,6 +34,10 @@ REQUEST_EXTRACTION_PROMPT = """You turn a user's message into a service request 
 Decide the action:
 - "create": the user wants to open, file, or report something (a fault, a maintenance need, an access, account, or booking request).
 - "list": the user asks about the status of their own existing requests.
+- "cancel": the user wants to cancel one of their requests ("talebimi iptal et", "cancel request #12").
+- "note": the user adds information to one of their existing requests ("12 numaralı talebime ekle: ...").
+For "cancel" and "note", give the request number as "request_id" if the user names it (else null); for "note",
+"note" is the information to add, in the user's words.
 Allowed categories: {categories}. Pick the closest one; use "other" when none fits.
 Write the title and description in {language}, with correct spelling. The title states the user's problem or need
 as the user sees it (at most 12 words); do not reinterpret it into something the user did not ask for. When the
@@ -42,8 +46,20 @@ recent conversation given before the message. The description contains only deta
 (place, device, time, what is wrong, or what the earlier answer lacked); never invent details.
 
 Output ONLY this JSON, with no other text:
-{{"action": "create", "category": "<category>", "title": "<title>", "description": "<description>"}}
+{{"action": "create", "category": "<category>", "title": "<title>", "description": "<description>",
+"request_id": null, "note": ""}}
 """
+
+
+def _request_id(value: Any, question: str) -> Optional[int]:
+    """The request number the model gave, or one written in the message ("#12", "12 numaralı")."""
+    if isinstance(value, int) and not isinstance(value, bool) and value > 0:
+        return value
+    if isinstance(value, str) and value.strip().lstrip("#").isdigit():
+        return int(value.strip().lstrip("#"))
+    match = re.search(r"#\s*(\d+)|\b(\d+)\s*(?:numaralı|nolu|no'lu|no\.?)\b", question, re.IGNORECASE)
+    return int(match.group(1) or match.group(2)) if match else None
+
 
 LIST_KEYWORDS = ("taleplerim", "talebimin", "taleplerimin", "durumu", "my requests", "my tickets", "status of my")
 
@@ -56,8 +72,9 @@ class ServiceRequestAgent(BaseSubAgent):
     display_name: str = "Service Request Agent"
     description: str = (
         "Opens a service request / ticket when the user explicitly asks to open, file, or report something "
-        "(e.g. a broken device, a maintenance need, an account or access request), and lists the status of the "
-        "user's own requests. Not for questions about rules or procedures."
+        "(e.g. a broken device, a maintenance need, an account or access request), lists the status of the "
+        "user's own requests filed with this assistant (numbered like #12), cancels them, and adds information "
+        "to them. Not for questions about rules or procedures, nor for records stored in database tables."
     )
 
     def execute(self, state: Dict[str, Any]) -> Dict[str, Any]:
@@ -77,6 +94,8 @@ class ServiceRequestAgent(BaseSubAgent):
         pending: Optional[Dict[str, Any]] = state.get("pending_request")
         reply = confirmation_reply(question) if pending else None
         if pending and reply == "confirm":
+            if pending.get("action") == "cancel":
+                return self._cancel(state, pending["id"], user, language, start_time)
             return self._file(state, pending, user, language, start_time)
         if pending and reply == "reject":
             return self._result(
@@ -87,6 +106,8 @@ class ServiceRequestAgent(BaseSubAgent):
         extracted = self._extract(question, language, chat_history)
         if extracted["action"] == "list":
             return self._list(state, username, language, start_time)
+        if extracted["action"] in ("cancel", "note"):
+            return self._change(state, extracted, user, language, start_time)
 
         title = " ".join(extracted.get("title", "").split())[:200]
         if len(title) < 3:
@@ -172,6 +193,66 @@ class ServiceRequestAgent(BaseSubAgent):
             notified=notified,
         )
 
+    def _change(self, state, extracted, user, language, start_time) -> Dict[str, Any]:
+        """Cancel one of the user's open requests (after confirmation) or add information to it."""
+        action = extracted["action"]
+        store = get_request_store()
+        username = user["username"]
+        request_id = extracted.get("request_id")
+        if request_id is None:
+            # Without a number, the user's only open request is meant; with several, ask which one
+            open_requests = [r for r in store.list(username=username, limit=50) if r["status"] in OPEN_STATUSES]
+            if len(open_requests) != 1:
+                lines = "\n".join(f"- **#{r['id']}** {r['title']}" for r in open_requests[:10])
+                text = message("request_which", language) + (f"\n{lines}" if lines else "")
+                return self._result(state, text, f"request_{action}", "needs_input", start_time, pending=None)
+            request_id = open_requests[0]["id"]
+        record = store.get(request_id)
+        if record is None or record["username"] != username:
+            # Another user's request is not revealed
+            text = message("request_not_found", language, id=request_id)
+            return self._result(state, text, f"request_{action}", "not_found", start_time, pending=None)
+        if record["status"] not in OPEN_STATUSES:
+            text = message("request_closed", language, id=request_id)
+            return self._result(state, text, f"request_{action}", "rejected", start_time, pending=None)
+
+        if action == "cancel":
+            if not state.get("has_session"):
+                return self._cancel(state, request_id, user, language, start_time)
+            text = message("request_cancel_confirm", language, id=request_id, title=record["title"])
+            draft = {"action": "cancel", "id": request_id}
+            return self._result(state, text, "request_cancel", "awaiting_confirmation", start_time, pending=draft)
+
+        note = " ".join(str(extracted.get("note") or "").split())
+        if len(note) < 3:
+            text = message("request_note_unclear", language)
+            return self._result(state, text, "request_note", "needs_input", start_time, pending=None)
+        store.add_note(request_id, note, username)
+        self._audit(user, "request_note", f"#{request_id}: note added")
+        text = message("request_note_added", language, id=request_id)
+        return self._result(state, text, "request_note", "success", start_time, pending=None, request_id=request_id)
+
+    def _cancel(self, state, request_id, user, language, start_time) -> Dict[str, Any]:
+        store = get_request_store()
+        record = store.get(request_id)
+        # The request may have changed since the draft (staff closed it)
+        if record is None or record["username"] != user["username"] or record["status"] not in OPEN_STATUSES:
+            text = message("request_closed", language, id=request_id)
+            return self._result(state, text, "request_cancel", "rejected", start_time, pending=None)
+        store.update_status(request_id, "cancelled", user["username"])
+        self._audit(user, "request_update", f"#{request_id}: {record['status']} -> cancelled")
+        text = message("request_cancelled", language, id=request_id)
+        return self._result(state, text, "request_cancel", "success", start_time, pending=None, request_id=request_id)
+
+    @staticmethod
+    def _audit(user, action: str, detail: str) -> None:
+        try:
+            audit_logger.log(
+                username=user["username"], role=user.get("role", ""), action=action, detail=detail, status="success"
+            )
+        except Exception as e:
+            logger.error(f"[request_agent] Audit log failed: {e}")
+
     def _list(self, state, username, language, start_time) -> Dict[str, Any]:
         requests = get_request_store().list(username=username, limit=5)
         if not requests:
@@ -205,12 +286,15 @@ class ServiceRequestAgent(BaseSubAgent):
             )
             text = re.sub(r"^```(?:json)?\s*|\s*```$", "", response.content.strip(), flags=re.IGNORECASE)
             data = json.loads(text)
-            action = "list" if str(data.get("action", "")).lower() == "list" else "create"
+            action = str(data.get("action", "")).lower()
+            action = action if action in ("list", "cancel", "note") else "create"
             return {
                 "action": action,
                 "category": str(data.get("category", "")),
                 "title": str(data.get("title", "")),
                 "description": str(data.get("description", "")),
+                "request_id": _request_id(data.get("request_id"), question),
+                "note": str(data.get("note") or ""),
             }
         except Exception as e:
             logger.warning(f"[{self.name}] Request extraction failed ({e}), using rules")

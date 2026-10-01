@@ -30,6 +30,7 @@ The harness runs in a temporary directory. It indexes `evals/corpus/` into its o
 | `retrieval` | Embedding + reranker | Whether the right document reaches the LLM, and whether off-topic questions retrieve nothing. |
 | `routing` | Ollama | Whether the supervisor picks the expected agent. |
 | `e2e` | Ollama | The full workflow (`MultiAgentOrchestrator.query`): answer correctness, refusals, Self-RAG grounding, latency. |
+| `agents` | Ollama | Run only when named (`--stages agents`, dataset `evals/dataset_agents.jsonl`, `--agents-dataset` for another): whether composite questions (documents + database) get one step per agent and single questions are not split, the expected facts in the combined answers, and how often the assistant asks back on ambiguous questions about the asker's own case (should) and on clear ones (should not). |
 
 ### Retrieval metrics
 
@@ -158,6 +159,25 @@ On the 13 held-out questions (see below): routing 12/13 and 9/10 correct answers
 Remaining failures:
 * `db-04` filters on `durum = 'çözüldü'`, but the column stores `'Resolved'`. The SQL prompt shows column names, not the values stored in them.
 * `db-10` (a support ticket code) is routed to `doc_agent`, which correctly answers that the information is not in the documents instead of guessing.
+
+### Agent collaboration (`--stages agents`)
+
+Same machine and model, default corpus and sample database, 18 questions: 4 composite (a rule and a database value), 3 single, 3 ambiguous questions about the asker's case, 8 clear ones. "Before" is the first run after adding questions back and steps that build on each other, with the supervisor alone deciding both.
+
+| Metric | Before | Now |
+| :--- | :---: | :---: |
+| Composite questions planned with both agents | 25% | 100% |
+| Single questions not split | 100% | 100% |
+| Expected facts in the answers | 78.6% | 100% |
+| Asked back on ambiguous questions | 0% | 100% |
+| Asked back on clear questions (lower is better) | 0% | 0% |
+| Routing accuracy on the main dataset (51 questions) | 96.1% ¹ | 100% |
+
+¹ The request agent's new actions (cancel, add a note) pulled "SR-2026-103 numaralı destek talebi" (a database record) to the request agent; the routing rules now name requests "filed with this assistant (numbered like #12)" and give an example of a coded database record.
+
+* **Composite questions:** the 7B supervisor sent "Monitör talebi en fazla kaç adet ve NovaView monitörün birim fiyatı nedir?" only to `db_agent`. Telling it to list the things the question asks first, with two examples of a rule plus a database value, planned all four with both agents; with the reminder that a verdict on one's own action belongs to `compliance_agent`, routing on the main dataset stayed at 100%.
+* **Questions back** moved from the supervisor to `doc_agent`: the supervisor does not see the rules, so it cannot know that leave depends on seniority. `doc_agent` asks only for short questions about the asker's own case, in a conversation; the model only describes the passage (`depends_on`, `stated`, the question, short options) and the code decides. A single yes/no from the model said "no" every time; reading only the best-matching passage stopped it from asking about seniority for a remote-work question.
+* The questions read "Kıdeminiz kaç yıl?" (1-5 / 5-15 / 15+ years) and "Yurt içinde mi yurt dışında mı seyahat ediyorsunuz?". Steps with `uses` (a step that looks up what an earlier one found) are covered by unit tests; the four composite questions have independent parts, so the model planned none.
 
 ### University dataset
 

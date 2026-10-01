@@ -4,13 +4,38 @@ import { useState, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
 
 import { api } from "@/api/client";
-import type { UserProfile } from "@/api/types";
+import type { Profile, UserProfile } from "@/api/types";
 import { useAuth } from "@/auth/AuthContext";
 import { useToast } from "@/components/Toast";
 import { Badge, Button, Card, CardTitle, Field, Input, Select, Spinner } from "@/components/ui";
 import { splitGroups } from "@/lib/utils";
 
 const ROLES = ["viewer", "editor", "admin"] as const;
+const PROFILE_FIELDS = ["unit", "program", "level"] as const;
+
+/** Unit, program, and level inputs; the assistant answers rules for them. */
+function ProfileFields({ value, onChange, idPrefix }: { value: Profile; onChange: (next: Profile) => void; idPrefix: string }) {
+  const { t } = useTranslation();
+  return (
+    <div className="grid gap-2 sm:grid-cols-3">
+      {PROFILE_FIELDS.map((field) => (
+        <Input
+          key={field}
+          id={`${idPrefix}-${field}`}
+          value={value[field] ?? ""}
+          onChange={(e) => onChange({ ...value, [field]: e.target.value })}
+          placeholder={t(`users.${field}`)}
+          aria-label={t(`users.${field}`)}
+          maxLength={100}
+        />
+      ))}
+    </div>
+  );
+}
+
+function sameProfile(a: Profile = {}, b: Profile = {}) {
+  return PROFILE_FIELDS.every((field) => (a[field] ?? "").trim() === (b[field] ?? "").trim());
+}
 
 function UserRow({ account, self }: { account: UserProfile; self: boolean }) {
   const { t } = useTranslation();
@@ -18,7 +43,9 @@ function UserRow({ account, self }: { account: UserProfile; self: boolean }) {
   const queryClient = useQueryClient();
   const [groups, setGroups] = useState(account.groups.join(", "));
   const [role, setRole] = useState(account.role);
-  const changed = groups !== account.groups.join(", ") || role !== account.role;
+  const [profile, setProfile] = useState<Profile>(account.profile ?? {});
+  const changed =
+    groups !== account.groups.join(", ") || role !== account.role || !sameProfile(profile, account.profile);
   const refresh = () => void queryClient.invalidateQueries({ queryKey: ["users"] });
   const fail = (e: unknown) => toast(t("common.error", { error: (e as Error).message }), "error");
 
@@ -53,9 +80,12 @@ function UserRow({ account, self }: { account: UserProfile; self: boolean }) {
           ))}
         </Select>
         <Input value={groups} onChange={(e) => setGroups(e.target.value)} placeholder={t("users.groups")} aria-label={t("users.groups")} />
-        <Button disabled={!changed} loading={patch.isPending} onClick={() => patch.mutate({ role, groups: splitGroups(groups) })}>
+        <Button disabled={!changed} loading={patch.isPending} onClick={() => patch.mutate({ role, groups: splitGroups(groups), profile })}>
           {t("common.save")}
         </Button>
+      </div>
+      <div className="mt-2">
+        <ProfileFields value={profile} onChange={setProfile} idPrefix={`profile-${account.username}`} />
       </div>
       {!self && (
         <div className="mt-2 flex flex-wrap gap-1">
@@ -97,15 +127,18 @@ export function UsersTab() {
   const [password, setPassword] = useState("");
   const [role, setRole] = useState<(typeof ROLES)[number]>("viewer");
   const [groups, setGroups] = useState("");
+  const [profile, setProfile] = useState<Profile>({});
 
   const users = useQuery({ queryKey: ["users"], queryFn: () => api<UserProfile[]>("/api/v1/auth/users") });
   const create = useMutation({
-    mutationFn: () => api("/api/v1/auth/register", { json: { username, password, role, groups: splitGroups(groups) } }),
+    mutationFn: () =>
+      api("/api/v1/auth/register", { json: { username, password, role, groups: splitGroups(groups), profile } }),
     onSuccess: () => {
       toast(t("users.created", { name: username }));
       setUsername("");
       setPassword("");
       setGroups("");
+      setProfile({});
       void queryClient.invalidateQueries({ queryKey: ["users"] });
     },
     onError: (e) => toast(t("common.error", { error: (e as Error).message }), "error"),
@@ -138,6 +171,9 @@ export function UsersTab() {
           </Field>
           <Field label={t("users.groups")} hint={t("documents.groupsHint")} htmlFor="new-groups">
             <Input id="new-groups" value={groups} onChange={(e) => setGroups(e.target.value)} placeholder="ogrenci" />
+          </Field>
+          <Field label={t("users.profile")} hint={t("users.profileHint")} htmlFor="new-profile-unit">
+            <ProfileFields value={profile} onChange={setProfile} idPrefix="new-profile" />
           </Field>
           <Button type="submit" className="w-full" loading={create.isPending}>
             {t("users.submit")}

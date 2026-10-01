@@ -26,6 +26,7 @@ _TURKISH_WORDS = frozenset(
     olan olarak göre gore ancak değil degil ise tüm tum sonra önce once kadar peki merhaba selam selamlar nedir
     midir mıdır bana beni bunu şunu onu şirket sirket gerekir gerekiyor olmalı uygun lütfen lutfen evet hayır
     hayir ayrıca ayrica kim nerede zaman neler kurum talep
+    talebi talebim talebimi talebime talebimin talepler taleplerim taleplerimin iptal ekle numaralı numarali
     """.split()
 )
 # Verb suffixes that practically never end English words (unlike -ler/-lar: "controller", "smaller")
@@ -250,6 +251,20 @@ _MESSAGES = {
             "koruma sorumlusu veya ilgili daire başkanlığı) başvurun."
         ),
     },
+    "compliance_unsupported": {
+        "en": (
+            "### 📌 1. Audit Verdict\n**[UNDETERMINED]**\n\n"
+            "### 📑 2. Underlying Rules\nThe retrieved rules do not support a clear verdict for this scenario.\n\n"
+            "### 🔍 3. Recommendation\nPlease ask the responsible unit (for example legal counsel or the data "
+            "protection officer) before acting."
+        ),
+        "tr": (
+            "### 📌 1. Denetim Kararı\n**[UNDETERMINED]**\n\n"
+            "### 📑 2. Dayanak Dokümanlar\nBulunan kurallar bu senaryo için net bir karar vermeye yetmiyor.\n\n"
+            "### 🔍 3. Öneri\nİşlemi yapmadan önce lütfen ilgili birime (örneğin hukuk müşavirliği veya kişisel "
+            "veri koruma sorumlusu) danışın."
+        ),
+    },
     "compliance_error": {
         "en": "A system error occurred while generating the audit report. Please try again later.",
         "tr": "Denetim raporu oluşturulurken bir sistem hatası oluştu. Lütfen daha sonra tekrar deneyin.",
@@ -264,6 +279,10 @@ _MESSAGES = {
             "💡 İsterseniz bu soruyu ilgili birime iletmek için talep oluşturabilirim: “bununla ilgili talep oluştur” "
             "yazmanız yeterli."
         ),
+    },
+    "step_timeout": {
+        "en": "This part could not be completed in time. Please ask again in a moment.",
+        "tr": "Bu kısım zamanında tamamlanamadı. Lütfen biraz sonra tekrar sorun.",
     },
     "request_created": {
         "en": "✅ Your request has been filed: **#{id}**, {title}\n\nCategory: {category} · Status: open",
@@ -281,6 +300,35 @@ _MESSAGES = {
             "- **Açıklama:** {description}\n\nOnaylamak için **evet**, vazgeçmek için **hayır** yazın. "
             "Değiştirmek için talebi yeniden yazabilirsiniz."
         ),
+    },
+    "request_cancel_confirm": {
+        "en": "Shall I cancel request **#{id}**, {title}?\n\nReply **yes** to cancel it or **no** to keep it.",
+        "tr": "**#{id}** numaralı talebi ({title}) iptal etmemi onaylıyor musunuz?\n\nOnaylamak için **evet**, "
+        "vazgeçmek için **hayır** yazın.",
+    },
+    "request_cancelled": {
+        "en": "Request **#{id}** was cancelled.",
+        "tr": "**#{id}** numaralı talep iptal edildi.",
+    },
+    "request_note_added": {
+        "en": "Your information was added to request **#{id}**; the staff working on it will see it.",
+        "tr": "Bilginiz **#{id}** numaralı talebe eklendi; talebi inceleyen personel görecek.",
+    },
+    "request_note_unclear": {
+        "en": "What should I add to the request? Please write the information, e.g. “Add to #12: room B204”.",
+        "tr": "Talebe ne ekleyeyim? Lütfen bilgiyi yazın, örneğin: “#12 numaralı talebime ekle: B204 dersliği”.",
+    },
+    "request_which": {
+        "en": "Which request do you mean? Please give its number, e.g. “#12”. Your open requests:",
+        "tr": "Hangi talebi kastediyorsunuz? Lütfen numarasını yazın, örneğin “#12”. Açık talepleriniz:",
+    },
+    "request_not_found": {
+        "en": "I could not find request #{id} among your requests.",
+        "tr": "#{id} numaralı talebi talepleriniz arasında bulamadım.",
+    },
+    "request_closed": {
+        "en": "Request #{id} is already closed, so it cannot be changed.",
+        "tr": "#{id} numaralı talep zaten kapatılmış; değiştirilemez.",
     },
     "request_discarded": {
         "en": "OK, the request was not filed.",
