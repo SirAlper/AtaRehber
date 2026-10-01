@@ -10,8 +10,13 @@ services:
       # Trust X-Forwarded-For from the proxy, so audit logs and rate limits see the real client IP.
       # Safe only because the backend port is not published.
       - FORWARDED_ALLOW_IPS=*
+      # The web UI's refresh token cookie is only sent over HTTPS
+      - REFRESH_COOKIE_SECURE=true
 
   frontend:
+    ports: !reset []
+
+  web:
     ports: !reset []
 
   proxy:
@@ -26,5 +31,6 @@ services:
       - ./deploy/certs:/etc/nginx/certs:ro
     depends_on:
       - frontend
+      - web
     networks:
       - rag_network

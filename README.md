@@ -107,7 +107,11 @@ Make sure Ollama is running (`ollama list` answers), then start the backend and 
 uvicorn src.main:app --host 0.0.0.0 --port 8000 --reload
 # Interactive Swagger Documentation: http://localhost:8000/docs
 
-# Terminal 2: Enterprise Web Management UI (Streamlit)
+# Terminal 2: Web UI (React, needs Node.js 20.19+)
+cd web && npm install && npm run dev
+# Web UI: http://localhost:5173
+
+# Or the previous Streamlit UI
 streamlit run ui/app.py
 # Web Dashboard: http://localhost:8501
 ```
@@ -153,6 +157,7 @@ OpenLocalRagAgents/
 ├── tests/                 # Tests by topic: agents/, rag/, api/, security/, data/, frontend/, quality/, performance/
 ├── evals/                 # Quality evaluation harness (labeled datasets, corpora incl. a university law, run_eval.py)
 │
+├── web/                   # Web UI: React + TypeScript + Vite (chat, requests, admin), Dockerfile with nginx
 ├── ui/                    # Streamlit UI: app.py (chat), sidebar.py, components.py, api_client.py, session.py, i18n.py
 ├── src/
 │   ├── core/              # Infrastructure: settings (config), logging, hash-chained audit trail
@@ -169,7 +174,7 @@ OpenLocalRagAgents/
 ├── examples/              # Developer examples (custom sub-agents)
 ├── Dockerfile             # Backend multi-stage image (CPU default, CUDA via build arg)
 ├── Dockerfile.frontend    # Lightweight Streamlit UI image
-├── docker-compose.yml     # Multi-service compose definition (Backend + Frontend + Ollama)
+├── docker-compose.yml     # Multi-service compose definition (Backend + Web + Streamlit + Ollama)
 ├── docker-compose.gpu.yml # NVIDIA GPU passthrough override
 ├── docker-compose.https.yml # HTTPS reverse proxy override (nginx)
 ├── deploy/                # nginx configuration and TLS certificate folder

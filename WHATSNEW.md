@@ -6,6 +6,24 @@ This document provides a comprehensive log of new features, architectural upgrad
 
 ## 🧭 Unreleased
 
+### Added: new web UI
+* **React instead of Streamlit:** a new web UI in `web/` (React, TypeScript, Vite, Tailwind CSS) with a purple theme, light and dark mode, and Turkish and English texts. Streamlit keeps working during the transition.
+* **Chat:** answers appear as the stages progress ("Searching the documents…", "Checking the answer…") and can be stopped; each answer shows its verification level, the evidence with article and paragraph, the sources (used ones first), and the agents' steps. Conversations are listed on the side and kept in the browser; the agent can be chosen or left to the supervisor. A busy server gets its own message instead of an error.
+* **Service requests:** create, follow, and cancel requests; staff change the status and add a resolution note.
+* **Administration:** documents (drag-and-drop upload, access groups), users, custom agents, answers to review, audit log with chain check, and system (statistics, database, backups, maintenance), each for the roles allowed to use it.
+* **Guest access:** the login page offers the guest session when `GUEST_ACCESS_ENABLED=true`.
+* **Nothing from the internet:** the font and all libraries are bundled; `npm run build` writes static files.
+* **Deployment:** the `web` compose service (port 8080) serves the build with nginx and forwards `/api` to the backend, streaming answers as they come. The HTTPS proxy defines it as an upstream (see [Docker Deployment](docs/docker_deployment.md#-https-reverse-proxy)). CI checks types, runs the web tests, and builds the image.
+
+### Improved: service requests from the chat
+* **Requests about the conversation:** "open a request about this" takes its subject from the last turns; before, the agent saw only the message itself.
+* **Users learn that they can:** greetings and thanks ("teşekkürler", "sağ olun", now answered without a model call) end with a hint on how to open a request, for logged-in users who can file them (not for guests). The web UI's request suggestion is a concrete example and is not shown to guests.
+* **When the documents have no answer:** "not found" and unverified answers offer to pass the question on to the responsible unit ("bununla ilgili talep oluştur"), for the same users. The evaluation leaves the hint out when counting refusals.
+* **Clearer drafts:** the title states the user's problem as the user put it, the category is shown by name ("Diğer", not `other`), and the draft says how to change it.
+
+### Improved: token security for browsers
+* **Refresh token in an HttpOnly cookie:** browser clients send `X-Token-Transport: cookie` and get the refresh token as a cookie that page scripts cannot read; the web UI keeps the access token in memory only. `POST /api/v1/auth/logout` deletes the cookie; `REFRESH_COOKIE_SECURE=true` sends it over HTTPS only (set by the HTTPS compose). Other clients get the refresh token in the body as before.
+
 ### Improved: answer check
 * **Second opinion:** when the grader rejects an answer, it is shown its own objection and asked again before the answer is refined, as the 7B grader rejects correct answers now and then (`GRADER_SECOND_OPINION`).
 * **Number check:** every number of an answer must be in the sentences the grader quoted, the question, or a tool result; "30 days" where the document says "15 days" fails even if the grader accepts it (`GRADER_NUMBER_CHECK`).

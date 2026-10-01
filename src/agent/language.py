@@ -168,13 +168,30 @@ _MESSAGES = {
     "greeting": {
         "en": (
             "Hello! I am your AI assistant. My specialist agents answer questions from the organization's "
-            "documents and regulations, check whether an action complies with the rules, open service requests, "
-            "and analyze connected databases. How can I help you today?"
+            "documents and regulations, check whether an action complies with the rules, and analyze connected "
+            "databases. How can I help you today?"
         ),
         "tr": (
             "Merhaba! Ben yapay zekâ asistanınızım. Uzman ajanlarım kurum dokümanları ve mevzuattan soruları "
-            "cevaplar, bir işlemin kurallara uygunluğunu değerlendirir, talep kaydı açar ve bağlı veritabanlarını "
-            "analiz eder. Size nasıl yardımcı olabilirim?"
+            "cevaplar, bir işlemin kurallara uygunluğunu değerlendirir ve bağlı veritabanlarını analiz eder. "
+            "Size nasıl yardımcı olabilirim?"
+        ),
+    },
+    "thanks": {
+        "en": "You're welcome! Ask me anytime if you have another question.",
+        "tr": "Rica ederim! Başka bir sorunuz olursa her zaman sorabilirsiniz.",
+    },
+    # Added to greetings and thanks for users who can file requests, so they learn that they can
+    "request_hint": {
+        "en": (
+            "💡 If something is not working (a device, your account, a room), just ask me to open a request, e.g. "
+            "“Open a request: the projector in room B204 does not work.” You can also ask about the status of "
+            "your requests."
+        ),
+        "tr": (
+            "💡 Bir sorun yaşarsanız (çalışmayan bir cihaz, hesap veya derslik sorunu) benden talep oluşturmamı "
+            "isteyebilirsiniz, örneğin: “Talep oluştur: B204'teki projektör çalışmıyor.” Taleplerinizin durumunu "
+            "da sorabilirsiniz."
         ),
     },
     "greeting_guest": {
@@ -237,18 +254,32 @@ _MESSAGES = {
         "en": "A system error occurred while generating the audit report. Please try again later.",
         "tr": "Denetim raporu oluşturulurken bir sistem hatası oluştu. Lütfen daha sonra tekrar deneyin.",
     },
+    # Added when the documents do not answer the question, for users who can file requests
+    "request_hint_not_found": {
+        "en": (
+            "💡 If you like, I can pass this question on to the responsible unit: just write "
+            "“open a request about this”."
+        ),
+        "tr": (
+            "💡 İsterseniz bu soruyu ilgili birime iletmek için talep oluşturabilirim: “bununla ilgili talep oluştur” "
+            "yazmanız yeterli."
+        ),
+    },
     "request_created": {
-        "en": "✅ Your request has been filed: **#{id}**, {title}\n\nCategory: `{category}` · Status: open",
-        "tr": "✅ Talebiniz oluşturuldu: **#{id}**, {title}\n\nKategori: `{category}` · Durum: açık",
+        "en": "✅ Your request has been filed: **#{id}**, {title}\n\nCategory: {category} · Status: open",
+        "tr": "✅ Talebiniz oluşturuldu: **#{id}**, {title}\n\nKategori: {category} · Durum: açık",
     },
     "request_confirm": {
         "en": (
-            "Shall I file this request?\n\n**Title:** {title}\n**Category:** `{category}`\n**Details:** {description}"
-            "\n\nReply **yes** to file it or **no** to discard it."
+            # A list, so Markdown shows each field on its own line
+            "Shall I file this request?\n\n- **Title:** {title}\n- **Category:** {category}\n"
+            "- **Details:** {description}\n\nReply **yes** to file it or **no** to discard it. "
+            "To change it, describe the request again."
         ),
         "tr": (
-            "Şu talebi oluşturmamı onaylıyor musunuz?\n\n**Başlık:** {title}\n**Kategori:** `{category}`\n"
-            "**Açıklama:** {description}\n\nOnaylamak için **evet**, vazgeçmek için **hayır** yazın."
+            "Şu talebi oluşturmamı onaylıyor musunuz?\n\n- **Başlık:** {title}\n- **Kategori:** {category}\n"
+            "- **Açıklama:** {description}\n\nOnaylamak için **evet**, vazgeçmek için **hayır** yazın. "
+            "Değiştirmek için talebi yeniden yazabilirsiniz."
         ),
     },
     "request_discarded": {
@@ -260,8 +291,9 @@ _MESSAGES = {
         "tr": "İlgili birime e-posta ile bildirildi.",
     },
     "request_follow_up": {
-        "en": "You can follow its status under “My requests” in the sidebar.",
-        "tr": "Durumunu kenar çubuğundaki “Taleplerim” bölümünden takip edebilirsiniz.",
+        # Both web UIs have "My requests" (the Streamlit sidebar, the React menu)
+        "en": "You can follow its status under “My requests”.",
+        "tr": "Durumunu “Taleplerim” bölümünden takip edebilirsiniz.",
     },
     "request_login_required": {
         "en": "You need to be logged in to file or list service requests.",
@@ -297,6 +329,23 @@ def message(key: str, language: str, **values) -> str:
     variants = _MESSAGES[key]
     text = variants.get(language, variants[DEFAULT_LANGUAGE])
     return text.format(**values) if values else text
+
+
+_CATEGORY_LABELS = {
+    "it_support": {"en": "IT support", "tr": "Bilgi İşlem"},
+    "facilities": {"en": "Facilities", "tr": "Yapı ve Teknik İşler"},
+    "academic": {"en": "Academic", "tr": "Akademik"},
+    "administrative": {"en": "Administrative", "tr": "İdari"},
+    "other": {"en": "Other", "tr": "Diğer"},
+}
+
+
+def category_label(category: str, language: str) -> str:
+    """Name of a built-in request category in `language`; custom categories are shown as configured."""
+    labels = _CATEGORY_LABELS.get(category)
+    if not labels:
+        return category
+    return labels.get(language, labels[DEFAULT_LANGUAGE])
 
 
 def message_variants(key: str) -> tuple:

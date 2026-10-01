@@ -52,3 +52,7 @@ evals/.cache/
 # TLS certificates for the HTTPS proxy
 deploy/certs/*
 !deploy/certs/README.md
+
+# Web UI (React): dependencies and build output
+web/node_modules/
+web/dist/

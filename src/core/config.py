@@ -48,6 +48,9 @@ JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY", "")
 JWT_ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "60"))
 REFRESH_TOKEN_EXPIRE_DAYS = int(os.getenv("REFRESH_TOKEN_EXPIRE_DAYS", "7"))
+# Browser clients that send "X-Token-Transport: cookie" (the web UI) get the refresh token in an HttpOnly cookie
+# instead of the response body, so a script injected into the page cannot read it. Set to true behind HTTPS.
+REFRESH_COOKIE_SECURE = os.getenv("REFRESH_COOKIE_SECURE", "false").lower() == "true"
 ADMIN_DEFAULT_USERNAME = os.getenv("ADMIN_DEFAULT_USERNAME", "admin")
 ADMIN_DEFAULT_PASSWORD = os.getenv("ADMIN_DEFAULT_PASSWORD", "admin123")
 USERS_FILE_PATH = os.getenv("USERS_FILE_PATH", os.path.join(DOCS_PATH, "users.json"))

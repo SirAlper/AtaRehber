@@ -148,6 +148,8 @@ class TestGuestGreeting(unittest.TestCase):
     def test_a_greeting_is_answered_even_with_a_forced_agent(self):
         self.assertEqual(self.route("Merhaba", "guest")["final_answer"], message("greeting_guest", "tr"))
         self.assertEqual(self.route("Merhaba", "viewer")["final_answer"], message("greeting", "tr"))
+        # Thanks are not searched in the documents either
+        self.assertEqual(self.route("Teşekkürler", "guest")["final_answer"], message("thanks", "tr"))
         self.assertEqual(self.route("Kayıt ne zaman yapılır?", "guest")["next_agent"], "doc_agent")
 
 

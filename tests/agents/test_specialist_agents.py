@@ -258,6 +258,36 @@ class TestSupervisorRouting(unittest.TestCase):
             self.assertEqual(out["agent_trace"][-1]["action"], "direct_greeting", greeting)
         self.chat.invoke.assert_not_called()
 
+    def test_thanks_and_goodbyes_short_circuit(self):
+        for thanks in ("Teşekkürler", "çok teşekkür ederim", "Sağ olun!", "tamam teşekkürler", "Thank you very much"):
+            out = self.supervisor.route({"question": thanks})
+            self.assertEqual(out["agent_trace"][-1]["action"], "direct_thanks", thanks)
+            self.assertTrue(out["final_answer"].startswith(("Rica ederim", "You're welcome")), thanks)
+        self.chat.invoke.assert_not_called()
+
+    def test_thanks_with_a_question_is_routed(self):
+        for question in ("teşekkürler, yıllık izin kaç gün?", "çok"):
+            out = self.supervisor.route({"question": question})
+            self.assertEqual(out["agent_trace"][-1]["action"], "intent_routing", question)
+
+    def test_greeting_and_thanks_tell_users_who_can_file_requests_how(self):
+        self.supervisor.registry.is_available = lambda name: name == "request_agent"
+        viewer = {"username": "ayse", "role": "viewer"}
+        for question in ("Merhaba", "Teşekkürler"):
+            answer = self.supervisor.route({"question": question, "user": viewer})["final_answer"]
+            self.assertIn("Talep oluştur:", answer, question)
+            # Not for guests, who cannot file requests, nor without a logged-in user
+            guest = {"username": "guest-1", "role": "guest"}
+            self.assertNotIn(
+                "Talep oluştur:", self.supervisor.route({"question": question, "user": guest})["final_answer"]
+            )
+            self.assertNotIn("Talep oluştur:", self.supervisor.route({"question": question})["final_answer"])
+        # Nor when the request agent is not running
+        self.supervisor.registry.is_available = lambda name: False
+        self.assertNotIn(
+            "Talep oluştur:", self.supervisor.route({"question": "Merhaba", "user": viewer})["final_answer"]
+        )
+
     def test_greeting_with_request_is_routed(self):
         out = self.supervisor.route({"question": "hi, list sales"})
         self.assertEqual(out["agent_trace"][-1]["action"], "intent_routing")

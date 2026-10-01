@@ -357,7 +357,11 @@ def run_e2e(chat_model, registry, cases: List[Dict[str, Any]]) -> Dict[str, Any]
         recall = metrics.fact_recall(answer, case["expected_facts"])
         # A refusal phrase inside an answer that has every expected fact is part of the answer ("hakları arasında
         # fark bulunmamaktadır"), not a refusal
-        refused = answer.strip() in system_refusals or (metrics.is_refusal(answer) and recall != 1.0)
+        # The request hint added to "not found" answers is not part of the answer
+        body = answer.strip()
+        for hint in message_variants("request_hint_not_found"):
+            body = body.removesuffix(hint).strip()
+        refused = body in system_refusals or (metrics.is_refusal(answer) and recall != 1.0)
         # Did the system answer in the question's language? (None when either text gives no signal)
         question_language, answer_language = detect_language(case["question"]), detect_language(answer)
         language_match = question_language == answer_language if question_language and answer_language else None

@@ -223,8 +223,8 @@ async def query_rag_stream(
         try:
             await query_concurrency_gate.__aenter__()
         except QueueFullError:
-            # The queue filled up between the check above and now
-            yield json.dumps({"type": "error", "message": BUSY_DETAIL}, ensure_ascii=False) + "\n"
+            # The queue filled up between the check above and now; "code" lets clients show their busy message
+            yield json.dumps({"type": "error", "code": "busy", "message": BUSY_DETAIL}, ensure_ascii=False) + "\n"
             return
         try:
             loop = asyncio.get_running_loop()

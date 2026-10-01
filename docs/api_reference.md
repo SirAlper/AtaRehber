@@ -12,6 +12,7 @@ The interactive OpenAPI Swagger UI is available at `http://localhost:8000/docs` 
 | :--- | :--- | :---: | :--- |
 | `POST` | `/api/v1/auth/login` | Public | Obtain signed JWT Bearer access token and refresh token |
 | `POST` | `/api/v1/auth/refresh` | Public | Exchange refresh token for fresh access and refresh token pair |
+| `POST` | `/api/v1/auth/logout` | Public | Delete the refresh token cookie of a browser client |
 | `GET` | `/api/v1/auth/guest` | Public | Whether guest access is enabled (`{"enabled": true}`) |
 | `POST` | `/api/v1/auth/guest` | Public | Start a guest session (visitors without an account; `GUEST_ACCESS_ENABLED`) |
 | `GET` | `/api/v1/auth/me` | Authenticated | View current authenticated user profile |
@@ -127,6 +128,8 @@ curl -X POST "http://localhost:8000/api/v1/auth/refresh" \
 ```
 
 The refresh token is rotated on every call. Refresh tokens issued before a password change or account deactivation are rejected with HTTP 401.
+
+**Browser clients (refresh token in a cookie):** with the header `X-Token-Transport: cookie`, login, refresh, and change-password return `"refresh_token": null` and set the refresh token as the cookie `olr_refresh` instead (`HttpOnly`, `SameSite=Strict`, `Path=/api/v1/auth`, valid for `REFRESH_TOKEN_EXPIRE_DAYS`; `Secure` when `REFRESH_COOKIE_SECURE=true`). Page scripts cannot read it, so a script injected into the page cannot steal the long-lived token. `POST /api/v1/auth/refresh` then needs no body: the browser sends the cookie. `POST /api/v1/auth/logout` deletes the cookie. The web UI keeps the access token in memory only. Clients without the header get the refresh token in the body as before.
 
 ---
 
