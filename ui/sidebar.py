@@ -1,5 +1,7 @@
 """Sidebar: login, system status, agent choice, documents, service requests, and administration."""
 
+import re
+
 import streamlit as st
 
 import api_client as api
@@ -45,6 +47,7 @@ def render_sidebar() -> None:
             _database()
             _custom_agents()
             _user_groups()
+            _review_list()
             _audit_trail()
         if st.button(t("clear_conversation"), use_container_width=True):
             new_conversation()
@@ -359,6 +362,24 @@ def _user_groups() -> None:
             )
             if st.button(t("save"), key=f"user_groups_save_{user['username']}"):
                 _show(*api.set_user_groups(user["username"], groups))
+    st.divider()
+
+
+def _review_list() -> None:
+    """Answers that could not be verified and answers users rated down: gaps in the documents."""
+    st.subheader(t("review_title"))
+    with st.expander(t("review_title")):
+        st.caption(t("review_help"))
+        items = api.get_review_items(limit=30)
+        if not items:
+            st.caption(t("review_empty"))
+        for item in items:
+            badge = "⚠️" if item.get("reason") == "unverified" else "👎"
+            label = t("review_unverified") if item.get("reason") == "unverified" else t("review_negative")
+            date = item.get("timestamp", "")[:16].replace("T", " ")
+            st.markdown(f"{badge} `{date}` **{item.get('username', '')}** · {label}")
+            detail = re.sub(r"^\[[^\]]*\]\s*", "", str(item.get("detail") or ""))
+            st.caption(detail[:200])
     st.divider()
 
 

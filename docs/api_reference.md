@@ -42,6 +42,7 @@ The interactive OpenAPI Swagger UI is available at `http://localhost:8000/docs` 
 | `GET` | `/api/v1/admin/backups` | `admin` | List full and vector-index backups |
 | `POST` | `/api/v1/admin/maintenance/run` | `admin` | Apply the retention periods and take a scheduled backup now (also runs hourly) |
 | `POST` | `/api/v1/admin/restore` | `admin` | Stage a vector index restore from a backup (applied on next restart) |
+| `GET` | `/api/v1/admin/review` | `admin` | Recent answers that could not be (fully) verified and answers rated down |
 | `GET` | `/api/v1/admin/agent-tools` | `admin` | Tools custom agents can use (labels in `language=tr` or `en`) and whether they work right now |
 | `GET` | `/api/v1/admin/custom-agents` | `admin` | Custom agent definitions with their availability |
 | `PUT` | `/api/v1/admin/custom-agents/{name}` | `admin` | Create or replace a custom agent; the supervisor can route to it at once |
@@ -829,6 +830,9 @@ curl -X POST "http://localhost:8000/api/v1/admin/maintenance/run" \
 ```
 
 ---
+
+### 5.7a Answers to Review (`GET /api/v1/admin/review`)
+Recent answers whose check ended `partial` or `unverified` (audit entries of `query` / `query_stream` with status `warning`) and feedback entries rated down, newest first (`limit`, default 30). Each item is an audit entry plus `reason`: `unverified` or `negative_feedback`. With `AUDIT_STORE_QUESTIONS=false` the questions are not stored, only their length.
 
 ### 5.8 Custom Agents (`/api/v1/admin/custom-agents`)
 Agents defined without code (see [Custom Agents Guide](custom_agents_guide.md#-agents-without-code-web-ui)). `PUT /api/v1/admin/custom-agents/{name}` takes:

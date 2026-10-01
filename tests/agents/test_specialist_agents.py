@@ -2,7 +2,7 @@
 
 import json
 import unittest
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 from src.agent.multi_agent.registry import AgentRegistry
 from src.agent.multi_agent.sub_agents.db_agent import DatabaseAgent
@@ -42,6 +42,13 @@ def scripted_chat_model(generate: str, grades: list, refined: str = "refined ans
 
 
 class TestDocAgentSelfRag(unittest.TestCase):
+    """Grade -> refine -> fallback with scripted grades; the second opinion is tested in test_verification.py."""
+
+    def setUp(self):
+        patcher = patch("src.core.config.GRADER_SECOND_OPINION", False)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
     def _agent(self, chat):
         engine = MagicMock()
         engine.search.return_value = {

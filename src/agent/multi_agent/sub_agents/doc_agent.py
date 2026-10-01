@@ -7,10 +7,11 @@ from src.agent.language import message, response_language
 from src.agent.multi_agent.base import BaseSubAgent
 from src.agent.multi_agent.registry import register_agent
 from src.agent.answer_cache import answer_cache
-from src.agent.grading import grade_objection, is_grade_passed, quote_in_context
+from src.agent.grading import quote_in_context
 from src.agent.multi_agent.tools import ToolRun, build_tools, run_with_tools
 from src.agent.prompts import build_rag_messages, build_rewrite_messages, split_evidence
-from src.agent.self_rag import grade_answer, grade_answer_with_quotes, refine_answer
+from src.agent.self_rag import grade_answer, refine_answer
+from src.agent.verification import UNVERIFIED, VERIFIED, verify_answer
 from src.core import config
 from src.rag.evidence import attach_evidence
 from src.rag.rag_engine import RAGEngine
@@ -134,34 +135,41 @@ class DocumentRagAgent(BaseSubAgent):
                 answer = message("no_context", language)
         if generation_failed:
             answer = message("fallback", language)
-        # Computed values (a deadline, a sum) are context for the check like the quoted rules
-        check_context = "\n\n".join(part for part in (context, run.context()) if part)
-
-        # 5. Self-RAG hallucination guard: grade -> (refine -> re-grade) -> fallback
-        is_refined, grade, quotes = False, "", []
+        # 5. Check the answer (grader, second opinion, numbers, transitional articles), refine once, fall back to
+        # the verified part or the safe answer; computed values (a deadline, a sum) count like quoted rules
+        verification = None
         if not generation_failed:
-            self.report_progress("verifying")
-            grade, quotes = self._grade_with_quotes(check_context, question, answer)
-            if not is_grade_passed(grade):
-                logger.info(f"[{self.name}] Answer not grounded ('{grade}'), refining...")
-                self.report_progress("refining")
-                answer = self._refine(check_context, question, answer, language, objection=grade_objection(grade))
-                is_refined = True
-                grade, quotes = self._grade_with_quotes(check_context, question, answer)
-                if not is_grade_passed(grade):
-                    logger.warning(f"[{self.name}] Refined answer still unverified, using safe fallback.")
-                    answer = message("fallback", language)
+            verification = verify_answer(
+                self.chat_model,
+                self.grader_model,
+                context,
+                question,
+                answer,
+                sources,
+                language,
+                tool_context=run.tool_context(),
+                agent_name=self.name,
+                progress=self.report_progress,
+            )
+            answer, sources = verification.answer, verification.sources
+            if verification.level == VERIFIED and not any(s.get("evidence") for s in sources):
+                # The grader quoted nothing: show the evidence the model copied (ANSWER_EVIDENCE_FIRST)
+                sources = attach_evidence(sources, [q for q in answer_quotes if quote_in_context(q, context)])
+        grade = verification.grade if verification else ""
+        is_refined = verification.is_refined if verification else False
+        verified = verification is not None and verification.level == VERIFIED
 
-        # 6. The sentences the answer relies on, shown with the answer ("Madde 30/2")
-        if is_grade_passed(grade):
-            evidence = quotes or [q for q in answer_quotes if quote_in_context(q, context)]
-            sources = attach_evidence(sources, evidence)
-
-        output = {"final_answer": answer, "sources": sources, "hallucination_grade": grade, "is_refined": is_refined}
+        output = {
+            "final_answer": answer,
+            "sources": sources,
+            "hallucination_grade": grade,
+            "is_refined": is_refined,
+            "verification": verification.as_dict() if verification else {"level": UNVERIFIED, "issues": []},
+        }
         details = {"hallucination_grade": grade, "is_refined": is_refined, "tools_called": tools_called}
-        details["status"] = "success" if is_grade_passed(grade) else "unverified"
+        details["status"] = "success" if verified else (verification.level if verification else "unverified")
         trace_entry = self._trace_entry("retrieval_and_generation", search_query, len(sources), details, start_time)
-        if cache_key is not None and is_grade_passed(grade):
+        if cache_key is not None and verified:
             answer_cache.put(cache_key, output)
         return {**output, "agent_trace": list(state.get("agent_trace", [])) + [trace_entry]}
 
@@ -180,9 +188,6 @@ class DocumentRagAgent(BaseSubAgent):
             if key in details and details[key] not in (None, []):
                 entry[key] = details[key]
         return entry
-
-    def _grade_with_quotes(self, context: str, question: str, answer: str) -> tuple:
-        return grade_answer_with_quotes(self.grader_model, context, question, answer, agent_name=self.name)
 
     def _grade(self, context: str, question: str, answer: str) -> str:
         """Ask the grading model whether the answer is supported by the context (see src/agent/self_rag.py)."""

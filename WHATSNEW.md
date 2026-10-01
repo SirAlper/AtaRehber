@@ -6,6 +6,15 @@ This document provides a comprehensive log of new features, architectural upgrad
 
 ## 🧭 Unreleased
 
+### Improved: answer check
+* **Second opinion:** when the grader rejects an answer, it is shown its own objection and asked again before the answer is refined, as the 7B grader rejects correct answers now and then (`GRADER_SECOND_OPINION`).
+* **Number check:** every number of an answer must be in the sentences the grader quoted, the question, or a tool result; "30 days" where the document says "15 days" fails even if the grader accepts it (`GRADER_NUMBER_CHECK`).
+* **Transitional articles:** an answer that relies only on a transitional article while the provision in force was also found is sent back once (`GRADER_TRANSITIONAL_CHECK`).
+* **Partial answers:** when the check keeps failing, the supported sentences are shown as "partly verified" instead of dropping the whole answer.
+* **Three levels:** answers carry `verification` (`verified`, `partial`, `unverified`, with reasons); the web UI explains each, and a combined answer gets its weakest part's level. `src/agent/verification.py` is shared by `doc_agent` and custom agents.
+* **Answers to review:** unverified answers are recorded with status `warning` and listed for admins together with answers rated down (`GET /api/v1/admin/review`, "Answers to Review").
+* **Measuring the check:** `evals/build_grader_dataset.py` turns correct answers of a report into a dataset with wrong copies (a changed number, an invented sentence); the `grader` stage of `run_eval.py` reports how many correct answers are accepted and how many wrong ones rejected, for the grader alone and for the full check.
+
 ### Improved: answers from the documents
 * **Evidence under the answer:** a verified answer shows the sentence it relies on, with article and paragraph ("📌 Evidence · Madde 30/2"). The sentences come from the grader's checked quotes, matched to the original text of the sources.
 * **Clearer sources:** the sources the answer relies on come first, with the evidence in bold; other retrieved chunks of the same article are merged and listed as "other sections that may be relevant". Long chunks are shortened (full text on demand), the loader's header line is no longer repeated, and chunk numbers and scores are shown to admins and editors only.

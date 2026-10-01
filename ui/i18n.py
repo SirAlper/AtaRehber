@@ -195,6 +195,16 @@ TEXTS: Dict[str, Dict[str, str]] = {
     "category_administrative": {"tr": "İdari", "en": "Administrative"},
     "category_other": {"tr": "Diğer", "en": "Other"},
     # ── User groups (admin) ──
+    "review_title": {"tr": "🧐 İncelenecek Cevaplar", "en": "🧐 Answers to Review"},
+    "review_help": {
+        "tr": "Doğrulanamayan ve kullanıcıların beğenmediği cevaplar: belgelerin net cevap vermediği konuları "
+        "gösterir.",
+        "en": "Answers that could not be verified and answers users rated down: topics the documents do not "
+        "answer clearly.",
+    },
+    "review_empty": {"tr": "İncelenecek cevap yok.", "en": "No answers to review."},
+    "review_unverified": {"tr": "doğrulanamadı / kısmen doğrulandı", "en": "unverified / partly verified"},
+    "review_negative": {"tr": "kullanıcı beğenmedi", "en": "rated down"},
     "custom_agents_title": {"tr": "🧩 Özel Ajanlar", "en": "🧩 Custom Agents"},
     "custom_agents_help": {
         "tr": "Ajan oluşturun: ne için çalıştığını, nasıl çalışacağını ve hangi araçları kullanacağını yazın. "
@@ -323,6 +333,14 @@ TEXTS: Dict[str, Dict[str, str]] = {
     "audit_verified": {
         "tr": "🛡️ *Cevap kurum dokümanlarıyla doğrulandı.*",
         "en": "🛡️ *Verified directly against the organization's documents.*",
+    },
+    "audit_partial": {
+        "tr": "⚠️ *Kısmen doğrulandı: yalnızca belgelerde dayanağı bulunan kısımlar gösteriliyor.*",
+        "en": "⚠️ *Partly verified: only the parts the documents support are shown.*",
+    },
+    "audit_transitional": {
+        "tr": "⚠️ *Bu cevap geçici bir maddeye dayanıyor; yürürlükteki düzenlemeyi kaynaklardan kontrol edin.*",
+        "en": "⚠️ *This answer relies on a transitional provision; check the rule in force in the sources.*",
     },
     "audit_unverified": {
         "tr": "⚠️ *Cevap kurum dokümanlarıyla tam olarak doğrulanamadı.*",

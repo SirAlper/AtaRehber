@@ -45,6 +45,11 @@ def _answer_preview(answer: str | None) -> str | None:
     return answer if config.AUDIT_STORE_QUESTIONS else None
 
 
+def _audit_status(verification: dict | None) -> str:
+    """'warning' for answers that could not be (fully) verified, so admins can review them; else 'success'."""
+    return "warning" if (verification or {}).get("level") in ("partial", "unverified") else "success"
+
+
 def _resolve_forced_agent(request: QueryRequest, user: User) -> str | None:
     # Guests only ask about the documents shared with them: no database, requests, or compliance checks
     if user.role == GUEST_ROLE:
@@ -139,7 +144,7 @@ async def query_rag(
             answer_preview=_answer_preview(result.get("answer", "")),
             ip_address=ip_addr,
             duration_ms=duration_ms,
-            status="success",
+            status=_audit_status(result.get("verification")),
         )
 
         return {
@@ -151,6 +156,7 @@ async def query_rag(
             "agent_trace": result.get("agent_trace", []),
             "hallucination_grade": result.get("hallucination_grade", ""),
             "is_refined": result.get("is_refined", False),
+            "verification": result.get("verification") or {},
         }
     except HTTPException:
         raise
@@ -208,6 +214,7 @@ async def query_rag_stream(
     async def event_generator():
         final_answer = ""
         final_sources = []
+        final_verification = {}
         active_agent = "supervisor"
         had_error = False
         completed = False
@@ -261,6 +268,7 @@ async def query_rag_stream(
                             final_answer = item.get("answer", "")
                             final_sources = item.get("sources", [])
                             active_agent = item.get("active_agent", "supervisor")
+                            final_verification = item.get("verification") or {}
                         elif item.get("type") == "error":
                             had_error = True
                     yield json.dumps(item, ensure_ascii=False) + "\n"
@@ -279,7 +287,7 @@ async def query_rag_stream(
                     elif not completed:
                         status = "cancelled"
                     else:
-                        status = "success"
+                        status = _audit_status(final_verification)
                     await audit_logger.alog(
                         username=current_user.username,
                         role=current_user.role,

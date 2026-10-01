@@ -168,6 +168,22 @@ def build_quote_grader_messages(context: str, question: str, answer: str) -> lis
     ]
 
 
+SECOND_OPINION_NOTE = (
+    'Another auditor rejected this Answer with the objection: "{objection}". Check that objection against the '
+    "Context yourself: it may be wrong. Reject the Answer only if the Context really does not state a key fact of it "
+    "or states something different."
+)
+
+
+def build_second_opinion_messages(context: str, question: str, answer: str, objection: str) -> list:
+    """Second look of the grader at an answer it rejected, with the first objection to check."""
+    note = SECOND_OPINION_NOTE.format(objection=objection or "no reason given")
+    return [
+        SystemMessage(content=f"{SYSTEM_PROMPT_GRADER_QUOTES}\n{note}"),
+        HumanMessage(content=f"Context:\n{context}\n\nQuestion: {question}\n\nAnswer:\n{answer}"),
+    ]
+
+
 def build_refine_messages(
     context: str, question: str, draft_answer: str, language: Optional[str] = None, objection: str = ""
 ) -> list:

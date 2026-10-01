@@ -276,3 +276,21 @@ async def delete_custom_agent(name: str, current_admin: User = Depends(require_r
         status="success",
     )
     return {"status": "success"}
+
+
+@router.get("/review", summary="Answers to Review")
+async def list_answers_to_review(limit: int = Query(30, ge=1, le=200), _: User = Depends(require_role("admin"))):
+    """Recent answers that could not be (fully) verified and answers users rated down (Admin only).
+
+    They show which questions the documents do not answer clearly; with AUDIT_STORE_QUESTIONS=false only the
+    question length is known.
+    """
+    unverified = []
+    for action in ("query", "query_stream"):
+        unverified += await audit_logger.aquery_logs(action=action, status="warning", limit=limit)
+    feedback = await audit_logger.aquery_logs(action="feedback", limit=limit * 3)
+    negative = [entry for entry in feedback if str(entry.get("detail", "")).startswith("[NEGATIVE]")]
+    items = [{**entry, "reason": "unverified"} for entry in unverified]
+    items += [{**entry, "reason": "negative_feedback"} for entry in negative]
+    items.sort(key=lambda entry: entry.get("timestamp", ""), reverse=True)
+    return {"items": items[:limit]}

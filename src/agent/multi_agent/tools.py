@@ -124,6 +124,14 @@ class ToolRun:
     def context(self) -> str:
         return "\n\n".join(self.outputs)
 
+    def document_context(self) -> str:
+        """What the document search returned."""
+        return "\n\n".join(o for o in self.outputs if o.startswith("[documents]"))
+
+    def tool_context(self) -> str:
+        """What the other tools computed or looked up (dates, sums, database rows)."""
+        return "\n\n".join(o for o in self.outputs if not o.startswith("[documents]"))
+
 
 @dataclass
 class ToolSpec:

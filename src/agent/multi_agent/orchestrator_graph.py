@@ -41,6 +41,17 @@ def _effective_results(state: Dict[str, Any]) -> List[Dict[str, Any]]:
     return [r for r in state.get("step_results", []) if not r.get("superseded")]
 
 
+def _combined_verification(results: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """Verification of a combined answer: the weakest checked part decides the level; issues are collected."""
+    checked = [r["verification"] for r in results if r.get("verification")]
+    if not checked:
+        return {}
+    order = ["unverified", "partial", "verified"]
+    level = min((v.get("level", "unverified") for v in checked), key=lambda lv: order.index(lv) if lv in order else 0)
+    issues = list(dict.fromkeys(issue for v in checked for issue in v.get("issues", [])))
+    return {"level": level, "issues": issues}
+
+
 def _last_status(trace: List[Dict[str, Any]], agent_name: str) -> str:
     for entry in reversed(trace):
         if entry.get("agent") == agent_name:
@@ -171,6 +182,7 @@ class MultiAgentOrchestrator:
                 "status": status,
                 "hallucination_grade": output.get("hallucination_grade", ""),
                 "is_refined": output.get("is_refined", False),
+                "verification": output.get("verification") or {},
             }
             if step.get("handoff_from"):
                 result["handoff_from"] = step["handoff_from"]
@@ -208,6 +220,7 @@ class MultiAgentOrchestrator:
                 "sources": result["sources"],
                 "hallucination_grade": result["hallucination_grade"],
                 "is_refined": result["is_refined"],
+                "verification": result["verification"],
             }
             return update
 
@@ -304,6 +317,7 @@ class MultiAgentOrchestrator:
             "agent_trace": trace,
             "hallucination_grade": grade,
             "is_refined": any(r.get("is_refined") for r in effective),
+            "verification": _combined_verification(effective),
         }
 
     def _build_graph(self, checkpointer=None):
@@ -374,6 +388,7 @@ class MultiAgentOrchestrator:
             "final_answer": "",
             "hallucination_grade": "",
             "is_refined": False,
+            "verification": {},
         }
 
     def _app_and_config(self, thread_id: Optional[str]):
@@ -393,6 +408,7 @@ class MultiAgentOrchestrator:
             "agents": [r["agent"] for r in _effective_results(state)],
             "hallucination_grade": state.get("hallucination_grade", ""),
             "is_refined": state.get("is_refined", False),
+            "verification": state.get("verification") or {},
             "chat_history": state.get("chat_history", []),
         }
 
@@ -507,6 +523,7 @@ class MultiAgentOrchestrator:
             "agents": result["agents"],
             "hallucination_grade": result["hallucination_grade"],
             "is_refined": result["is_refined"],
+            "verification": result["verification"],
         }
 
     def cleanup(self):

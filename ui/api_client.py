@@ -278,5 +278,9 @@ def get_audit_logs(limit: int = 20) -> list:
     return _json(_call("get", "/api/v1/admin/audit-logs", params={"limit": limit}, timeout=5), {}).get("logs", [])
 
 
+def get_review_items(limit: int = 30) -> list:
+    return _json(_call("get", "/api/v1/admin/review", params={"limit": limit}, timeout=5), {}).get("items", [])
+
+
 def get_audit_stats() -> Optional[dict]:
     return _json(_call("get", "/api/v1/admin/audit-stats", timeout=5))
