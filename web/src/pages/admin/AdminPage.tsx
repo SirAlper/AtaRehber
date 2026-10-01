@@ -1,4 +1,4 @@
-import { Activity, Bot, FileText, SearchCheck, ServerCog, Users } from "lucide-react";
+import { Activity, Bot, FileText, Gauge, SearchCheck, ServerCog, Users } from "lucide-react";
 import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { Navigate, NavLink, Route, Routes } from "react-router-dom";
@@ -9,6 +9,7 @@ import { AgentsTab } from "@/pages/admin/AgentsTab";
 import { AuditTab } from "@/pages/admin/AuditTab";
 import { DocumentsTab } from "@/pages/admin/DocumentsTab";
 import { ReviewTab } from "@/pages/admin/ReviewTab";
+import { StatsTab } from "@/pages/admin/StatsTab";
 import { SystemTab } from "@/pages/admin/SystemTab";
 import { UsersTab } from "@/pages/admin/UsersTab";
 
@@ -42,11 +43,13 @@ export default function AdminPage() {
         </h1>
         <nav className="glass mb-4 flex gap-1 overflow-x-auto p-1.5" aria-label={t("admin.title")}>
           <Tab to="/admin/documents" icon={<FileText className="h-4 w-4" />} label={t("admin.documents")} />
+          {/* Editors answer unanswered questions too */}
+          <Tab to="/admin/review" icon={<SearchCheck className="h-4 w-4" />} label={t("admin.review")} />
           {isAdmin && (
             <>
               <Tab to="/admin/users" icon={<Users className="h-4 w-4" />} label={t("admin.users")} />
               <Tab to="/admin/agents" icon={<Bot className="h-4 w-4" />} label={t("admin.agents")} />
-              <Tab to="/admin/review" icon={<SearchCheck className="h-4 w-4" />} label={t("admin.review")} />
+              <Tab to="/admin/stats" icon={<Gauge className="h-4 w-4" />} label={t("admin.stats")} />
               <Tab to="/admin/audit" icon={<Activity className="h-4 w-4" />} label={t("admin.audit")} />
               <Tab to="/admin/system" icon={<ServerCog className="h-4 w-4" />} label={t("admin.system")} />
             </>
@@ -55,11 +58,12 @@ export default function AdminPage() {
         <Routes>
           <Route index element={<Navigate to="/admin/documents" replace />} />
           <Route path="documents" element={<DocumentsTab />} />
+          <Route path="review" element={<ReviewTab />} />
           {isAdmin && (
             <>
               <Route path="users" element={<UsersTab />} />
               <Route path="agents" element={<AgentsTab />} />
-              <Route path="review" element={<ReviewTab />} />
+              <Route path="stats" element={<StatsTab />} />
               <Route path="audit" element={<AuditTab />} />
               <Route path="system" element={<SystemTab />} />
             </>

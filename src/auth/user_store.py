@@ -7,6 +7,7 @@ import bcrypt
 
 from src.auth.models import User, UserResponse, UserRole
 from src.auth.document_access import normalize_groups
+from src.auth.profile import normalize_profile
 from src.core.config import (
     USERS_FILE_PATH,
     ADMIN_DEFAULT_USERNAME,
@@ -113,14 +114,22 @@ class UserStore:
             data = self._load_data()
             return [UserResponse.from_user(User(**u)) for u in data.values()]
 
-    def create_user(self, username: str, password: str, role: UserRole, groups: Optional[List[str]] = None) -> User:
-        """Create a new user with hashed password after validating password policy and group names."""
+    def create_user(
+        self,
+        username: str,
+        password: str,
+        role: UserRole,
+        groups: Optional[List[str]] = None,
+        profile: Optional[Dict[str, str]] = None,
+    ) -> User:
+        """Create a new user with hashed password after validating password policy, group names, and profile."""
         from src.auth.password_policy import password_policy
 
         violations = password_policy.validate(password)
         if violations:
             raise ValueError(f"Password does not meet policy requirements: {'; '.join(violations)}")
         groups = normalize_groups(groups)
+        profile = normalize_profile(profile)
 
         with self._lock:
             data = self._load_data()
@@ -134,6 +143,7 @@ class UserStore:
                 disabled=False,
                 created_at=datetime.now(timezone.utc).isoformat(),
                 groups=groups,
+                profile=profile,
             )
             data[username] = new_user.model_dump()
             self._save_data(data)
@@ -148,6 +158,7 @@ class UserStore:
         disabled: Optional[bool] = None,
         must_change_password: Optional[bool] = None,
         groups: Optional[List[str]] = None,
+        profile: Optional[Dict[str, str]] = None,
     ) -> Optional[User]:
         """Update existing user properties.
 
@@ -162,6 +173,8 @@ class UserStore:
                 raise ValueError(f"Password does not meet policy requirements: {'; '.join(violations)}")
         if groups is not None:
             groups = normalize_groups(groups)
+        if profile is not None:
+            profile = normalize_profile(profile)
 
         with self._lock:
             data = self._load_data()
@@ -183,6 +196,8 @@ class UserStore:
                 user_data["must_change_password"] = must_change_password
             if groups is not None:
                 user_data["groups"] = groups
+            if profile is not None:
+                user_data["profile"] = profile
             if revoke_tokens:
                 user_data["token_version"] = int(user_data.get("token_version", 0)) + 1
 

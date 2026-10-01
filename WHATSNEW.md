@@ -6,6 +6,20 @@ This document provides a comprehensive log of new features, architectural upgrad
 
 ## 🧭 Unreleased
 
+### Improved: agents that work together
+* **Composite questions:** a question that asks a rule and a database value at once ("En fazla kaç monitör alınabilir ve NovaView monitörün birim fiyatı nedir?") gets one step per agent; the combined answer may draw the conclusion (compare, subtract, say whether a condition is met). Measured: 4 of 4 composite questions planned with both agents (before: 1 of 4), all expected facts in the answers, routing on the main dataset 100%.
+* **Steps that build on each other:** a plan step can use what an earlier step found (`"uses"`), e.g. the product with the lowest stock, then that product's return policy.
+* **Questions back:** "Kaç gün izin hakkım var?" gets "Kıdeminiz kaç yıl?" with the options as buttons when the rules depend on seniority; the answer completes the original question. Only in a conversation, only for questions about the asker's own case (general questions get all the cases), never twice in a row (`CLARIFY_QUESTIONS`). Measured: asked on 3 of 3 ambiguous questions and on none of 8 clear ones.
+* **Answers for the user's unit:** admins record each account's unit, program, and level; agents answer rules that differ by them for that user, and "bölümümde" is searched as the user's department.
+* **Checked database answers:** every number must be a value of the query result; a wrong one is corrected once, then the rows are shown as a table.
+* **Checked compliance verdicts:** the verdict and the rules it cites must be in the retrieved rules; otherwise it is revised once, then left `[UNDETERMINED]` with the advice to ask the responsible unit. Supported verdicts show their evidence.
+* **Time limit per step:** a step slower than `AGENT_STEP_TIMEOUT_SECONDS` (180 s) is answered with "could not be completed in time"; the other steps still count.
+* **Learning from unanswered questions:** "not found" answers now reach the review list (before, they were recorded as successful). Staff (admins and editors) answer them under **Administration → Review**; the answer is searchable at once, and everyone who asked sees it under the new bell in the header.
+* **Requests from the chat:** "#12 numaralı talebimi iptal et" (after a yes) and "Talebime ekle: …"; without a number, the only open request is meant.
+* **Agent performance:** **Administration → Performance** shows per agent the questions, median and slow answer times, unverified answers, errors, and thumbs up/down (the web UI now sends the rated agent).
+* **Evaluation:** the `agents` stage (`evals/dataset_agents.jsonl`) measures plans, combined answers, and questions back.
+* **Fixed:** policy section numbers and codes in answers ("Bölüm 2.1", "HR-POL-07") were taken for facts by the number check and could reject a correct answer; short Turkish request commands ("talebimi iptal et") were answered in English.
+
 ### Added: new web UI
 * **React instead of Streamlit:** a new web UI in `web/` (React, TypeScript, Vite, Tailwind CSS) with a purple theme, light and dark mode, and Turkish and English texts. Streamlit keeps working during the transition.
 * **Chat:** answers appear as the stages progress ("Searching the documents…", "Checking the answer…") and can be stopped; each answer shows its verification level, the evidence with article and paragraph, the sources (used ones first), and the agents' steps. Conversations are listed on the side (a menu on phones) and kept in the browser; the agent can be chosen or left to the supervisor. A busy server gets its own message instead of an error. Cached data is cleared when the user changes, so the next person in the same browser tab never sees the previous user's requests or documents.

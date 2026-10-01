@@ -30,14 +30,18 @@ class ScriptedLLM:
         self.grade = grade
         self.request = request or REQUEST_DRAFT
         self.request_inputs = []
+        self.routing_inputs, self.synthesis_inputs, self.grader_inputs = [], [], []
 
     def invoke(self, messages):
         system = messages[0].content
         if "supervisor of an AI assistant team" in system:
+            self.routing_inputs.append(messages[-1].content)
             return SimpleNamespace(content=json.dumps(self.plans.pop(0)))
         if "combine the partial answers" in system:
+            self.synthesis_inputs.append(messages[-1].content)
             return SimpleNamespace(content=self.synthesis)
         if "factual auditor" in system:
+            self.grader_inputs.append(system)
             return SimpleNamespace(content=self.grade)
         if "service request" in system:
             self.request_inputs.append(messages[-1].content)
@@ -78,6 +82,11 @@ class StubAgent(BaseSubAgent):
 
 def step(agent, question):
     return {"agent": agent, "question": question}
+
+
+def planned(agent, question, step_id=0, uses=()):
+    """A step as the supervisor's plan holds it: with its id and the ids of the earlier steps it uses."""
+    return {"agent": agent, "question": question, "id": step_id, "uses": list(uses)}
 
 
 def build(llm, *agents):
@@ -202,11 +211,11 @@ class TestSupervisorPlans(unittest.TestCase):
     def test_sub_questions_for_the_same_agent_become_one_step(self):
         steps = [step("doc_agent", "Ders bırakma süresi?"), step("doc_agent", "Kayıt yenileme ne zaman biter?")]
         decision = self.route({"steps": steps}, question="Dersler ne kadar süre içinde bırakılabilir?")
-        self.assertEqual(decision["plan"], [step("doc_agent", "Dersler ne kadar süre içinde bırakılabilir?")])
+        self.assertEqual(decision["plan"], [planned("doc_agent", "Dersler ne kadar süre içinde bırakılabilir?")])
 
     def test_older_single_agent_format_is_accepted(self):
         decision = self.route({"agent": "compliance_agent", "reason": "r"}, question="Uygun mu?")
-        self.assertEqual(decision["plan"], [step("compliance_agent", "Uygun mu?")])
+        self.assertEqual(decision["plan"], [planned("compliance_agent", "Uygun mu?")])
 
     def test_empty_plan_answers_directly(self):
         decision = self.route({"steps": [], "direct_response": "Merhaba!"})

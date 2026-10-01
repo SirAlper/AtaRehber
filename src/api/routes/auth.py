@@ -273,6 +273,7 @@ async def register_user(
             password=new_user_data.password,
             role=new_user_data.role,
             groups=new_user_data.groups,
+            profile=new_user_data.profile,
         )
         await audit_logger.alog(
             username=current_admin.username,
@@ -313,6 +314,7 @@ async def update_user(
             role=update_data.role,
             disabled=update_data.disabled,
             groups=update_data.groups,
+            profile=update_data.profile,
         )
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
@@ -325,7 +327,8 @@ async def update_user(
         username=current_admin.username,
         role=current_admin.role,
         action="update_user",
-        detail=f"Updated user '{username}' (role: {updated.role}, disabled: {updated.disabled}, groups: {updated.groups})",
+        detail=f"Updated user '{username}' (role: {updated.role}, disabled: {updated.disabled}, "
+        f"groups: {updated.groups}, profile: {updated.profile})",
         status="success",
     )
     return UserResponse.from_user(updated)

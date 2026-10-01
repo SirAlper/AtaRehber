@@ -1,3 +1,4 @@
+import re
 import time
 from datetime import datetime, timezone
 from typing import Dict, Any, Optional
@@ -6,7 +7,10 @@ from langchain_core.messages import SystemMessage, HumanMessage
 from src.agent.language import language_instruction, message, response_language
 from src.agent.multi_agent.base import BaseSubAgent
 from src.agent.multi_agent.registry import register_agent
-from src.agent.prompts import ORGANIZATION
+from src.agent.prompts import ORGANIZATION, step_context_text
+from src.auth.profile import profile_note
+from src.agent.verification import UNVERIFIED, VERIFIED, check_answer
+from src.rag.evidence import attach_evidence
 from src.rag.rag_engine import RAGEngine
 from src.core.logger import get_logger
 
@@ -74,9 +78,19 @@ class ComplianceAuditorAgent(BaseSubAgent):
         "describes, by checking it against the organization's rules, regulations, and policies (incl. KVKK/GDPR)."
     )
 
-    def __init__(self, chat_model=None, rag_engine: Optional[RAGEngine] = None):
+    def __init__(self, chat_model=None, rag_engine: Optional[RAGEngine] = None, grader_model=None):
         super().__init__(chat_model=chat_model)
         self._rag_engine = rag_engine
+        self._grader_model = grader_model
+
+    @property
+    def grader_model(self):
+        """Model that checks the verdict against the rules (OLLAMA_GRADER_MODEL); defaults to chat_model."""
+        return self._grader_model or self.chat_model
+
+    @grader_model.setter
+    def grader_model(self, value):
+        self._grader_model = value
 
     def _get_engine(self) -> RAGEngine:
         if self._rag_engine is None:
@@ -127,15 +141,35 @@ class ComplianceAuditorAgent(BaseSubAgent):
             language_rule=language_instruction(language),
             **REPORT_HEADINGS.get(language, REPORT_HEADINGS["en"]),
         )
+        user_note = profile_note(state.get("user"))
+        if user_note:
+            prompt = f"{prompt}\n{user_note}"
+        earlier_steps = step_context_text(state.get("step_context"))
         status = "success"
+        scenario = f"{earlier_steps}Scenario / Request to Audit: {question}"
+        verification = None
         try:
-            response = self.chat_model.invoke(
-                [
-                    SystemMessage(content=prompt),
-                    HumanMessage(content=f"Scenario / Request to Audit: {question}"),
-                ]
+            audit_report = self._report(prompt, scenario)
+            # The verdict and the rules it cites must be in the retrieved rules: a wrong VIOLATION is costly.
+            # One revision with the objection, then an undetermined verdict instead of an unsupported one.
+            self.report_progress("verifying")
+            check = check_answer(
+                self.grader_model, context, question, _verdict_part(audit_report), sources, "", False, self.name
             )
-            audit_report = response.content.strip()
+            if not check.passed:
+                logger.warning(f"[{self.name}] Verdict not supported by the rules: {check.objection}")
+                revision = f"{scenario}\n\nAn auditor rejected the previous verdict: {check.objection}"
+                audit_report = self._report(prompt, revision)
+                check = check_answer(
+                    self.grader_model, context, question, _verdict_part(audit_report), sources, "", False, self.name
+                )
+            if check.passed:
+                sources = attach_evidence(sources, check.quotes)
+                verification = {"level": VERIFIED, "issues": check.warnings}
+            else:
+                audit_report = message("compliance_unsupported", language)
+                verification = {"level": UNVERIFIED, "issues": []}
+                status = "unverified"
         except Exception as e:
             logger.error(f"[{self.name}] Compliance audit LLM error: {e}")
             audit_report = message("compliance_error", language)
@@ -152,8 +186,32 @@ class ComplianceAuditorAgent(BaseSubAgent):
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
 
-        return {
+        result = {
             "final_answer": audit_report,
             "sources": sources,
             "agent_trace": list(state.get("agent_trace", [])) + [trace_entry],
         }
+        if verification:
+            result["verification"] = verification
+        return result
+
+    def _report(self, prompt: str, scenario: str) -> str:
+        response = self.chat_model.invoke([SystemMessage(content=prompt), HumanMessage(content=scenario)])
+        return response.content.strip()
+
+
+# The report's third heading ("### 🔍 3. ...") starts the risk assessment, which is analysis rather than a rule
+_RISK_HEADING = re.compile(r"(?m)^#{1,4}\s*\S*\s*3\.")
+
+
+_HEADING_LINE = re.compile(r"(?m)^#{1,4}\s.*$")
+
+
+def _verdict_part(report: str) -> str:
+    """The verdict and the cited rules of a report: the part that must be stated in the retrieved rules.
+
+    Headings are left out: their numbers ("1. Denetim Kararı") are no facts for the number check.
+    """
+    match = _RISK_HEADING.search(report)
+    part = report[: match.start()] if match else report
+    return _HEADING_LINE.sub("", part).strip()

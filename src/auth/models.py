@@ -1,4 +1,4 @@
-from typing import List, Literal, Optional
+from typing import Dict, List, Literal, Optional
 from pydantic import BaseModel, Field
 
 
@@ -19,6 +19,8 @@ class User(BaseModel):
     must_change_password: bool = False
     # Groups for document-level access control (e.g. "akademik", "idari"); see src/auth/document_access.py
     groups: List[str] = Field(default_factory=list)
+    # Unit, program, and level (src/auth/profile.py); agents answer for them
+    profile: Dict[str, str] = Field(default_factory=dict)
 
 
 class UserResponse(BaseModel):
@@ -28,6 +30,7 @@ class UserResponse(BaseModel):
     created_at: Optional[str] = None
     must_change_password: bool = False
     groups: List[str] = Field(default_factory=list)
+    profile: Dict[str, str] = Field(default_factory=dict)
 
     @classmethod
     def from_user(cls, user: User) -> "UserResponse":
@@ -38,6 +41,7 @@ class UserResponse(BaseModel):
             created_at=user.created_at,
             must_change_password=user.must_change_password,
             groups=user.groups,
+            profile=user.profile,
         )
 
 
@@ -51,6 +55,7 @@ class UserCreate(BaseModel):
     )
     role: AccountRole = "viewer"
     groups: List[str] = Field(default_factory=list, description="Document access groups, e.g. ['akademik']")
+    profile: Dict[str, str] = Field(default_factory=dict, description="unit, program, level (all optional)")
 
 
 class UserUpdate(BaseModel):
@@ -58,6 +63,7 @@ class UserUpdate(BaseModel):
     role: Optional[AccountRole] = None
     disabled: Optional[bool] = None
     groups: Optional[List[str]] = Field(None, description="Replaces the user's document access groups")
+    profile: Optional[Dict[str, str]] = Field(None, description="Replaces the user's unit, program, and level")
 
 
 class TokenResponse(BaseModel):

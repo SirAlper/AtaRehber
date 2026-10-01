@@ -12,6 +12,7 @@ vi.mock("@/pages/admin/DocumentsTab", () => ({ DocumentsTab: () => <p>DocumentsT
 vi.mock("@/pages/admin/UsersTab", () => ({ UsersTab: () => <p>UsersTab</p> }));
 vi.mock("@/pages/admin/AgentsTab", () => ({ AgentsTab: () => <p>AgentsTab</p> }));
 vi.mock("@/pages/admin/ReviewTab", () => ({ ReviewTab: () => <p>ReviewTab</p> }));
+vi.mock("@/pages/admin/StatsTab", () => ({ StatsTab: () => <p>StatsTab</p> }));
 vi.mock("@/pages/admin/AuditTab", () => ({ AuditTab: () => <p>AuditTab</p> }));
 vi.mock("@/pages/admin/SystemTab", () => ({ SystemTab: () => <p>SystemTab</p> }));
 

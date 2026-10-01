@@ -18,7 +18,7 @@ The interactive OpenAPI Swagger UI is available at `http://localhost:8000/docs` 
 | `GET` | `/api/v1/auth/me` | Authenticated | View current authenticated user profile |
 | `POST` | `/api/v1/auth/register` | `admin` | Register new user account with password policy enforcement |
 | `GET` | `/api/v1/auth/users` | `admin` | List all registered enterprise user accounts |
-| `PATCH` | `/api/v1/auth/users/{username}` | `admin` | Update user status (disable/enable), role, document access groups, or reset password |
+| `PATCH` | `/api/v1/auth/users/{username}` | `admin` | Update user status (disable/enable), role, document access groups, profile (unit, program, level), or reset password |
 | `DELETE` | `/api/v1/auth/users/{username}` | `admin` | Permanently delete a registered user account |
 | `GET` | `/api/v1/stats` | Authenticated | Hardware acceleration, active models, backend info, and index counts |
 | `GET` | `/api/v1/documents` | Authenticated | List the documents the caller may search, with chunk counts and access groups |
@@ -43,7 +43,14 @@ The interactive OpenAPI Swagger UI is available at `http://localhost:8000/docs` 
 | `GET` | `/api/v1/admin/backups` | `admin` | List full and vector-index backups |
 | `POST` | `/api/v1/admin/maintenance/run` | `admin` | Apply the retention periods and take a scheduled backup now (also runs hourly) |
 | `POST` | `/api/v1/admin/restore` | `admin` | Stage a vector index restore from a backup (applied on next restart) |
-| `GET` | `/api/v1/admin/review` | `admin` | Recent answers that could not be (fully) verified and answers rated down |
+| `GET` | `/api/v1/admin/review` | `admin`, `editor` | Recent answers that could not be (fully) verified or found, and answers rated down (answered ones left out) |
+| `GET` | `/api/v1/admin/faq` | `admin`, `editor` | Staff answers to unanswered questions (FAQ) |
+| `POST` | `/api/v1/admin/faq` | `admin`, `editor` | Answer a question: stored, searchable at once, shown to everyone who asked it |
+| `PUT` | `/api/v1/admin/faq/{entry_id}` | `admin`, `editor` | Change a staff answer (shown again to the users who asked) |
+| `DELETE` | `/api/v1/admin/faq/{entry_id}` | `admin`, `editor` | Delete a staff answer (no longer searched) |
+| `GET` | `/api/v1/faq/answers` | Authenticated | Staff answers to the caller's questions they have not marked as seen |
+| `POST` | `/api/v1/faq/answers/seen` | Authenticated | Mark staff answers as seen |
+| `GET` | `/api/v1/admin/agent-stats` | `admin` | Per agent: questions, median and slow durations, unverified answers, errors, ratings |
 | `GET` | `/api/v1/admin/agent-tools` | `admin` | Tools custom agents can use (labels in `language=tr` or `en`) and whether they work right now |
 | `GET` | `/api/v1/admin/custom-agents` | `admin` | Custom agent definitions with their availability |
 | `PUT` | `/api/v1/admin/custom-agents/{name}` | `admin` | Create or replace a custom agent; the supervisor can route to it at once |
@@ -160,7 +167,8 @@ curl -X GET "http://localhost:8000/api/v1/auth/me" \
   "disabled": false,
   "created_at": "2026-09-18T10:00:00",
   "must_change_password": false,
-  "groups": []
+  "groups": [],
+  "profile": {"unit": "Mühendislik Fakültesi", "program": "Bilgisayar Mühendisliği", "level": "3. sınıf"}
 }
 ```
 
@@ -171,6 +179,7 @@ Registers a new enterprise user. Restricted to `admin` role.
 
 * **Roles Available:** `admin`, `editor`, `viewer`
 * **`groups`** *(optional)*: document access groups, e.g. `["akademik"]` (1-32 lowercase letters, digits, or underscores; names are lowercased). Viewers can search restricted documents only if they share a group with them.
+* **`profile`** *(optional)*: where the user belongs, `{"unit": "...", "program": "...", "level": "..."}` (each optional, at most 100 characters; other keys return HTTP 400). Agents answer rules that differ by unit, program, or level for this user, and questions about "my department" are searched for the user's department.
 * **Password Policy:** Passwords must meet configurable enterprise security rules (minimum 8 characters, uppercase, lowercase, and digit required by default). Violations return HTTP 400 with the list of unmet rules.
 
 ```bash
@@ -213,6 +222,7 @@ curl -X GET "http://localhost:8000/api/v1/auth/users" \
 Modifies a user's role, status (enable/disable), document access groups, or resets their password. Restricted to `admin` role.
 
 * `groups` replaces the user's groups (`[]` removes all); invalid group names return HTTP 400.
+* `profile` replaces the user's unit, program, and level (`{}` clears them).
 * New passwords are validated against the password policy (HTTP 400 on violation).
 * Resetting the password or disabling the account revokes all of the user's existing tokens.
 
@@ -447,13 +457,19 @@ curl -X POST "http://localhost:8000/api/v1/query" \
 * **`active_agent`:** the agent that produced the answer (`supervisor` for direct answers, `multi_agent` when the answers of several agents were combined). **`agents`** lists every agent whose answer is part of the final answer.
 * **Composite questions:** the supervisor may plan up to `MAX_AGENT_STEPS` steps; the trace then contains the plan (`intent_routing` entry with `plan`), one entry per agent, and a `synthesize` entry. If the combined text is not supported by the partial answers, the partial answers are returned one after another.
 * **Handoffs:** when a step fails (for example `db_agent`'s query is rejected, or no database is connected), the question is given to `doc_agent` once; the trace contains a `handoff` entry with `from_agent`, `target_agent`, and `reason`. Database errors are never included in the answer.
-* **Service requests:** asking to open a request (e.g. *"B204'teki projektör çalışmıyor, arıza kaydı açar mısın?"*) makes `request_agent` show a draft and ask for confirmation; the next message *"evet"* files it (see [Service Requests](#-5b-service-request-endpoints)), *"hayır"* or any other message discards it. Without `session_id` the request is filed directly.
+* **Questions back (`clarification`):** in a conversation (`session_id`), a short question about the asker's own case whose answer depends on something they did not say gets one question back instead (`CLARIFY_QUESTIONS`, default `true`), e.g. *"Kaç gün izin hakkım var?"* when the rules differ by seniority (asked by `doc_agent` after reading the rules, or by the supervisor without a chosen `agent`). The response then has `"clarification": {"question": "...", "options": ["...", "..."]}` (`answer` holds the same text with the options as a list); otherwise `clarification` is `null`. The next message answers it: the supervisor routes the original question together with that answer, and never asks back twice in a row.
+* **Steps that build on each other:** a plan step may name earlier steps it needs (`"uses": [0]` in the trace's `plan`, e.g. the product found in the database, then that product's return policy); it gets their answers. The combined answer may draw the conclusion the question asks for (compare, subtract, say whether a condition is met); the check accepts conclusions that follow from the parts.
+* **Slow steps:** a step that takes longer than `AGENT_STEP_TIMEOUT_SECONDS` (default 180) is answered with *"This part could not be completed in time."* (trace action `timeout`); the other steps still count.
+* **Service requests:** asking to open a request (e.g. *"B204'teki projektör çalışmıyor, arıza kaydı açar mısın?"*) makes `request_agent` show a draft and ask for confirmation; the next message *"evet"* files it (see [Service Requests](#-5b-service-request-endpoints)), *"hayır"* or any other message discards it. Without `session_id` the request is filed directly. Users can also cancel their own open requests from the chat (*"#12 numaralı talebimi iptal et"*, again after *"evet"*) and add information to them (*"Talebime ekle: B204 dersliği"*); without a number their only open request is meant, with several they are asked which one.
 * **`sources[].page` / `page_end`:** PDF page the passage starts on, and the page it ends on if different. Absent for DOCX/TXT files and for documents indexed before page tracking (re-upload them to add pages).
 * **`sources[].reranker_score`:** cross-encoder relevance from 0 to 1. Chunks below `RAG_MIN_RERANKER_SCORE` (default `0.005`) are never used or returned.
 * **Response language:** answers follow the language of the question (Turkish or English; other languages on a best-effort basis with English fixed texts, see [Language Support](language_support.md)); a question without language cues, such as a bare ticket code, inherits the language of the session's earlier questions. The fixed texts below are shown in English; Turkish questions get the Turkish versions (e.g. *"Bu bilgi kurum dokümanlarında bulunmuyor."*). Compliance verdict labels such as `[VIOLATION / PROHIBITED]` stay in English in both languages.
 * **No relevant documents:** if no chunk passes the relevance gate (among the documents the caller may search), `doc_agent` answers *"This information is not found in the organization's documents."* with empty `sources`, and `compliance_agent` returns an `[UNDETERMINED]` verdict. The LLM is not called in either case.
 * **`hallucination_grade` / `is_refined`:** set by `doc_agent`'s Self-RAG guard. An unverifiable answer is replaced by *"This information cannot be fully verified against the organization's documents."* Other agents leave `hallucination_grade` empty; a combined answer is `yes` only if every graded part passed.
-* **`db_agent` traces** include the executed `sql` and `row_count`.
+* **Checked database answers:** every number of a `db_agent` answer must be a value of the query result, the row count, or a number of the question (Turkish and English number formats, rounding allowed). A wrong number is corrected once; if it stays wrong, the result rows are shown as a table instead. Such answers carry `"verification": {"level": "verified", "issues": ["data"]}`.
+* **Checked compliance verdicts:** the verdict and the rules it cites (not the risk analysis) must be stated in the retrieved rules. An unsupported verdict is revised once, then replaced by `[UNDETERMINED]` with the advice to ask the responsible unit (`verification.level` `unverified`). A supported verdict shows its evidence under the sources.
+* **Unanswered questions:** a "not found" answer carries `"verification": {"level": "unverified", "issues": ["not_found"]}`, so it is listed for staff in `GET /api/v1/admin/review` to answer in the FAQ.
+* **`db_agent` traces** include the executed `sql`, `row_count`, and `data_check` (`success`, `mismatch` when the rows were shown instead, or `error`).
 * **LLM unavailable:** if Ollama cannot be reached, the request still returns HTTP 200 with a fallback answer (for `doc_agent` the same *"cannot be fully verified"* text). Check `llm_status` in `GET /api/v1/stats` when answers suddenly degrade.
 
 ---
@@ -477,13 +493,13 @@ curl -N -X POST "http://localhost:8000/api/v1/query-stream" \
 {"type": "agent_selected", "agent": "doc_agent", "display_name": "Document & Regulation Specialist", "reason": "Task delegated to specialist: 'Document & Regulation Specialist'."}
 {"type": "status", "message": "🤖 Document & Regulation Specialist: Executing specialized task...", "node": "doc_agent"}
 {"type": "sources", "sources": [{"source": "IT_Support_Runbook.docx", "chunk_index": 1, "...": "..."}]}
-{"type": "done", "answer": "...", "sources": [], "agent_trace": [], "active_agent": "doc_agent", "agents": ["doc_agent"], "hallucination_grade": "yes", "is_refined": false}
+{"type": "done", "answer": "...", "sources": [], "agent_trace": [], "active_agent": "doc_agent", "agents": ["doc_agent"], "hallucination_grade": "yes", "is_refined": false, "verification": {"level": "verified", "issues": []}, "clarification": null}
 ```
 
 * For greetings answered by the supervisor, `agent_selected` has `"agent": "supervisor"` and no `sources` event is sent.
 * Multi-step plans start with `{"type": "plan", "steps": [{"agent": "...", "question": "..."}]}`; every step sends its own `agent_selected`, `status`, and `sources` events.
 * A handoff sends `{"type": "handoff", "from": "db_agent", "to": "doc_agent", "reason": "..."}` followed by the new agent's `agent_selected` event.
-* On failure, an `{"type": "error", "message": "An internal error occurred while processing the query."}` event is sent before the stream ends.
+* On failure, an `{"type": "error", "message": "An internal error occurred while processing the query."}` event is sent before the stream ends. If the queue fills up between the check and the start of the stream, the event is `{"type": "error", "code": "busy", "message": "The assistant is busy. ..."}`.
 * If the client disconnects, processing stops before the next workflow step and the query is audited with status `cancelled`.
 
 ---
@@ -500,9 +516,12 @@ curl -X POST "http://localhost:8000/api/v1/feedback" \
      -d '{
        "question": "How does the hardware replacement approval process work?",
        "feedback": "positive",
-       "comment": "Accurate response with exact runbook references."
+       "comment": "Accurate response with exact runbook references.",
+       "agent": "doc_agent"
      }'
 ```
+
+* `agent` *(optional)*: the rated answer's `active_agent` (lowercase letters, digits, underscores); it counts in `GET /api/v1/admin/agent-stats`.
 
 **Example Response (HTTP 200):**
 ```json
@@ -835,7 +854,18 @@ curl -X POST "http://localhost:8000/api/v1/admin/maintenance/run" \
 ---
 
 ### 5.7a Answers to Review (`GET /api/v1/admin/review`)
-Recent answers whose check ended `partial` or `unverified` (audit entries of `query` / `query_stream` with status `warning`) and feedback entries rated down, newest first (`limit`, default 30). Each item is an audit entry plus `reason`: `unverified` or `negative_feedback`. With `AUDIT_STORE_QUESTIONS=false` the questions are not stored, only their length.
+Recent answers whose check ended `partial` or `unverified`, including questions the documents did not answer (audit entries of `query` / `query_stream` with status `warning`), and feedback entries rated down, newest first (`limit`, default 30). Admins and editors. Each item is an audit entry plus `reason` (`unverified` or `negative_feedback`) and `question` (the question text, `""` with `AUDIT_STORE_QUESTIONS=false`, where only its length is stored). Questions answered in the FAQ are left out.
+
+### 5.7b Staff Answers (FAQ) (`/api/v1/admin/faq`, `/api/v1/faq/answers`)
+Staff answer the questions of the review list; the assistant uses the answers for later questions and the users who asked are told. Admins and editors:
+
+* `POST /api/v1/admin/faq` with `{"question": "...", "answer": "...", "groups": []}` stores the answer in `data/faq.json` (part of full backups) and indexes it as a chunk of the source *"SSS (personel cevapları)"*, visible like a document with these `groups` (empty: everyone). Every user in the review list who asked the same question (same words, ignoring case and spacing) is recorded in `asked`; their questions leave the review list. Response: `{"entry": {"id", "question", "answer", "groups", "author", "created_at", "updated_at", "asked": [{"username", "question"}], "seen_by": []}}`.
+* `GET /api/v1/admin/faq` lists the answers (`entries`); `PUT /api/v1/admin/faq/{entry_id}` changes one (a changed answer is shown to the askers again); `DELETE` removes it from the store and the index.
+
+Users with an account (not guests): `GET /api/v1/faq/answers` returns `{"answers": [{"id", "question", "answer", "updated_at"}]}` for their questions they have not marked as seen; `POST /api/v1/faq/answers/seen` with `{"ids": ["..."]}` marks them. The web UI shows them under the bell in the header.
+
+### 5.7c Agent Performance (`GET /api/v1/admin/agent-stats`)
+Per agent over the last `days` days (1-365, default 30), from the audit log: `questions`, `median_ms` and `p90_ms` (answer time), `warnings` and `warning_rate` (answers that could not be fully verified or found), `errors` and `error_rate`, and the users' `positive` / `negative` ratings (feedback sent with `agent`). Failed questions recorded before an agent was chosen count as `unknown`. Admin only.
 
 ### 5.8 Custom Agents (`/api/v1/admin/custom-agents`)
 Agents defined without code (see [Custom Agents Guide](custom_agents_guide.md#-agents-without-code-web-ui)). `PUT /api/v1/admin/custom-agents/{name}` takes:

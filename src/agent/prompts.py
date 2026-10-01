@@ -77,10 +77,23 @@ SYSTEM_PROMPT_REFINE = (
     "5. Ensure sentences are complete and grammatically fluent."
 )
 
+SYSTEM_PROMPT_CLARIFY = (
+    "Look at the rules in the Context that answer the user's Question about their own situation.\n"
+    '- "depends_on": if the answer to THIS Question differs between cases (different numbers, limits, durations, '
+    "or permissions), name the condition that decides the case in a few words (for example seniority, domestic or "
+    'abroad, the kind of leave, degree level); "" if this Question has one answer for everyone (a rule that '
+    "applies to all), even if other rules in the Context have cases.\n"
+    '- "stated": true if the Question or the information about the user already says which case applies.\n'
+    '- "question": one short question asking the user which case applies; "options": 2 to 4 short answers, one '
+    "per case.\n"
+    'Reply with JSON only: {"depends_on": "", "stated": false, "question": "", "options": []}'
+)
+
 SYSTEM_PROMPT_SYNTHESIS = (
     "You combine the partial answers of several specialist agents into one final answer to the user's question.\n"
     "Rules:\n"
-    "1. Use ONLY the facts in the partial answers; do not add information.\n"
+    "1. Use ONLY the facts in the partial answers; do not add information. You may draw the conclusion the "
+    "question asks for from them: compare two values, compute a difference or a sum, say whether a condition is met.\n"
     "2. Keep every number, date, verdict label, and article reference exactly as written.\n"
     "3. If a partial answer says the information was not found or could not be verified, say so for that part.\n"
     "4. Answer the whole question in one coherent response; use short sections or bullet points when it helps."
@@ -99,6 +112,17 @@ SYSTEM_PROMPT_REWRITE = (
 # ──────────────────────────── MESSAGE BUILDERS ────────────────────────────
 
 
+def step_context_text(step_context: Optional[list]) -> str:
+    """Answers of earlier plan steps a step builds on, as a prompt section ("" when there are none).
+
+    step_context: dicts with 'agent', 'question', 'answer' (see MultiAgentOrchestrator, plan steps with "uses").
+    """
+    if not step_context:
+        return ""
+    parts = [f"[{item['agent']}] {item['question']}\n{item['answer']}" for item in step_context]
+    return "Answers of earlier steps (facts you may use):\n" + "\n\n".join(parts) + "\n\n"
+
+
 def _with_language(system_prompt: str, language: Optional[str]) -> str:
     return f"{system_prompt}\n{language_instruction(language)}" if language else system_prompt
 
@@ -109,11 +133,15 @@ def build_rag_messages(
     chat_history: list = None,
     language: Optional[str] = None,
     evidence_first: bool = False,
+    user_note: str = "",
+    earlier_steps: str = "",
 ) -> list:
     """Build LangChain message list for enterprise RAG response generation.
 
     language: response language code ('tr', 'en'); None leaves the language to the model.
     evidence_first: the model copies its evidence before answering (EVIDENCE / ANSWER lines, see split_evidence).
+    user_note: the asking user's unit, program, and level (src/auth/profile.py), if known.
+    earlier_steps: answers of earlier plan steps this step builds on (see step_context_text).
     """
     history_str = ""
     if chat_history:
@@ -126,9 +154,11 @@ def build_rag_messages(
             history_str = "Recent Conversation History:\n" + "\n".join(history_lines) + "\n\n"
 
     system_prompt = f"{SYSTEM_PROMPT_RAG}\n{EVIDENCE_FIRST_RULE}" if evidence_first else SYSTEM_PROMPT_RAG
+    if user_note:
+        system_prompt = f"{system_prompt}\n{user_note}"
     return [
         SystemMessage(content=_with_language(system_prompt, language)),
-        HumanMessage(content=f"{history_str}Context:\n{context}\n\nQuestion: {question}"),
+        HumanMessage(content=f"{history_str}{earlier_steps}Context:\n{context}\n\nQuestion: {question}"),
     ]
 
 
@@ -150,6 +180,21 @@ def split_evidence(reply: str) -> tuple:
     evidence = text[: answer_marker.start()]
     quotes = [a or b for a, b in _QUOTED.findall(evidence)]
     return quotes, text[answer_marker.end() :].strip()
+
+
+SYSTEM_PROMPT_SYNTHESIS_GRADER = (
+    f"{SYSTEM_PROMPT_GRADER}\n"
+    "The Context is the partial answers of several agents. A conclusion drawn from them (a comparison, a difference "
+    "or sum of their numbers, whether a condition they state is met) counts as supported."
+)
+
+
+def build_synthesis_grader_messages(partial_answers: str, question: str, answer: str) -> list:
+    """Grader messages for a combined answer: conclusions drawn from the partial answers are allowed."""
+    return [
+        SystemMessage(content=SYSTEM_PROMPT_SYNTHESIS_GRADER),
+        HumanMessage(content=f"Context:\n{partial_answers}\n\nQuestion: {question}\n\nAnswer:\n{answer}"),
+    ]
 
 
 def build_grader_messages(context: str, question: str, answer: str) -> list:
@@ -205,6 +250,15 @@ def build_refine_messages(
     ]
 
 
+def build_clarify_messages(context: str, question: str, language: Optional[str] = None, user_note: str = "") -> list:
+    """Messages asking whether the answer depends on something about the asker that the question does not say."""
+    note = f"{user_note}\n\n" if user_note else ""
+    return [
+        SystemMessage(content=_with_language(SYSTEM_PROMPT_CLARIFY, language)),
+        HumanMessage(content=f"{note}Context:\n{context}\n\nQuestion: {question}"),
+    ]
+
+
 def build_synthesis_messages(question: str, parts: list, language: Optional[str] = None) -> list:
     """Build messages that merge partial answers into one; parts: dicts with 'agent', 'question', 'answer'."""
     sections = "\n\n".join(
@@ -217,8 +271,11 @@ def build_synthesis_messages(question: str, parts: list, language: Optional[str]
     ]
 
 
-def build_rewrite_messages(question: str, chat_history: list) -> list:
-    """Build LangChain message list for dynamic query rewriting and expansion."""
+def build_rewrite_messages(question: str, chat_history: list, user_note: str = "") -> list:
+    """Build LangChain message list for dynamic query rewriting and expansion.
+
+    user_note: the asking user's unit, program, and level, so "my department" becomes the department's name.
+    """
     history_lines = [
         f"User: {turn.get('question', '')}\nAssistant: {turn.get('answer', '')}"
         for turn in chat_history[-3:]
@@ -226,7 +283,8 @@ def build_rewrite_messages(question: str, chat_history: list) -> list:
     ]
     history_str = "\n".join(history_lines) if history_lines else "No prior conversation."
 
+    system_prompt = f"{SYSTEM_PROMPT_REWRITE}\n{user_note}" if user_note else SYSTEM_PROMPT_REWRITE
     return [
-        SystemMessage(content=SYSTEM_PROMPT_REWRITE),
+        SystemMessage(content=system_prompt),
         HumanMessage(content=f"Conversation History:\n{history_str}\n\nCurrent Question: {question}"),
     ]

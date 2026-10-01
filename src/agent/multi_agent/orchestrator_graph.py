@@ -1,5 +1,8 @@
+import contextvars
 import os
 import threading
+from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import TimeoutError as StepTimeout
 from datetime import datetime, timezone
 from typing import Any, Dict, Generator, List, Optional, Tuple
 
@@ -13,10 +16,11 @@ from src.agent.multi_agent.state import MultiAgentState
 from src.agent.multi_agent.registry import AgentRegistry, agent_registry
 from src.agent.multi_agent.supervisor import SupervisorAgent
 from src.agent.grading import is_grade_passed
-from src.agent.prompts import build_grader_messages, build_synthesis_messages
+from src.agent.prompts import build_synthesis_grader_messages, build_synthesis_messages
 from src.auth.document_access import GUEST_ROLE
 import src.agent.multi_agent.sub_agents  # noqa: F401  Ensures built-in sub-agents are loaded & registered
 from src.core.config import (
+    AGENT_STEP_TIMEOUT_SECONDS,
     CHAT_HISTORY_MAX_TURNS,
     MAX_AGENT_HANDOFFS,
     MULTI_AGENT_CONVERSATIONS_DB,
@@ -31,6 +35,9 @@ SYNTHESIZE_NODE = "synthesize"
 # active_agent of a turn whose answer combines several agents
 MULTI_AGENT = "multi_agent"
 SUPERVISOR_DISPLAY_NAME = "Supervisor Orchestrator"
+# Runs agent steps so a slow one can be given up on (AGENT_STEP_TIMEOUT_SECONDS); a given-up step keeps running
+# in its thread until the model returns, so the pool is larger than the number of parallel questions
+_STEP_POOL = ThreadPoolExecutor(max_workers=16, thread_name_prefix="agent-step")
 
 
 def _now() -> str:
@@ -190,10 +197,17 @@ class MultiAgentOrchestrator:
                 step = {"agent": agent.name, "question": state.get("question", "")}
                 plan.insert(index, step)
 
-            output = agent.execute({**state, "question": step["question"]}) or {}
+            # A step that builds on earlier ones gets their answers ("uses" in the plan)
+            step_context = [
+                {"agent": r["display_name"], "question": r["question"], "answer": r["answer"]}
+                for r in _effective_results(state)
+                if r.get("step_id") is not None and r["step_id"] in (step.get("uses") or [])
+            ]
+            output = self._execute_step(agent, {**state, "question": step["question"], "step_context": step_context})
             trace = list(output.get("agent_trace", state.get("agent_trace", [])))
             status = _last_status(trace, agent.name)
             result = {
+                "step_id": step.get("id"),
                 "agent": agent.name,
                 "display_name": agent.display_name or agent.name,
                 "question": step["question"],
@@ -211,7 +225,17 @@ class MultiAgentOrchestrator:
             target, reason = self._handoff_target(agent, output, status, step, plan, handoffs)
             if target:
                 result["superseded"] = True
-                plan.insert(index + 1, {"agent": target, "question": step["question"], "handoff_from": agent.name})
+                # The new agent takes over the step: same id, same earlier answers
+                plan.insert(
+                    index + 1,
+                    {
+                        "agent": target,
+                        "question": step["question"],
+                        "handoff_from": agent.name,
+                        "id": step.get("id"),
+                        "uses": step.get("uses") or [],
+                    },
+                )
                 handoffs += 1
                 trace.append(
                     {
@@ -231,6 +255,8 @@ class MultiAgentOrchestrator:
             update = {
                 # Carried over unless the agent changes it (the request agent's draft awaiting confirmation)
                 **({"pending_request": output["pending_request"]} if "pending_request" in output else {}),
+                # An agent that asks the user back (doc_agent, when the rules depend on the user's situation)
+                **{key: output[key] for key in ("clarification", "pending_clarification") if key in output},
                 "plan": plan,
                 "plan_index": index + 1,
                 "step_results": list(state.get("step_results", [])) + [result],
@@ -246,6 +272,38 @@ class MultiAgentOrchestrator:
 
         run_step.__name__ = f"run_{agent.name}"
         return run_step
+
+    @staticmethod
+    def _execute_step(agent: BaseSubAgent, step_state: Dict[str, Any]) -> Dict[str, Any]:
+        """Run one agent step, giving up after AGENT_STEP_TIMEOUT_SECONDS with a "could not be completed" answer.
+
+        The step runs in a pool thread with a copy of the current context, so its progress events still reach a
+        streaming client.
+        """
+        if AGENT_STEP_TIMEOUT_SECONDS <= 0:
+            return agent.execute(step_state) or {}
+        context = contextvars.copy_context()
+        future = _STEP_POOL.submit(context.run, agent.execute, step_state)
+        try:
+            return future.result(timeout=AGENT_STEP_TIMEOUT_SECONDS) or {}
+        except StepTimeout:
+            logger.error(f"[Orchestrator] '{agent.name}' took longer than {AGENT_STEP_TIMEOUT_SECONDS}s; giving up")
+            language = response_language(step_state.get("question", ""), step_state.get("chat_history", []))
+            return {
+                "final_answer": message("step_timeout", language),
+                "sources": [],
+                "agent_trace": list(step_state.get("agent_trace", []))
+                + [
+                    {
+                        "agent": agent.name,
+                        "display_name": agent.display_name or agent.name,
+                        "action": "timeout",
+                        "duration_ms": AGENT_STEP_TIMEOUT_SECONDS * 1000,
+                        "status": "timeout",
+                        "timestamp": _now(),
+                    }
+                ],
+            }
 
     def _handoff_target(
         self,
@@ -295,7 +353,7 @@ class MultiAgentOrchestrator:
             partial_answers = "\n\n".join(f"[{p['agent']}] {p['answer']}" for p in parts)
             try:
                 synthesis_grade = self.grader_model.invoke(
-                    build_grader_messages(partial_answers, question, answer)
+                    build_synthesis_grader_messages(partial_answers, question, answer)
                 ).content.strip()
             except Exception as e:
                 logger.error(f"[Orchestrator] Could not check the combined answer: {e}")
@@ -390,7 +448,8 @@ class MultiAgentOrchestrator:
     ) -> MultiAgentState:
         """Per-turn input. Every non-persistent key is reset so values never leak from the previous turn.
 
-        chat_history and pending_request are left out on purpose: the checkpointer carries them between turns.
+        chat_history, pending_request, and pending_clarification are left out on purpose: the checkpointer carries
+        them between turns.
         """
         return {
             "question": question,
@@ -409,6 +468,8 @@ class MultiAgentOrchestrator:
             "hallucination_grade": "",
             "is_refined": False,
             "verification": {},
+            "clarification": {},
+            "clarified": False,
         }
 
     def _app_and_config(self, thread_id: Optional[str]):
@@ -429,6 +490,8 @@ class MultiAgentOrchestrator:
             "hallucination_grade": state.get("hallucination_grade", ""),
             "is_refined": state.get("is_refined", False),
             "verification": state.get("verification") or {},
+            # A question back to the user ({"question", "options"}); None when the answer is a real answer
+            "clarification": state.get("clarification") or None,
             "chat_history": state.get("chat_history", []),
         }
 
@@ -544,6 +607,7 @@ class MultiAgentOrchestrator:
             "hallucination_grade": result["hallucination_grade"],
             "is_refined": result["is_refined"],
             "verification": result["verification"],
+            "clarification": result["clarification"],
         }
 
     def cleanup(self):

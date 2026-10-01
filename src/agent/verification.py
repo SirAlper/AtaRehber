@@ -33,6 +33,8 @@ VERIFIED, PARTIAL, UNVERIFIED = "verified", "partial", "unverified"
 # Reasons shown with the verification level
 ISSUE_TRANSITIONAL = "transitional"
 ISSUE_PARTIAL = "partial"
+# The documents do not answer the question (the answer says so); such questions are listed for staff to answer
+NOT_FOUND = "not_found"
 
 # Numbers in an answer that are references, not facts: "Madde 30", "30/2", "54 üncü maddesi", "2547 sayılı"
 _REFERENCES = re.compile(
@@ -44,7 +46,11 @@ _REFERENCES = re.compile(
     # Paragraph and item markers: "(1) ve (3)", "a) 1) ve 2) numaralı", list numbers
     r"|\(\d{1,2}\)|\b\d{1,2}\)|^\s*\d+[.)]\s"
     # Amendment notes: "(Değişik:RG-14/4/2024-32517)", "(Ek: 18/6/2017-7033/14 md.)"
-    r"|\((?:Değişik|Ek|Mülga|İptal)[^)]*\)",
+    r"|\((?:Değişik|Ek|Mülga|İptal)[^)]*\)"
+    # Policy sections and codes: "Bölüm 2.1", "Section 4.1", "2.1 maddesi", "SEC-POL-04", "HR-POL-07"
+    r"|\b(?:bölüm|bölümü|section|kısım|clause)\s*\d+(?:\.\d+)*"
+    r"|\b\d+(?:\.\d+)+\s*(?:no['’]?lu\s*)?(?:madde|bölüm|kısım|section)"
+    r"|\b[A-Z]{2,}(?:-[A-Z0-9]{2,})+\b",
     re.MULTILINE,
 )
 _DIGITS = re.compile(r"\d+(?:[.,]\d+)?(?![.,]?\d)")
@@ -78,9 +84,17 @@ class Verification:
         return {"level": self.level, "issues": list(self.issues)}
 
 
+# Clock times: documents write "11.30", answers often "11:30"; both mean the same number
+_CLOCK = re.compile(r"\b([01]?\d|2[0-3]):([0-5]\d)\b")
+
+
+def _times_as_numbers(text: str) -> str:
+    return _CLOCK.sub(r"\1.\2", str(text))
+
+
 def numbers(text: str) -> set:
-    """Numbers in digits and in Turkish words ('2,00' and '2' are the same number)."""
-    found = {float(n.replace(",", ".")) for n in _DIGITS.findall(str(text))}
+    """Numbers in digits and in Turkish words ('2,00' and '2' are the same number; '11:30' is '11.30')."""
+    found = {float(n.replace(",", ".")) for n in _DIGITS.findall(_times_as_numbers(text))}
     return found | spelled_numbers(str(text))
 
 
@@ -88,7 +102,7 @@ def unsupported_numbers(answer: str, quotes: List[str], question: str, tool_cont
     """Numbers of the answer (references like 'Madde 30' left out) found in none of the quotes, the question, or
     the tool results."""
     allowed = numbers(" ".join(quotes)) | numbers(question) | numbers(tool_context)
-    facts = _DIGITS.findall(_REFERENCES.sub(" ", str(answer)))
+    facts = _DIGITS.findall(_times_as_numbers(_REFERENCES.sub(" ", str(answer))))
     return [n for n in dict.fromkeys(facts) if float(n.replace(",", ".")) not in allowed]
 
 

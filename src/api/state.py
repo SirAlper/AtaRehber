@@ -190,7 +190,18 @@ def init_services():
         logger.info("[LLM] Ollama server reachable and model available.")
 
     auto_index_on_startup()
+    index_faq_on_startup()
     logger.info("Enterprise RAG services initialized successfully.")
+
+
+def index_faq_on_startup():
+    """Index the staff answers when the vector store lacks them (a new store, or a restore of an older index)."""
+    from src.services.faq import FAQ_SOURCE, faq_store, reindex_faq
+
+    entries = faq_store.list()
+    indexed = get_rag_engine().get_stats().get("document_chunks", {}).get(FAQ_SOURCE, 0)
+    if entries and indexed != len(entries):
+        reindex_faq(get_rag_engine(), faq_store)
 
 
 def cleanup_services():

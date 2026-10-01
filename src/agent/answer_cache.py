@@ -29,8 +29,9 @@ class AnswerCache:
         self._lock = threading.Lock()
 
     @staticmethod
-    def key(question: str, scope: Optional[list], index_version: Any) -> Hashable:
-        return (normalize_question(question), tuple(scope) if scope is not None else None, index_version)
+    def key(question: str, scope: Optional[list], index_version: Any, user_note: str = "") -> Hashable:
+        # user_note: answers given for a unit, program, or level are only reused for the same one
+        return (normalize_question(question), tuple(scope) if scope is not None else None, index_version, user_note)
 
     def get(self, key: Hashable) -> Optional[Dict[str, Any]]:
         if config.ANSWER_CACHE_SIZE <= 0:

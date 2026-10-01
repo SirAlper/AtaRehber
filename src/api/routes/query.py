@@ -62,8 +62,9 @@ def _busy() -> HTTPException:
 
 
 def _user_context(user: User) -> dict:
-    """What the agents may know about the asking user: document access groups and request ownership."""
-    return {"username": user.username, "role": user.role, "groups": list(user.groups)}
+    """What the agents may know about the asking user: document access groups, request ownership, and the
+    unit, program, and level they answer for."""
+    return {"username": user.username, "role": user.role, "groups": list(user.groups), "profile": dict(user.profile)}
 
 
 @router.get(
@@ -157,6 +158,7 @@ async def query_rag(
             "hallucination_grade": result.get("hallucination_grade", ""),
             "is_refined": result.get("is_refined", False),
             "verification": result.get("verification") or {},
+            "clarification": result.get("clarification"),
         }
     except HTTPException:
         raise
@@ -319,6 +321,7 @@ async def submit_feedback(
         role=current_user.role,
         action="feedback",
         detail=f"[{body.feedback.upper()}] "
+        + (f"[{body.agent}] " if body.agent else "")
         + (f"Q: {body.question[:200]}" if config.AUDIT_STORE_QUESTIONS else "(question not stored)"),
         answer_preview=_answer_preview(body.comment[:500] if body.comment else None),
         ip_address=ip_addr,

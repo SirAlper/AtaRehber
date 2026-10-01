@@ -5,6 +5,7 @@ import { NavLink, Outlet } from "react-router-dom";
 
 import { useAuth } from "@/auth/AuthContext";
 import { Logo } from "@/components/Background";
+import { NoticeBell } from "@/components/NoticeBell";
 import { Badge, Button } from "@/components/ui";
 import { setLanguage } from "@/i18n";
 import { useTheme } from "@/lib/theme";
@@ -55,6 +56,8 @@ export function Layout() {
             {!isGuest && <span className="text-sm text-slate-600 dark:text-slate-300">{user?.username}</span>}
             <Badge>{t(`roles.${user?.role ?? "viewer"}`)}</Badge>
           </div>
+          {/* Guests have no account to receive answers later */}
+          {!isGuest && <NoticeBell />}
           <Button
             variant="ghost"
             size="icon"

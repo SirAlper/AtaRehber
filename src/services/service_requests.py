@@ -147,6 +147,26 @@ class ServiceRequestStore:
                 row = conn.execute("SELECT * FROM service_requests WHERE id = ?", (request_id,)).fetchone()
         return self._to_dict(row)
 
+    def add_note(self, request_id: int, note: str, added_by: str) -> Optional[Dict[str, Any]]:
+        """Append the requester's additional information to the description (with the time it was added)."""
+        note = note.strip()[:2000]
+        if not note:
+            raise ValueError("The note is empty.")
+        now = self._now()
+        with self._lock:
+            self._ensure_schema()
+            with self._connect() as conn:
+                row = conn.execute("SELECT description FROM service_requests WHERE id = ?", (request_id,)).fetchone()
+                if row is None:
+                    return None
+                description = f"{row['description']}\n\n---\n[{now[:16].replace('T', ' ')} {added_by}] {note}".strip()
+                conn.execute(
+                    "UPDATE service_requests SET description = ?, updated_at = ? WHERE id = ?",
+                    (description[-8000:], now, request_id),
+                )
+                row = conn.execute("SELECT * FROM service_requests WHERE id = ?", (request_id,)).fetchone()
+        return self._to_dict(row)
+
     def mark_notified(self, request_id: int) -> None:
         with self._lock:
             self._ensure_schema()

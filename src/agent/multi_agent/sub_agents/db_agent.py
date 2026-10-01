@@ -7,9 +7,11 @@ from datetime import datetime, timezone
 from typing import Dict, Any, Optional
 
 from langchain_core.messages import SystemMessage, HumanMessage
+from src.agent.data_check import rows_table, unsupported_data_numbers
 from src.agent.language import language_instruction, message, response_language
 from src.agent.multi_agent.base import BaseSubAgent
 from src.agent.multi_agent.registry import register_agent
+from src.agent.prompts import step_context_text
 from src.connectors.db_connector import DatabaseConnector
 from src.core.logger import get_logger
 
@@ -36,7 +38,11 @@ SQL_EXPLAINER_SYSTEM_PROMPT = """You are a professional business intelligence an
 The user's question and the SQL query results returned from the database are provided below.
 Explain and summarize the results for the user clearly, professionally, and accurately, utilizing Markdown tables or bullet points when appropriate.
 If the result set is empty, politely indicate that no matching records were found in the database.
+Copy every number exactly as it appears in the data; do not compute new totals or averages the data does not contain.
 """
+
+# The answer is checked against the result: issue shown with "verified" for answers taken from database rows
+ISSUE_DATA = "data"
 
 
 @register_agent
@@ -127,6 +133,10 @@ class DatabaseAgent(BaseSubAgent):
         human_content = question
         if history_lines:
             human_content = "Recent conversation:\n" + "\n".join(history_lines) + f"\n\nCurrent question: {question}"
+        # A step that builds on earlier steps may look up a value they found ("the product with the lowest stock")
+        earlier_steps = step_context_text(state.get("step_context"))
+        if earlier_steps:
+            human_content = f"{earlier_steps}{human_content}"
         try:
             sql_response = self.chat_model.invoke(
                 [
@@ -200,17 +210,12 @@ class DatabaseAgent(BaseSubAgent):
             f"Data (JSON):\n{json.dumps(rows[:30], ensure_ascii=False, indent=2)}"
         )
 
-        try:
-            summary_response = self.chat_model.invoke(
-                [
-                    SystemMessage(content=f"{SQL_EXPLAINER_SYSTEM_PROMPT}{language_instruction(language)}"),
-                    HumanMessage(content=explain_prompt),
-                ]
-            )
-            answer = summary_response.content.strip()
-        except Exception as e:
-            logger.error(f"[{self.name}] Error synthesizing SQL results: {e}")
-            answer = f"{message('db_rows_fallback', language, count=count)}\n\n```json\n{json.dumps(rows[:10], ensure_ascii=False, indent=2)}\n```"
+        # 5. Every number of the explanation must come from the result; one retry, then the rows as they are
+        self.report_progress("verifying")
+        answer, data_status = self._explain(question, explain_prompt, rows, count, language)
+        if data_status != "success":
+            table = rows_table(columns, rows)
+            answer = message("db_rows_fallback", language, count=count) + (f"\n\n{table}" if table else "")
 
         duration_ms = int((time.time() - start_time) * 1000)
         trace_entry = {
@@ -219,6 +224,7 @@ class DatabaseAgent(BaseSubAgent):
             "action": "sql_query_and_explain",
             "sql": sql_cleaned,
             "row_count": count,
+            "data_check": data_status,
             "duration_ms": duration_ms,
             "status": "success",
             "timestamp": datetime.now(timezone.utc).isoformat(),
@@ -236,5 +242,26 @@ class DatabaseAgent(BaseSubAgent):
         return {
             "final_answer": answer,
             "sources": sources,
+            # The answer states only values of the query result (or is the result table itself)
+            "verification": {"level": "verified", "issues": [ISSUE_DATA]},
             "agent_trace": list(state.get("agent_trace", [])) + [trace_entry],
         }
+
+    def _explain(self, question: str, explain_prompt: str, rows: list, count: int, language: str) -> tuple:
+        """(answer, status) of the explanation: "success", "mismatch" when it kept stating numbers the result
+        does not contain, or "error"."""
+        system = SystemMessage(content=f"{SQL_EXPLAINER_SYSTEM_PROMPT}{language_instruction(language)}")
+        objection = ""
+        for _ in range(2):
+            content = explain_prompt + (f"\n\nA reviewer found: {objection}" if objection else "")
+            try:
+                answer = self.chat_model.invoke([system, HumanMessage(content=content)]).content.strip()
+            except Exception as e:
+                logger.error(f"[{self.name}] Error synthesizing SQL results: {e}")
+                return "", "error"
+            missing = unsupported_data_numbers(answer, rows, question, count)
+            if not missing:
+                return answer, "success"
+            logger.warning(f"[{self.name}] Explanation states numbers not in the result: {missing}")
+            objection = f"the number(s) {', '.join(missing)} are not in the data; copy the values from the data"
+        return answer, "mismatch"

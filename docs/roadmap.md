@@ -158,6 +158,8 @@ The strategic development roadmap for `OpenLocalRagAgents` is structured below t
   - When Ollama is unreachable, `doc_agent` returns the "cannot be fully verified" fallback, which reads like a document problem. Return a clear "language model unavailable" message instead.
 - [x] **Modern Web UI:**
   - A React + TypeScript web UI (`web/`) replaces the Streamlit UI: chat with live progress, requests, and administration, a refresh token in an `HttpOnly` cookie, its own tests in CI, and an nginx image.
+- [x] **Agent Collaboration:**
+  - Questions back for ambiguous questions, steps that build on earlier steps, a time limit per step, user profiles (unit, program, level), checked database and compliance answers, staff answers to unanswered questions (FAQ) with notifications, request cancel and notes from the chat, per-agent statistics, and an `agents` evaluation stage.
 - [ ] **Retire the Streamlit UI:**
   - Serve the React UI at `/` behind the HTTPS proxy, then remove `ui/`, `Dockerfile.frontend`, `requirements-ui.txt`, and the `frontend` compose service.
 - [x] **Specific Exception Handling:**

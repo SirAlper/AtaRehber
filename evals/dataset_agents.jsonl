@@ -1,0 +1,24 @@
+# Agent collaboration: composite questions (documents + database), questions that must not be split,
+# ambiguous questions that need a question back, and clear questions that must not get one.
+# Corpus: evals/corpus (the default); database: the sample database. Run: python -m evals.run_eval --stages agents
+# kind "plan": the supervisor plans exactly these agents; with expected_facts the combined answer is checked too.
+# kind "clarify": asked in a conversation, the assistant asks back (the answer depends on the asker's situation).
+# kind "no_clarify": it answers (clear questions, and general questions whose answer lists the cases).
+{"id": "ag-plan-01", "kind": "plan", "question": "Monitör talebi en fazla kaç adetle sınırlı ve NovaView 27-inch 4K Monitor'ün birim fiyatı nedir?", "expected_agents": ["doc_agent", "db_agent"], "expected_facts": [["2", "iki"], ["9400", "9.400"]]}
+{"id": "ag-plan-02", "kind": "plan", "question": "Yıllık eğitim bütçesi kaç TL ve NovaERP Cloud License (Annual) ürününün birim fiyatı bu bütçeyi aşıyor mu?", "expected_agents": ["doc_agent", "db_agent"], "expected_facts": [["15.000", "15000"], ["120.000", "120000"]]}
+{"id": "ag-plan-03", "kind": "plan", "question": "Fazla mesai ayda en fazla kaç saat olabilir ve stokta kaç adet NovaShield Enterprise Firewall var?", "expected_agents": ["doc_agent", "db_agent"], "expected_facts": [["20", "yirmi"], ["8", "sekiz"]]}
+{"id": "ag-plan-04", "kind": "plan", "question": "Yurt dışından uzaktan çalışma yılda kaç günü aşamaz, ve birim fiyatı en yüksek ürün hangisi?", "expected_agents": ["doc_agent", "db_agent"], "expected_facts": [["30", "otuz"], ["NovaERP"]]}
+{"id": "ag-single-01", "kind": "plan", "question": "Stokta kaç adet NovaTech ProBook 15 G3 var?", "expected_agents": ["db_agent"], "expected_facts": [["45"]]}
+{"id": "ag-single-02", "kind": "plan", "question": "Kullanılmayan yıllık izinlerin en fazla kaç günü sonraki yıla devredilebilir?", "expected_agents": ["doc_agent"], "expected_facts": [["5", "beş"]]}
+{"id": "ag-single-03", "kind": "plan", "question": "İzin talepleri kaç iş günü önceden oluşturulmalı ve kim onaylar?", "expected_agents": ["doc_agent"], "expected_facts": [["10", "on"], ["yönetici"]]}
+{"id": "ag-clarify-01", "kind": "clarify", "question": "Kaç gün izin hakkım var?"}
+{"id": "ag-clarify-02", "kind": "clarify", "question": "Konaklama için gecelik ne kadar harcayabilirim?"}
+{"id": "ag-clarify-03", "kind": "clarify", "question": "Yılda kaç gün uzaktan çalışabilirim?"}
+{"id": "ag-clear-01", "kind": "no_clarify", "question": "Kıdemi 3 yıl olan bir çalışanın yıllık izni kaç iş günüdür?"}
+{"id": "ag-clear-02", "kind": "no_clarify", "question": "Haftada en fazla kaç gün uzaktan çalışılabilir?"}
+{"id": "ag-clear-03", "kind": "no_clarify", "question": "Teknik eğitim bütçesi yıllık ne kadar?"}
+{"id": "ag-clear-04", "kind": "no_clarify", "question": "Stokta kaç adet NovaShield Enterprise Firewall var?"}
+{"id": "ag-clear-05", "kind": "no_clarify", "question": "Monitör arızasında nereye talep açılır?"}
+{"id": "ag-clear-06", "kind": "no_clarify", "question": "Salı günleri uzaktan çalışabilir miyim?"}
+{"id": "ag-clear-07", "kind": "no_clarify", "question": "Yıllık izin kaç gündür?"}
+{"id": "ag-clear-08", "kind": "no_clarify", "question": "Yurt içi seyahatte gecelik otel limiti ne kadar?"}

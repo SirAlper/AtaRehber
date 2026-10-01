@@ -43,6 +43,8 @@ class FeedbackRequest(BaseModel):
     question: str = Field("", max_length=4000)
     feedback: Literal["positive", "negative"]
     comment: str = Field("", max_length=2000)
+    # The agent whose answer is rated (the answer's active_agent), for the per-agent statistics
+    agent: str = Field("", max_length=64, pattern=r"^[a-z0-9_]*$")
 
 
 class DocumentAccessRequest(BaseModel):
