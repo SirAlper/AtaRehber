@@ -16,8 +16,8 @@ function fieldSize() {
   return [Math.ceil(window.innerWidth / scale), Math.ceil(window.innerHeight / scale)];
 }
 
-/** Calm while idle; faster, dividing, merging, and changing colour while the assistant thinks. Still for users
- * who prefer reduced motion. */
+/** Calm while idle; gathering and merging while the assistant thinks, scattering to new places when the answer is
+ * in. Still for users who prefer reduced motion. */
 function LivingColors() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
@@ -32,7 +32,6 @@ function LivingColors() {
     canvas.width = width;
     canvas.height = height;
 
-    let energy = 0;
     let last = performance.now();
     let frame = 0;
     const draw = (now: number) => {
@@ -43,11 +42,9 @@ function LivingColors() {
       if (!still) {
         // Hidden tabs pause; a long gap must not throw the cells across the screen
         const dt = Math.min(elapsed / 1000, 0.1);
-        // Speeds up and calms down over a few seconds
-        energy += ((isThinking() ? 1 : 0) - energy) * Math.min(1, dt * 0.6);
-        step(world, dt, energy);
+        step(world, dt, isThinking());
       }
-      render(world, image.data, document.documentElement.classList.contains("dark"), energy);
+      render(world, image.data, document.documentElement.classList.contains("dark"));
       context.putImageData(image, 0, 0);
     };
     frame = requestAnimationFrame(draw);

@@ -1,8 +1,15 @@
 // Colour fields that behave like cells: they roam the screen, cling to each other, pull apart, divide, and merge.
 // They are drawn as a smooth field (each one adds r² / (d² + s²) and the colours mix by weight), so two of them flow
-// into one shape when close and stretch apart before letting go, with no outline and no bright core. Each cell
-// heads for a spot on the screen it picks anew every few seconds, and its "mood" swings between seeking company
-// and keeping away, so clusters form and break up. "energy" (0 calm .. 1 thinking) sets how fast all of this goes.
+// into one shape when close and stretch apart before letting go, with no outline and no bright core.
+//
+// They follow the assistant in three phases:
+// * idle: each cell drifts calmly towards a spot it picks anew every few seconds; its "mood" swings between
+//   seeking company and keeping away, so small clusters form and break up;
+// * gather (thinking): all head for a meeting point picked at random, cling together, and merge;
+// * scatter (the answer is in): at the same pace they push apart, the merged mass divides, and every cell heads for
+//   a spot of its own, picked at random far from the others' spots (so never the same layout twice), then they
+//   calm down into idle.
+// "energy" (0 calm .. 1 busy) sets how fast all of this goes; it stays up while they scatter.
 //
 // Nothing changes at once: a cell's colour eases towards its target colour, a merging cell melts into the other
 // over a few seconds, and the halves of a divided cell start with the parent's colour.
@@ -20,7 +27,7 @@ export interface Cell {
   hueSpeed: number;
   /** Seconds since the cell appeared or last merged; young cells neither divide nor merge */
   age: number;
-  /** The spot the cell is heading for, and the seconds until it picks a new one */
+  /** The spot the cell is heading for, and the seconds until it picks a new one (idle) */
   tx: number;
   ty: number;
   retarget: number;
@@ -30,12 +37,23 @@ export interface Cell {
   into?: Cell;
 }
 
+export type Phase = "idle" | "gather" | "scatter";
+
 export interface World {
   width: number;
   height: number;
   cells: Cell[];
-  /** Mood time (runs faster while thinking) */
+  /** Mood time (runs faster while busy) */
   time: number;
+  phase: Phase;
+  /** Seconds since the phase began */
+  phaseTime: number;
+  /** 0 calm .. 1 busy; eases towards 1 while gathering and scattering, towards 0 when idle */
+  energy: number;
+  /** Meeting point while gathering, and the seconds until it moves */
+  gx: number;
+  gy: number;
+  regather: number;
 }
 
 export const MIN_CELLS = 4;
@@ -49,6 +67,12 @@ const HUE_EASE = 0.5;
 const HUE_MAX_RATE = 12;
 // How fast a merging cell hands its area over (1/s) and comes to the other's centre
 const MELT_RATE = 0.7;
+// How fast energy follows the phase (1/s): a few seconds to speed up or calm down
+const ENERGY_RATE = 0.6;
+// Scattering ends when the cells have reached their spots, or after this many seconds
+const SCATTER_SECONDS = 8;
+// Cells the scattered mass divides into (at most)
+const SCATTER_CELLS = 7;
 
 type Random = () => number;
 
@@ -61,10 +85,33 @@ function clampHue(hue: number) {
   return Math.min(HUE_MAX, Math.max(HUE_MIN, hue));
 }
 
+function randomSpot(world: Pick<World, "width" | "height">, random: Random, inset = 0.08): [number, number] {
+  return [
+    world.width * (inset + random() * (1 - 2 * inset)),
+    world.height * (inset + random() * (1 - 2 * inset)),
+  ];
+}
+
 function pickTarget(cell: Cell, world: Pick<World, "width" | "height">, random: Random) {
-  cell.tx = world.width * (0.08 + random() * 0.84);
-  cell.ty = world.height * (0.08 + random() * 0.84);
+  [cell.tx, cell.ty] = randomSpot(world, random);
   cell.retarget = 8 + random() * 10;
+}
+
+/** A random spot far from the spots other cells are scattering to and from the meeting point: of several random
+ * candidates, the one with the most room around it. */
+function spreadTarget(cell: Cell, world: World, random: Random) {
+  const taken = world.cells.filter((c) => c !== cell && !c.into).map((c) => [c.tx, c.ty]);
+  taken.push([world.gx, world.gy]);
+  let best: [number, number] = randomSpot(world, random);
+  let room = -1;
+  for (let i = 0; i < 12; i++) {
+    const spot = randomSpot(world, random);
+    const nearest = Math.min(...taken.map(([x, y]) => Math.hypot(spot[0] - x, spot[1] - y)));
+    if (nearest > room) [best, room] = [spot, nearest];
+  }
+  [cell.tx, cell.ty] = best;
+  // They rest at their new spots a while before roaming on
+  cell.retarget = 10 + random() * 10;
 }
 
 function newCell(world: Pick<World, "width" | "height">, random: Random): Cell {
@@ -90,7 +137,10 @@ function newCell(world: Pick<World, "width" | "height">, random: Random): Cell {
 }
 
 export function createWorld(width: number, height: number, random: Random = Math.random): World {
-  const world: World = { width, height, cells: [], time: 0 };
+  const world: World = {
+    ...{ width, height, cells: [], time: 0 },
+    ...{ phase: "idle", phaseTime: 0, energy: 0, gx: width / 2, gy: height / 2, regather: 0 },
+  };
   for (let i = 0; i < 6; i++) world.cells.push(newCell(world, random));
   return world;
 }
@@ -107,6 +157,8 @@ export function resizeWorld(world: World, width: number, height: number) {
     cell.ty *= sy;
     cell.r *= scale;
   }
+  world.gx *= sx;
+  world.gy *= sy;
   world.width = width;
   world.height = height;
 }
@@ -128,15 +180,19 @@ function divide(world: World, cell: Cell, random: Random) {
       targetHue: clampHue(cell.targetHue + sign * (12 + random() * 18)),
       hueSpeed: sign * Math.abs(cell.hueSpeed),
       age: 0,
-      tx: 0,
-      ty: 0,
+      tx: cell.tx,
+      ty: cell.ty,
       retarget: 0,
       phase: cell.phase + sign * 1.2,
     };
-    pickTarget(next, world, random);
     return next;
   };
-  world.cells.splice(world.cells.indexOf(cell), 1, daughter(1), daughter(-1));
+  const halves = [daughter(1), daughter(-1)];
+  world.cells.splice(world.cells.indexOf(cell), 1, ...halves);
+  for (const half of halves) {
+    if (world.phase === "scatter") spreadTarget(half, world, random);
+    else if (world.phase === "idle") pickTarget(half, world, random);
+  }
 }
 
 /** b starts melting into a; a's colour heads for the mix of both. */
@@ -164,14 +220,47 @@ function melt(cell: Cell, dt: number, min: number): boolean {
   return true;
 }
 
-/** Advance the world by dt seconds. */
-export function step(world: World, dt: number, energy: number, random: Random = Math.random) {
+/** Phase changes: thinking starts a gathering at a new random meeting point; its end starts a scattering. */
+function updatePhase(world: World, thinking: boolean, dt: number, random: Random) {
+  world.phaseTime += dt;
+  if (thinking && world.phase !== "gather") {
+    world.phase = "gather";
+    world.phaseTime = 0;
+    [world.gx, world.gy] = randomSpot(world, random, 0.25);
+    world.regather = 10 + random() * 6;
+  } else if (!thinking && world.phase === "gather") {
+    world.phase = "scatter";
+    world.phaseTime = 0;
+    for (const cell of world.cells) if (!cell.into) spreadTarget(cell, world, random);
+  } else if (world.phase === "scatter") {
+    const settled = world.cells.every(
+      (c) => c.into || Math.hypot(c.tx - c.x, c.ty - c.y) < Math.min(world.width, world.height) * 0.12,
+    );
+    if (world.phaseTime > SCATTER_SECONDS || (settled && world.phaseTime > 3)) {
+      world.phase = "idle";
+      world.phaseTime = 0;
+    }
+  } else if (world.phase === "gather") {
+    // A long answer: the meeting point moves now and then, so the cluster keeps travelling
+    world.regather -= dt;
+    if (world.regather <= 0) {
+      [world.gx, world.gy] = randomSpot(world, random, 0.25);
+      world.regather = 10 + random() * 6;
+    }
+  }
+  const busy = world.phase === "idle" ? 0 : 1;
+  world.energy += (busy - world.energy) * (1 - Math.exp(-ENERGY_RATE * dt));
+}
+
+/** Advance the world by dt seconds; thinking: the assistant is preparing an answer. */
+export function step(world: World, dt: number, thinking: boolean, random: Random = Math.random) {
+  updatePhase(world, thinking, dt, random);
   const { min, max } = radii(world);
-  const { cells, width, height } = world;
-  const wander = 2.5 + 8 * energy;
-  const maxSpeed = 1.8 + 5.5 * energy;
-  const seek = 0.6 + 2 * energy;
-  const company = 0.5 + 1 * energy;
+  const { cells, width, height, energy, phase } = world;
+  const wander = 2.5 + 9 * energy;
+  const maxSpeed = 2 + 6.5 * energy;
+  const seek = 0.7 + 2.6 * energy;
+  const company = 0.5 + 1.2 * energy;
   const reach = Math.min(width, height) * 0.2;
   const colourPace = 0.25 + 0.75 * energy;
   const ease = 1 - Math.exp(-HUE_EASE * dt);
@@ -189,16 +278,20 @@ export function step(world: World, dt: number, energy: number, random: Random = 
     cell.age += dt;
     if (cell.into) continue; // moved by melt() below
 
-    // Roaming: towards a spot on the screen, picked anew every few seconds (more often while thinking)
-    cell.retarget -= dt * (1 + energy);
-    if (cell.retarget <= 0) pickTarget(cell, world, random);
-    const toX = cell.tx - cell.x;
-    const toY = cell.ty - cell.y;
-    const toTarget = Math.hypot(toX, toY) || 0.001;
-    const pull = seek * Math.min(1, toTarget / reach);
-    cell.vx += ((toX / toTarget) * pull + (random() - 0.5) * wander) * dt;
-    cell.vy += ((toY / toTarget) * pull + (random() - 0.5) * wander) * dt;
-    // Neighbours: drawn together in a sociable mood, pushed off otherwise; never sinking in fully
+    // Where to: the meeting point while gathering, the cell's own spot otherwise (idle: picked anew now and then)
+    if (phase === "idle") {
+      cell.retarget -= dt;
+      if (cell.retarget <= 0) pickTarget(cell, world, random);
+    }
+    const [goalX, goalY] = phase === "gather" ? [world.gx, world.gy] : [cell.tx, cell.ty];
+    const toX = goalX - cell.x;
+    const toY = goalY - cell.y;
+    const toGoal = Math.hypot(toX, toY) || 0.001;
+    const pull = seek * Math.min(1, toGoal / reach);
+    cell.vx += ((toX / toGoal) * pull + (random() - 0.5) * wander) * dt;
+    cell.vy += ((toY / toGoal) * pull + (random() - 0.5) * wander) * dt;
+    // Neighbours: drawn together when gathering or in a sociable mood, pushed off when scattering or in an
+    // unsociable one; never sinking in fully
     const mood = Math.sin(world.time + cell.phase);
     for (const other of cells) {
       if (other === cell || other.into) continue;
@@ -206,7 +299,8 @@ export function step(world: World, dt: number, energy: number, random: Random = 
       const dy = other.y - cell.y;
       const d = Math.hypot(dx, dy) || 0.001;
       const touch = cell.r + other.r;
-      const social = (mood + Math.sin(world.time + other.phase)) / 2;
+      const social =
+        phase === "gather" ? 1 : phase === "scatter" ? -1 : (mood + Math.sin(world.time + other.phase)) / 2;
       let force = 0;
       if (d < touch * 2.2) force += social * company * (1 - d / (touch * 2.2));
       if (d < touch * 0.7) force -= 3 * (1 - d / (touch * 0.7));
@@ -235,17 +329,18 @@ export function step(world: World, dt: number, energy: number, random: Random = 
   // Melting cells hand over their area; gone ones leave the world
   world.cells = cells.filter((cell) => !(cell.into && melt(cell, dt, min)));
 
-  // Two mature cells that sank into each other sometimes start to merge
+  // Two mature cells that sank into each other start to merge: often while gathering, never while scattering
   const live = world.cells.filter((c) => !c.into);
   const isTarget = (cell: Cell) => world.cells.some((c) => c.into === cell);
-  const mergeChance = (0.05 + 0.45 * energy) * dt;
-  if (live.length > MIN_CELLS) {
+  const mergeChance = (phase === "gather" ? 0.6 : phase === "scatter" ? 0 : 0.05) * dt;
+  const maxMerged = phase === "gather" ? max * 1.6 : max * 1.35;
+  if (live.length > MIN_CELLS && mergeChance > 0) {
     search: for (let i = 0; i < live.length; i++) {
       for (let j = i + 1; j < live.length; j++) {
         const [a, b] = [live[i], live[j]];
         if (a.age < MATURE_AGE || b.age < MATURE_AGE || isTarget(b)) continue;
         if (Math.hypot(a.x - b.x, a.y - b.y) > (a.r + b.r) * 0.55) continue;
-        if (Math.hypot(a.r, b.r) > max * 1.35 || random() > mergeChance) continue;
+        if (Math.hypot(a.r, b.r) > maxMerged || random() > mergeChance) continue;
         // The smaller one melts into the larger one
         if (a.r >= b.r) startMerge(a, b);
         else if (!isTarget(a)) startMerge(b, a);
@@ -254,17 +349,18 @@ export function step(world: World, dt: number, energy: number, random: Random = 
     }
   }
 
-  // Large mature cells sometimes divide; too few cells always lets the largest one divide
-  const divideChance = (0.015 + 0.25 * energy) * dt;
+  // Cells divide: rarely while idle or gathering; while scattering the merged mass breaks up at once
+  const count = () => world.cells.filter((c) => !c.into).length;
+  const scatterReady = phase === "scatter" && count() < SCATTER_CELLS;
   const ready = world.cells.filter(
-    (c) => !c.into && !isTarget(c) && c.age >= MATURE_AGE && c.r / Math.SQRT2 >= min,
+    (c) => !c.into && !isTarget(c) && (c.age >= MATURE_AGE || scatterReady) && c.r / Math.SQRT2 >= min,
   );
-  const count = world.cells.filter((c) => !c.into).length;
-  if (count < MIN_CELLS && ready.length) {
+  if ((count() < MIN_CELLS || scatterReady) && ready.length) {
     divide(world, ready.reduce((a, b) => (b.r > a.r ? b : a)), random);
   } else {
+    const divideChance = 0.015 * dt;
     for (const cell of ready) {
-      if (world.cells.filter((c) => !c.into).length >= MAX_CELLS) break;
+      if (count() >= MAX_CELLS) break;
       if (random() < divideChance) divide(world, cell, random);
     }
   }
@@ -282,8 +378,8 @@ function hslToRgb(h: number, s: number, l: number): [number, number, number] {
 }
 
 /** The field as RGBA pixels: colours mixed by each cell's weight, transparent where the field is weak. */
-export function render(world: World, data: Uint8ClampedArray, dark: boolean, energy: number) {
-  const { cells, width, height } = world;
+export function render(world: World, data: Uint8ClampedArray, dark: boolean) {
+  const { cells, width, height, energy } = world;
   const n = cells.length;
   const xs = new Float32Array(n);
   const ys = new Float32Array(n);

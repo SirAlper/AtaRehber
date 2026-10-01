@@ -10,42 +10,89 @@ function seeded(seed: number) {
   };
 }
 
+const FRAME = 1 / 30;
+const live = (world: World) => world.cells.filter((c) => !c.into);
+
 function area(world: World) {
   return world.cells.reduce((sum, c) => sum + c.r * c.r, 0);
 }
 
-const FRAME = 1 / 30;
+/** Mean distance between the cells' centres */
+function spread(world: World) {
+  const cells = live(world);
+  let sum = 0;
+  let pairs = 0;
+  for (let i = 0; i < cells.length; i++) {
+    for (let j = i + 1; j < cells.length; j++) {
+      sum += Math.hypot(cells[i].x - cells[j].x, cells[i].y - cells[j].y);
+      pairs++;
+    }
+  }
+  return pairs ? sum / pairs : 0;
+}
 
-function run(energy: number, seconds: number, seed = 7) {
-  const random = seeded(seed);
-  const world = createWorld(170, 110, random);
-  let travelled = 0;
-  const counts = new Set<number>();
+/** Runs the world for some seconds; reports the fastest cell (canvas pixels per second). */
+function run(world: World, seconds: number, thinking: boolean, random: () => number, each?: () => void) {
   let fastest = 0;
   for (let t = 0; t < seconds * 30; t++) {
     const before = new Map(world.cells.map((c) => [c, [c.x, c.y]]));
-    step(world, FRAME, energy, random);
-    for (const cell of world.cells) {
+    step(world, FRAME, thinking, random);
+    for (const cell of live(world)) {
       const was = before.get(cell);
-      if (!was || cell.into) continue;
-      const moved = Math.hypot(cell.x - was[0], cell.y - was[1]);
-      travelled += moved;
-      fastest = Math.max(fastest, moved / FRAME);
+      if (was) fastest = Math.max(fastest, Math.hypot(cell.x - was[0], cell.y - was[1]) / FRAME);
     }
-    counts.add(world.cells.filter((c) => !c.into).length);
+    each?.();
   }
-  return { world, travelled, counts, fastest };
+  return fastest;
 }
 
 describe("living colours", () => {
-  it("move, divide, and merge more while the assistant thinks, at a calm pace", () => {
-    const calm = run(0, 60);
-    const thinking = run(1, 60);
-    expect(thinking.travelled).toBeGreaterThan(calm.travelled * 1.5);
-    expect(thinking.counts.size).toBeGreaterThan(1);
+  it("gather and merge while the assistant thinks, then scatter at the same pace and calm down", () => {
+    const random = seeded(7);
+    const world = createWorld(170, 110, random);
+    const calmSpeed = run(world, 20, false, random);
+    const idleSpread = spread(world);
+    const idleCount = live(world).length;
+
+    const thinkingSpeed = run(world, 25, true, random);
+    expect(world.phase).toBe("gather");
+    expect(spread(world)).toBeLessThan(idleSpread * 0.6);
+    expect(live(world).length).toBeLessThanOrEqual(idleCount);
+    const gathered = { spread: spread(world), count: live(world).length };
+
+    // The answer is in: as fast as while thinking, they push apart and the mass divides
+    let energyWhileScattering = 1;
+    run(world, 3, false, random, () => (energyWhileScattering = Math.min(energyWhileScattering, world.energy)));
+    expect(energyWhileScattering).toBeGreaterThan(0.85);
+    run(world, 7, false, random);
+    expect(spread(world)).toBeGreaterThan(gathered.spread * 1.6);
+    expect(live(world).length).toBeGreaterThan(gathered.count);
+
+    run(world, 10, false, random);
+    expect(world.phase).toBe("idle");
+    expect(world.energy).toBeLessThan(0.3);
+
     // Canvas pixels per second (a canvas pixel is about 8 screen pixels)
-    expect(calm.fastest).toBeLessThan(2.5);
-    expect(thinking.fastest).toBeLessThan(8);
+    expect(calmSpeed).toBeLessThan(3);
+    expect(thinkingSpeed).toBeGreaterThan(calmSpeed * 1.5);
+    expect(thinkingSpeed).toBeLessThan(9);
+  });
+
+  it("scatter to different places every time", () => {
+    const random = seeded(21);
+    const world = createWorld(170, 110, random);
+    const layouts: number[][][] = [];
+    for (let round = 0; round < 2; round++) {
+      run(world, 15, true, random);
+      run(world, 12, false, random);
+      layouts.push(live(world).map((c) => [c.x, c.y]));
+    }
+    // How far each cell of the second layout is from the nearest cell of the first one, on average
+    const [first, second] = layouts;
+    const offset =
+      second.reduce((sum, [x, y]) => sum + Math.min(...first.map(([a, b]) => Math.hypot(x - a, y - b))), 0) /
+      second.length;
+    expect(offset).toBeGreaterThan(110 * 0.08);
   });
 
   it("change colour gradually, also when they divide or merge", () => {
@@ -53,27 +100,45 @@ describe("living colours", () => {
     const world = createWorld(170, 110, random);
     let largest = 0;
     let events = 0;
-    for (let t = 0; t < 120 * 30; t++) {
-      const before = new Map(world.cells.map((c) => [c, c.hue]));
-      const count = world.cells.length;
-      step(world, FRAME, 1, random);
-      if (world.cells.length !== count) events++;
-      for (const cell of world.cells) {
-        // A new half starts with its parent's colour
-        const was = before.get(cell) ?? cell.hue;
-        largest = Math.max(largest, Math.abs(cell.hue - was));
+    for (let round = 0; round < 3; round++) {
+      for (const [seconds, thinking] of [
+        [20, true],
+        [15, false],
+      ] as const) {
+        for (let t = 0; t < seconds * 30; t++) {
+          const before = new Map(world.cells.map((c) => [c, c.hue]));
+          const count = world.cells.length;
+          step(world, FRAME, thinking, random);
+          if (world.cells.length !== count) events++;
+          for (const cell of world.cells) {
+            // A new half starts with its parent's colour
+            const was = before.get(cell) ?? cell.hue;
+            largest = Math.max(largest, Math.abs(cell.hue - was));
+          }
+        }
       }
     }
-    expect(events).toBeGreaterThan(3);
+    expect(events).toBeGreaterThan(5);
     // At most 12 degrees per second
     expect(largest).toBeLessThanOrEqual(12 * FRAME + 1e-9);
   });
 
-  it("stay within the number of cells, on screen, and in the colour range", () => {
-    const { world, counts } = run(1, 120, 3);
-    for (const count of counts) {
-      expect(count).toBeGreaterThanOrEqual(MIN_CELLS - 1);
-      expect(count).toBeLessThanOrEqual(MAX_CELLS + 1);
+  it("stay within the number of cells, on screen, in the colour range, and keep their area", () => {
+    const random = seeded(3);
+    const world = createWorld(170, 110, random);
+    for (let round = 0; round < 3; round++) {
+      for (const thinking of [true, false]) {
+        for (let t = 0; t < 20 * 30; t++) {
+          const before = area(world);
+          step(world, FRAME, thinking, random);
+          // Small cells regrow a little each step, nothing else adds or removes area
+          expect(area(world)).toBeGreaterThanOrEqual(before * 0.999);
+          expect(area(world)).toBeLessThan(before * 1.01);
+          const count = live(world).length;
+          expect(count).toBeGreaterThanOrEqual(MIN_CELLS - 1);
+          expect(count).toBeLessThanOrEqual(MAX_CELLS + 1);
+        }
+      }
     }
     for (const cell of world.cells) {
       expect(cell.x).toBeGreaterThan(-cell.r * 2);
@@ -82,18 +147,6 @@ describe("living colours", () => {
       expect(cell.y).toBeLessThan(world.height + cell.r * 2);
       expect(cell.hue).toBeGreaterThanOrEqual(HUE_MIN);
       expect(cell.hue).toBeLessThanOrEqual(HUE_MAX);
-    }
-  });
-
-  it("keep their area when they divide or merge", () => {
-    const random = seeded(11);
-    const world = createWorld(170, 110, random);
-    for (let t = 0; t < 900; t++) {
-      const before = area(world);
-      step(world, FRAME, 1, random);
-      // Small cells regrow a little each step, nothing else adds or removes area
-      expect(area(world)).toBeGreaterThanOrEqual(before * 0.999);
-      expect(area(world)).toBeLessThan(before * 1.01);
     }
   });
 
@@ -106,7 +159,7 @@ describe("living colours", () => {
       },
     ];
     const data = new Uint8ClampedArray(60 * 40 * 4);
-    render(world, data, false, 0);
+    render(world, data, false);
     const alpha = (x: number, y: number) => data[(y * 60 + x) * 4 + 3];
     expect(alpha(30, 20)).toBeGreaterThan(120);
     expect(alpha(0, 0)).toBe(0);
