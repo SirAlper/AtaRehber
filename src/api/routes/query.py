@@ -14,6 +14,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
 from src.api.schemas import QueryRequest, AgentsListResponse, AgentInfo, FeedbackRequest
+from src.agent.llm import llm_problem
 from src.api.state import QueueFullError, get_multi_agent_orchestrator, query_concurrency_gate
 from src.agent.multi_agent.registry import agent_registry
 from src.auth.dependencies import require_role
@@ -28,6 +29,7 @@ router = APIRouter(tags=["AI Query"])
 
 QUERY_FAILED_DETAIL = "Query processing failed due to an internal error."
 BUSY_DETAIL = "The assistant is busy. Please try again in a minute."
+LLM_UNAVAILABLE_DETAIL = "The language model is not available right now. Please try again later."
 # Roles that may ask questions; guests (visitors without an account) only reach doc_agent
 QUERY_ROLES = ("admin", "editor", "viewer", GUEST_ROLE)
 STREAM_FAILED_MESSAGE = "An internal error occurred while processing the query."
@@ -58,7 +60,25 @@ def _resolve_forced_agent(request: QueryRequest, user: User) -> str | None:
 
 
 def _busy() -> HTTPException:
-    return HTTPException(status_code=503, detail=BUSY_DETAIL, headers={"Retry-After": "60"})
+    return HTTPException(status_code=503, detail=BUSY_DETAIL, headers={"Retry-After": "60", "X-Error-Code": "busy"})
+
+
+async def _check_llm(username: str) -> None:
+    """HTTP 503 with X-Error-Code "llm_unavailable" when Ollama is down or lacks a model (LLM_STATUS_CHECK).
+
+    Without this check every agent would end with the "could not be verified" fallback, which reads like a
+    problem with the documents.
+    """
+    if not config.LLM_STATUS_CHECK:
+        return
+    problem = await asyncio.to_thread(llm_problem)
+    if problem:
+        logger.warning(f"Language model unavailable, question of '{username}' not run")
+        raise HTTPException(
+            status_code=503,
+            detail=LLM_UNAVAILABLE_DETAIL,
+            headers={"Retry-After": "60", "X-Error-Code": "llm_unavailable"},
+        )
 
 
 def _user_context(user: User) -> dict:
@@ -116,6 +136,7 @@ async def query_rag(
         )
         logger.debug(f"Question: {request.question}")
         orchestrator = get_multi_agent_orchestrator()
+        await _check_llm(current_user.username)
         try:
             await query_concurrency_gate.__aenter__()
         except QueueFullError:
@@ -198,6 +219,7 @@ async def query_rag_stream(
     if query_concurrency_gate.is_full():
         logger.warning(f"Query queue full, busy answer for '{current_user.username}'")
         raise _busy()
+    await _check_llm(current_user.username)
     try:
         orchestrator = get_multi_agent_orchestrator()
     except Exception:

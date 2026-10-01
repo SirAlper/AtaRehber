@@ -94,7 +94,7 @@ export type StreamEvent =
   | { type: "handoff"; from: string; to: string; reason?: string }
   | { type: "progress"; agent: string; stage: string }
   | { type: "sources"; sources: Source[] }
-  | { type: "error"; message: string; code?: "busy" }
+  | { type: "error"; message: string; code?: string }
   | ({ type: "done" } & QueryResult);
 
 export interface AgentInfo {
@@ -207,4 +207,25 @@ export interface Backup {
   name: string;
   type: "full" | "vector_db";
   created_at: string;
+}
+
+/** Texts of one language set by the organization; empty: the built-in text */
+export interface UiTexts {
+  welcome: string;
+  welcome_guest: string;
+  disclaimer: string;
+  request_example: string;
+  unit_label: string;
+  program_label: string;
+  level_label: string;
+  suggestions: string[];
+}
+
+export interface UiSettings {
+  app_name: string;
+  /** Only in the public settings: the language for users who did not pick one */
+  default_language?: "tr" | "en";
+  texts: Record<"tr" | "en", UiTexts>;
+  updated_by?: string;
+  updated_at?: string;
 }

@@ -54,8 +54,8 @@ To run retrieval on an NVIDIA GPU instead, install a CUDA build (e.g. `--index-u
 ### 4. Install Project Dependencies
 ```bash
 pip install --upgrade pip
-# Backend + Streamlit UI (add requirements-dev.txt for tests and linting)
-pip install -r requirements.txt -r requirements-ui.txt
+# Backend (use requirements-dev.txt instead for tests and linting)
+pip install -r requirements.txt
 ```
 
 ### 5. Install Ollama and Pull the LLM
@@ -151,7 +151,7 @@ DB_MAX_ROWS=50
 DB_QUERY_TIMEOUT_SECONDS=15
 
 # ─── API & Security Settings ───
-CORS_ORIGINS=http://localhost:8501,http://127.0.0.1:8501
+CORS_ORIGINS=http://localhost:8080,http://127.0.0.1:8080
 MAX_UPLOAD_SIZE_MB=50
 RATE_LIMIT_PER_MINUTE=30
 RATE_LIMIT_READS_PER_MINUTE=300
@@ -182,8 +182,10 @@ BACKUP_INTERVAL_HOURS=0
 BACKUP_KEEP=7
 
 # ─── Web UI ───
+# Default language and a disclaimer for both languages; the name, welcome text, and example questions are set
+# under Administration → Appearance
 UI_LANGUAGE=tr
-# UI_DISCLAIMER=Answers are AI-generated. For official information contact the Registrar's Office.
+# UI_DISCLAIMER=Answers are AI-generated. For official information contact the relevant department.
 
 # ─── Logging Settings ───
 LOG_LEVEL=INFO
@@ -266,13 +268,6 @@ npm run dev        # http://localhost:5173, forwards /api to the backend on port
 * **Web UI:** `http://localhost:5173` (another backend address: `API_URL=http://host:8000 npm run dev`)
 * **Production build:** `npm run build` writes static files to `web/dist/`; serve them with the `web` Docker service or any web server that forwards `/api` to the backend and answers unknown paths with `index.html`.
 * **Checks:** `npm run typecheck` and `npm test`.
-
-### Streamlit UI (previous interface):
-The Streamlit UI still works during the transition. In a separate terminal window:
-```bash
-streamlit run ui/app.py
-```
-* **Web UI:** `http://localhost:8501`
 
 > [!NOTE]
 > **Initial Admin Credentials:**

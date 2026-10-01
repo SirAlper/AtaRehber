@@ -56,6 +56,9 @@ The interactive OpenAPI Swagger UI is available at `http://localhost:8000/docs` 
 | `PUT` | `/api/v1/admin/custom-agents/{name}` | `admin` | Create or replace a custom agent; the supervisor can route to it at once |
 | `DELETE` | `/api/v1/admin/custom-agents/{name}` | `admin` | Delete a custom agent |
 | `POST` | `/api/v1/auth/change-password` | Authenticated | Change own password (required after first login with the default password) |
+| `GET` | `/api/v1/ui-settings` | Public | The web UI's name, texts, and default language for this organization |
+| `GET` | `/api/v1/admin/ui-settings` | `admin` | The stored web UI texts with who changed them last |
+| `PUT` | `/api/v1/admin/ui-settings` | `admin` | Change the web UI's name and texts (empty: built-in text) |
 | `GET` | `/health` | Public | Liveness probe for container healthchecks |
 
 > [!NOTE]
@@ -410,7 +413,8 @@ curl -X GET "http://localhost:8000/api/v1/agents" \
 ### 3.1 Batch Query (`POST /api/v1/query`)
 Runs the multi-agent LangGraph workflow: the supervisor plans one or more specialist steps (or answers greetings directly), the specialists produce the answer (a failing step is handed to another agent once, several answers are combined), and the turn is saved to the session history. Documents are searched with the caller's access groups. See [Architecture](architecture.md#-multi-agent-workflow-srcagentmulti_agent) for details.
 
-* **Busy server:** at most `MAX_QUEUED_QUERIES` (default 10) questions wait for the model; beyond that the API answers at once with HTTP 503 (`Retry-After: 60`) instead of letting the client time out. `/query-stream` checks this before streaming starts.
+* **Busy server:** at most `MAX_QUEUED_QUERIES` (default 10) questions wait for the model; beyond that the API answers at once with HTTP 503 (`Retry-After: 60`) instead of letting the client time out (header `X-Error-Code: busy`). `/query-stream` checks this before streaming starts.
+* **Language model down:** each question first checks that Ollama answers and has the configured models (`LLM_STATUS_CHECK`, result reused for `LLM_STATUS_CACHE_SECONDS`, default 10). If not, the API answers HTTP 503 with `X-Error-Code: llm_unavailable` and `"detail": "The language model is not available right now. Please try again later."` without running the agents; the web UI shows its own message for it. `/query-stream` checks this before streaming starts.
 
 * **Request Parameters:**
   * `question` *(string, required)*: The user question (1-4000 characters).
@@ -470,7 +474,7 @@ curl -X POST "http://localhost:8000/api/v1/query" \
 * **Checked compliance verdicts:** the verdict and the rules it cites (not the risk analysis) must be stated in the retrieved rules. An unsupported verdict is revised once, then replaced by `[UNDETERMINED]` with the advice to ask the responsible unit (`verification.level` `unverified`). A supported verdict shows its evidence under the sources.
 * **Unanswered questions:** a "not found" answer carries `"verification": {"level": "unverified", "issues": ["not_found"]}`, so it is listed for staff in `GET /api/v1/admin/review` to answer in the FAQ.
 * **`db_agent` traces** include the executed `sql`, `row_count`, and `data_check` (`success`, `mismatch` when the rows were shown instead, or `error`).
-* **LLM unavailable:** if Ollama cannot be reached, the request still returns HTTP 200 with a fallback answer (for `doc_agent` the same *"cannot be fully verified"* text). Check `llm_status` in `GET /api/v1/stats` when answers suddenly degrade.
+* **LLM failing during a question:** the check above catches a stopped Ollama before the question runs. If it fails while a question runs, the request still returns HTTP 200 with a fallback answer (for `doc_agent` the *"cannot be fully verified"* text). `llm_status` in `GET /api/v1/stats` shows the current state.
 
 ---
 
@@ -867,6 +871,23 @@ Users with an account (not guests): `GET /api/v1/faq/answers` returns `{"answers
 ### 5.7c Agent Performance (`GET /api/v1/admin/agent-stats`)
 Per agent over the last `days` days (1-365, default 30), from the audit log: `questions`, `median_ms` and `p90_ms` (answer time), `warnings` and `warning_rate` (answers that could not be fully verified or found), `errors` and `error_rate`, and the users' `positive` / `negative` ratings (feedback sent with `agent`). Failed questions recorded before an agent was chosen count as `unknown`. Admin only.
 
+### 5.7d Web UI Texts (`/api/v1/ui-settings`, `/api/v1/admin/ui-settings`)
+What differs by organization in the web UI. `GET /api/v1/ui-settings` needs no login (the login page shows the name):
+
+```json
+{
+  "app_name": "AtaRehber",
+  "default_language": "tr",
+  "texts": {
+    "tr": {"welcome": "", "welcome_guest": "", "disclaimer": "", "request_example": "", "unit_label": "Fakülte",
+           "program_label": "", "level_label": "", "suggestions": ["Burs başvurusu ne zaman?"]},
+    "en": {"...": "..."}
+  }
+}
+```
+
+An empty text means the web UI's built-in one. `default_language` is `UI_LANGUAGE` (for users who did not pick a language), and `UI_DISCLAIMER` fills an empty `disclaimer`. Admins read the stored values (with `updated_by`, `updated_at`) with `GET /api/v1/admin/ui-settings` and replace them with `PUT` and the same body without `default_language`: `app_name` up to 40 characters, `welcome`, `welcome_guest`, and `disclaimer` up to 300, `request_example` up to 150, the three profile field labels up to 60, and up to 6 `suggestions` of 150 characters. Texts are stored on one line in `data/ui_settings.json` (part of full backups); the change is audited as `ui_settings`.
+
 ### 5.8 Custom Agents (`/api/v1/admin/custom-agents`)
 Agents defined without code (see [Custom Agents Guide](custom_agents_guide.md#-agents-without-code-web-ui)). `PUT /api/v1/admin/custom-agents/{name}` takes:
 
@@ -959,7 +980,7 @@ CORS origins are configured via the `CORS_ORIGINS` environment variable in `.env
 
 ```env
 # Comma-separated list of allowed web origins
-CORS_ORIGINS=http://localhost:8501,http://127.0.0.1:8501
+CORS_ORIGINS=http://localhost:8080,http://127.0.0.1:8080
 ```
 
 Credentials (`allow_credentials=True`), all methods, and all headers are permitted for these trusted origins.

@@ -175,6 +175,7 @@ export function ChatPage() {
     } catch (e) {
       let error: string;
       if (controller.signal.aborted) error = t("chat.stopped");
+      else if (e instanceof ApiError && e.code === "llm_unavailable") error = t("chat.llmUnavailable");
       else if (e instanceof ApiError && e.status === 503) error = t("chat.busy");
       else if (e instanceof ApiError && e.status === 401) error = t("chat.sessionExpired");
       // The server's own text is English and technical

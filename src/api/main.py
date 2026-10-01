@@ -26,6 +26,7 @@ from src.api.routes import (
     admin_router,
     requests_router,
     faq_router,
+    ui_settings_router,
 )
 
 logger = get_logger("API")
@@ -78,7 +79,7 @@ def _rate_limit_key(request: Request) -> tuple[str, str | None]:
     anonymous callers per IP.
 
     Keying by account matters when many users reach the API through one gateway
-    (e.g. the Streamlit frontend container), which would otherwise share a single IP budget.
+    (e.g. a portal or chat bot server), which would otherwise share a single IP budget.
     """
     auth_header = request.headers.get("authorization", "")
     if auth_header.lower().startswith("bearer "):
@@ -152,3 +153,4 @@ app.include_router(query_router)
 app.include_router(database_router)
 app.include_router(requests_router)
 app.include_router(faq_router)
+app.include_router(ui_settings_router)

@@ -1,6 +1,5 @@
-# Development & test tooling (includes runtime and UI dependencies)
+# Development & test tooling (includes the runtime dependencies)
 -r requirements.txt
--r requirements-ui.txt
 pytest>=8.0.0,<9
 pytest-cov>=5.0.0,<8
 # Reports failing tests as GitHub Actions annotations (active only when GITHUB_ACTIONS=true)

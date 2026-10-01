@@ -104,7 +104,7 @@ Re-syncing a table replaces all of its previously indexed rows, so rows deleted 
 1. Open **Administration → System**. The **Database** card shows the connection and its tables.
 2. Type the table name (e.g., `destek_talepleri`) and click **"Sync table into the index"**. All columns are indexed.
 
-The same card runs read-only test queries. In the Streamlit UI, the **"🗄️ Database"** section in the sidebar does the same.
+The same card runs read-only test queries.
 
 ### Via REST API:
 > [!NOTE]

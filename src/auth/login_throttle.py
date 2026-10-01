@@ -9,8 +9,8 @@ from src.core.config import LOGIN_MAX_FAILED_ATTEMPTS, LOGIN_LOCKOUT_WINDOW_SECO
 class LoginThrottle:
     """Per-username failed login tracker that temporarily locks accounts under brute-force attempts.
 
-    Keyed by username rather than IP so that users sharing a gateway (e.g. the Streamlit
-    frontend container) do not lock each other out.
+    Keyed by username rather than IP so that users sharing a gateway (e.g. a company proxy or the web UI's
+    nginx container) do not lock each other out.
     """
 
     def __init__(

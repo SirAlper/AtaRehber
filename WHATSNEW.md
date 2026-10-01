@@ -6,6 +6,11 @@ This document provides a comprehensive log of new features, architectural upgrad
 
 ## 🧭 Unreleased
 
+### Improved: ready to install for any organization
+* **Texts per organization:** admins set the assistant's name, the welcome and disclaimer texts, up to six example questions, the example request, and the names of the profile fields, in Turkish and English, under **Administration → Appearance**. Empty fields keep the built-in texts, which no longer refer to a university ("Yıllık izin hakkı kaç gündür?" instead of the retirement age of faculty members). `UI_LANGUAGE` and `UI_DISCLAIMER` now apply to the React web UI.
+* **Language model down:** while Ollama is stopped or lacks a model, questions get "The language model is not running right now" (HTTP 503, `X-Error-Code: llm_unavailable`) at once, instead of an answer that "could not be fully verified", which read like a problem with the documents (`LLM_STATUS_CHECK`).
+* **Streamlit removed:** the HTTPS proxy serves the React web UI at `/`. `ui/`, `Dockerfile.frontend`, `requirements-ui.txt`, and the `frontend` compose service are gone; `CORS_ORIGINS` defaults to the web UI's address (port 8080).
+
 ### Improved: agents that work together
 * **Composite questions:** a question that asks a rule and a database value at once ("En fazla kaç monitör alınabilir ve NovaView monitörün birim fiyatı nedir?") gets one step per agent; the combined answer may draw the conclusion (compare, subtract, say whether a condition is met). Measured: 4 of 4 composite questions planned with both agents (before: 1 of 4), all expected facts in the answers, routing on the main dataset 100%.
 * **Steps that build on each other:** a plan step can use what an earlier step found (`"uses"`), e.g. the product with the lowest stock, then that product's return policy.
@@ -21,7 +26,7 @@ This document provides a comprehensive log of new features, architectural upgrad
 * **Fixed:** policy section numbers and codes in answers ("Bölüm 2.1", "HR-POL-07") were taken for facts by the number check and could reject a correct answer; short Turkish request commands ("talebimi iptal et") were answered in English.
 
 ### Added: new web UI
-* **React instead of Streamlit:** a new web UI in `web/` (React, TypeScript, Vite, Tailwind CSS) with a purple theme, light and dark mode, and Turkish and English texts. Streamlit keeps working during the transition.
+* **React instead of Streamlit:** a new web UI in `web/` (React, TypeScript, Vite, Tailwind CSS) with a purple theme, light and dark mode, and Turkish and English texts. (Streamlit was removed in the next release.)
 * **Chat:** answers appear as the stages progress ("Searching the documents…", "Checking the answer…") and can be stopped; each answer shows its verification level, the evidence with article and paragraph, the sources (used ones first), and the agents' steps. Conversations are listed on the side (a menu on phones) and kept in the browser; the agent can be chosen or left to the supervisor. A busy server gets its own message instead of an error. Cached data is cleared when the user changes, so the next person in the same browser tab never sees the previous user's requests or documents.
 * **Service requests:** create, follow, and cancel requests; staff change the status and add a resolution note.
 * **Administration:** documents (drag-and-drop upload, access groups), users, custom agents, answers to review, audit log with chain check, and system (statistics, database, backups, maintenance), each for the roles allowed to use it.

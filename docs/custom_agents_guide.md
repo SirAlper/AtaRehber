@@ -11,7 +11,7 @@ The system is centered around an **Intelligent Supervisor Orchestrator**. Whenev
 
 ## 🧩 Agents Without Code (Web UI)
 
-Agents created this way also get the asking user's unit, program, and level, and in multi-step plans the answers of the earlier steps they build on. Admins create agents in the web UI under **Administration → Custom Agents** (in the Streamlit UI: **🧩 Custom Agents** in the sidebar), or with `PUT /api/v1/admin/custom-agents/{name}`:
+Agents created this way also get the asking user's unit, program, and level, and in multi-step plans the answers of the earlier steps they build on. Admins create agents in the web UI under **Administration → Custom Agents**, or with `PUT /api/v1/admin/custom-agents/{name}`:
 
 | Field | Meaning |
 | :--- | :--- |

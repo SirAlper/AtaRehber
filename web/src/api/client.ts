@@ -14,9 +14,15 @@ export class ApiError extends Error {
   constructor(
     public status: number,
     message: string,
+    /** The API's X-Error-Code: "busy", "llm_unavailable" */
+    public code?: string,
   ) {
     super(message);
   }
+}
+
+async function failure(response: Response): Promise<ApiError> {
+  return new ApiError(response.status, await detail(response), response.headers.get("X-Error-Code") ?? undefined);
 }
 
 export function setAccessToken(token: string | null) {
@@ -106,7 +112,7 @@ export async function api<T>(path: string, options: RequestOptions = {}): Promis
     accessToken = null;
     authLostHandler?.();
   }
-  if (!response.ok) throw new ApiError(response.status, await detail(response));
+  if (!response.ok) throw await failure(response);
   return (await response.json()) as T;
 }
 
@@ -114,7 +120,8 @@ export const authHeaders = COOKIE_TRANSPORT;
 
 /**
  * Ask through /api/v1/query-stream: events (stages, the chosen agent) go to onEvent while the answer is prepared;
- * resolves with the final result. HTTP 503 means the assistant is busy (ApiError with status 503).
+ * resolves with the final result. HTTP 503: the assistant is busy, or the language model is down (ApiError code
+ * "llm_unavailable").
  */
 export async function streamQuery(
   payload: { question: string; session_id?: string; agent?: string },
@@ -138,7 +145,7 @@ export async function streamQuery(
     accessToken = null;
     authLostHandler?.();
   }
-  if (!response.ok || !response.body) throw new ApiError(response.status, await detail(response));
+  if (!response.ok || !response.body) throw await failure(response);
 
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
@@ -153,7 +160,7 @@ export async function streamQuery(
       const event = JSON.parse(line) as StreamEvent;
       if (event.type === "done") return event;
       // The queue can fill up after the request was accepted: the API then reports "busy" in the stream
-      if (event.type === "error") throw new ApiError(event.code === "busy" ? 503 : 500, event.message);
+      if (event.type === "error") throw new ApiError(event.code === "busy" ? 503 : 500, event.message, event.code);
       onEvent(event);
     }
     if (done) break;

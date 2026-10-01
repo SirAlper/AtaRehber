@@ -2,6 +2,8 @@
 
 import json
 import os
+import threading
+import time
 import urllib.error
 import urllib.request
 from typing import Optional
@@ -9,6 +11,7 @@ from typing import Optional
 from langchain_ollama import ChatOllama
 
 from src.core.config import (
+    LLM_STATUS_CACHE_SECONDS,
     OLLAMA_BASE_URL,
     OLLAMA_GRADER_MODEL,
     OLLAMA_MODEL,
@@ -90,6 +93,23 @@ def check_ollama(timeout: float = 3.0) -> Optional[str]:
         pulls = "; ".join(f"ollama pull {model}" for model in missing)
         return f"Ollama model(s) {', '.join(repr(m) for m in missing)} not pulled. Run: {pulls}"
     return None
+
+
+_status_lock = threading.Lock()
+_status = {"checked_at": None, "problem": None}
+
+
+def llm_problem(max_age: float = LLM_STATUS_CACHE_SECONDS) -> Optional[str]:
+    """check_ollama(), reused for max_age seconds. Questions call this before running: Ollama answers in
+    milliseconds, but an unreachable remote host takes the whole timeout, which concurrent questions then share."""
+    with _status_lock:
+        now = time.monotonic()
+        if _status["checked_at"] is None or now - _status["checked_at"] >= max_age:
+            _status["problem"] = check_ollama(timeout=2.0)
+            _status["checked_at"] = time.monotonic()
+            if _status["problem"]:
+                logger.error(f"[LLM] {_status['problem']}")
+        return _status["problem"]
 
 
 def _with_tag(name: str) -> str:

@@ -339,7 +339,7 @@ _MESSAGES = {
         "tr": "İlgili birime e-posta ile bildirildi.",
     },
     "request_follow_up": {
-        # Both web UIs have "My requests" (the Streamlit sidebar, the React menu)
+        # "My requests" in the web UI menu
         "en": "You can follow its status under “My requests”.",
         "tr": "Durumunu “Taleplerim” bölümünden takip edebilirsiniz.",
     },

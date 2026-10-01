@@ -154,14 +154,16 @@ The strategic development roadmap for `OpenLocalRagAgents` is structured below t
 
 - [x] **Legacy Single-Agent Cleanup:**
   - Removed the unused `EnterpriseRAGAgent` graph (`agent_graph.py`, `nodes.py`, `query_service.py`, `tools.py`); the grading helpers live in `src/agent/grading.py`. Package `__init__` files no longer import eagerly (torch, the user store), the Streamlit UI and the database connector are split into focused modules, and tests are grouped by topic.
-- [ ] **Explicit LLM-Outage Answers:**
-  - When Ollama is unreachable, `doc_agent` returns the "cannot be fully verified" fallback, which reads like a document problem. Return a clear "language model unavailable" message instead.
+- [x] **Explicit LLM-Outage Answers:**
+  - Questions first check that Ollama answers and has the models (result reused for 10 s); while it is down they get HTTP 503 `llm_unavailable` and the web UI says the language model is not running, instead of the "cannot be fully verified" fallback.
 - [x] **Modern Web UI:**
   - A React + TypeScript web UI (`web/`) replaces the Streamlit UI: chat with live progress, requests, and administration, a refresh token in an `HttpOnly` cookie, its own tests in CI, and an nginx image.
 - [x] **Agent Collaboration:**
   - Questions back for ambiguous questions, steps that build on earlier steps, a time limit per step, user profiles (unit, program, level), checked database and compliance answers, staff answers to unanswered questions (FAQ) with notifications, request cancel and notes from the chat, per-agent statistics, and an `agents` evaluation stage.
-- [ ] **Retire the Streamlit UI:**
-  - Serve the React UI at `/` behind the HTTPS proxy, then remove `ui/`, `Dockerfile.frontend`, `requirements-ui.txt`, and the `frontend` compose service.
+- [x] **Retire the Streamlit UI:**
+  - The HTTPS proxy serves the React UI at `/`; `ui/`, `Dockerfile.frontend`, `requirements-ui.txt`, and the `frontend` compose service are removed.
+- [x] **Texts per Organization:**
+  - Admins set the assistant's name, welcome and disclaimer texts, example questions, example request, and profile field labels in Turkish and English (**Administration → Appearance**); the built-in texts fit any organization.
 - [x] **Specific Exception Handling:**
   - Replaced broad `except Exception as e` blocks in the Self-RAG nodes and `jwt_handler.py` with specific exception types (`ConnectionError`, `TimeoutError`, `IOError`, `OSError`, `RuntimeError`).
 - [ ] **Async Node Migration:**

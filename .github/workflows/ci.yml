@@ -164,14 +164,6 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      - name: Build frontend image
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          file: Dockerfile.frontend
-          push: false
-          tags: openlocalragagents-ui:ci
-
       - name: Build web UI image
         uses: docker/build-push-action@v5
         with:
@@ -186,14 +178,14 @@ jobs:
           docker compose -f docker-compose.yml -f docker-compose.https.yml config --quiet
           # In HTTPS mode only the proxy may be published on the host
           https_config=$(docker compose -f docker-compose.yml -f docker-compose.https.yml config --format json)
-          test "$(echo "$https_config" | jq '[.services.backend.ports, .services.frontend.ports, .services.web.ports] | map(. // [] | length) | add')" = "0"
+          test "$(echo "$https_config" | jq '[.services.backend.ports, .services.web.ports] | map(. // [] | length) | add')" = "0"
 
       - name: Validate nginx configuration
         run: |
           mkdir -p /tmp/certs
           openssl req -x509 -nodes -newkey rsa:2048 -days 1 -subj "/CN=localhost" \
             -keyout /tmp/certs/privkey.pem -out /tmp/certs/fullchain.pem
-          docker run --rm --add-host backend:127.0.0.1 --add-host frontend:127.0.0.1 --add-host web:127.0.0.1 \
+          docker run --rm --add-host backend:127.0.0.1 --add-host web:127.0.0.1 \
             -v "$PWD/deploy/nginx/nginx.conf:/etc/nginx/nginx.conf:ro" \
             -v /tmp/certs:/etc/nginx/certs:ro \
             nginx:1.27-alpine nginx -t

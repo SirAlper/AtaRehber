@@ -5,6 +5,7 @@ from src.api.routes.auth import router as auth_router
 from src.api.routes.admin import router as admin_router
 from src.api.routes.requests import router as requests_router
 from src.api.routes.faq import router as faq_router
+from src.api.routes.ui_settings import router as ui_settings_router
 
 __all__ = [
     "documents_router",
@@ -14,4 +15,5 @@ __all__ = [
     "admin_router",
     "requests_router",
     "faq_router",
+    "ui_settings_router",
 ]
