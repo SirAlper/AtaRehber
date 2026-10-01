@@ -3,6 +3,9 @@
 // into one shape when close and stretch apart before letting go, with no outline and no bright core. Each cell
 // heads for a spot on the screen it picks anew every few seconds, and its "mood" swings between seeking company
 // and keeping away, so clusters form and break up. "energy" (0 calm .. 1 thinking) sets how fast all of this goes.
+//
+// Nothing changes at once: a cell's colour eases towards its target colour, a merging cell melts into the other
+// over a few seconds, and the halves of a divided cell start with the parent's colour.
 
 export interface Cell {
   x: number;
@@ -10,10 +13,12 @@ export interface Cell {
   vx: number;
   vy: number;
   r: number;
+  /** The colour shown, easing towards targetHue */
   hue: number;
-  /** Degrees per second the colour shifts (sign: direction) */
+  targetHue: number;
+  /** Degrees per second the target colour shifts (sign: direction) */
   hueSpeed: number;
-  /** Seconds since the cell appeared; young cells neither divide nor merge */
+  /** Seconds since the cell appeared or last merged; young cells neither divide nor merge */
   age: number;
   /** The spot the cell is heading for, and the seconds until it picks a new one */
   tx: number;
@@ -21,6 +26,8 @@ export interface Cell {
   retarget: number;
   /** Phase of the mood: sin(time + phase) > 0 seeks company, < 0 keeps away */
   phase: number;
+  /** The cell this one is melting into (merging) */
+  into?: Cell;
 }
 
 export interface World {
@@ -36,7 +43,12 @@ export const MAX_CELLS = 9;
 // Teal to pink: random colours that still fit the purple theme
 export const HUE_MIN = 175;
 export const HUE_MAX = 335;
-const MATURE_AGE = 2.5;
+const MATURE_AGE = 3;
+// How fast the shown colour follows the target colour (1/s), and at most how many degrees per second it moves
+const HUE_EASE = 0.5;
+const HUE_MAX_RATE = 12;
+// How fast a merging cell hands its area over (1/s) and comes to the other's centre
+const MELT_RATE = 0.7;
 
 type Random = () => number;
 
@@ -52,19 +64,21 @@ function clampHue(hue: number) {
 function pickTarget(cell: Cell, world: Pick<World, "width" | "height">, random: Random) {
   cell.tx = world.width * (0.08 + random() * 0.84);
   cell.ty = world.height * (0.08 + random() * 0.84);
-  cell.retarget = 6 + random() * 9;
+  cell.retarget = 8 + random() * 10;
 }
 
 function newCell(world: Pick<World, "width" | "height">, random: Random): Cell {
   const { min, max } = radii(world);
+  const hue = HUE_MIN + random() * (HUE_MAX - HUE_MIN);
   const cell: Cell = {
     x: random() * world.width,
     y: random() * world.height,
-    vx: (random() - 0.5) * 2,
-    vy: (random() - 0.5) * 2,
+    vx: (random() - 0.5) * 1.5,
+    vy: (random() - 0.5) * 1.5,
     r: min * 1.4 + random() * (max - min * 1.4),
-    hue: HUE_MIN + random() * (HUE_MAX - HUE_MIN),
-    hueSpeed: (random() < 0.5 ? -1 : 1) * (6 + random() * 10),
+    hue,
+    targetHue: hue,
+    hueSpeed: (random() < 0.5 ? -1 : 1) * (3 + random() * 5),
     age: MATURE_AGE,
     tx: 0,
     ty: 0,
@@ -99,18 +113,19 @@ export function resizeWorld(world: World, width: number, height: number) {
 
 function divide(world: World, cell: Cell, random: Random) {
   const angle = random() * Math.PI * 2;
-  const push = 3 + random() * 3;
-  const r = cell.r / Math.SQRT2; // the two halves keep the area
+  const push = 1.5 + random() * 1.5;
+  const r = cell.r / Math.SQRT2; // two halves on the same spot look exactly like the parent
   const [dx, dy] = [Math.cos(angle), Math.sin(angle)];
   const daughter = (sign: number): Cell => {
     const next: Cell = {
-      x: cell.x + sign * dx * r * 0.3,
-      y: cell.y + sign * dy * r * 0.3,
+      x: cell.x + sign * dx * r * 0.15,
+      y: cell.y + sign * dy * r * 0.15,
       vx: cell.vx + sign * dx * push,
       vy: cell.vy + sign * dy * push,
       r,
-      // Daughters drift to neighbouring colours and go their own ways
-      hue: clampHue(cell.hue + sign * (12 + random() * 18)),
+      // Both start with the parent's colour and drift to neighbouring colours as they go their own ways
+      hue: cell.hue,
+      targetHue: clampHue(cell.targetHue + sign * (12 + random() * 18)),
       hueSpeed: sign * Math.abs(cell.hueSpeed),
       age: 0,
       tx: 0,
@@ -124,36 +139,58 @@ function divide(world: World, cell: Cell, random: Random) {
   world.cells.splice(world.cells.indexOf(cell), 1, daughter(1), daughter(-1));
 }
 
-function merge(world: World, a: Cell, b: Cell) {
+/** b starts melting into a; a's colour heads for the mix of both. */
+function startMerge(a: Cell, b: Cell) {
   const wa = a.r * a.r;
   const wb = b.r * b.r;
-  const total = wa + wb;
-  Object.assign(a, {
-    x: (a.x * wa + b.x * wb) / total,
-    y: (a.y * wa + b.y * wb) / total,
-    vx: (a.vx * wa + b.vx * wb) / total,
-    vy: (a.vy * wa + b.vy * wb) / total,
-    r: Math.sqrt(total),
-    hue: (a.hue * wa + b.hue * wb) / total,
-    age: 0,
-  });
-  world.cells.splice(world.cells.indexOf(b), 1);
+  a.targetHue = (a.targetHue * wa + b.targetHue * wb) / (wa + wb);
+  b.into = a;
+}
+
+/** Hand part of a melting cell's area to the cell it melts into; true when it is gone. */
+function melt(cell: Cell, dt: number, min: number): boolean {
+  const target = cell.into!;
+  const k = 1 - Math.exp(-MELT_RATE * dt);
+  cell.x += (target.x - cell.x) * k;
+  cell.y += (target.y - cell.y) * k;
+  cell.vx = target.vx;
+  cell.vy = target.vy;
+  const area = cell.r * cell.r;
+  const moved = cell.r < min * 0.25 ? area : area * k;
+  target.r = Math.sqrt(target.r * target.r + moved);
+  cell.r = Math.sqrt(area - moved);
+  if (cell.r > 0) return false;
+  target.age = 0;
+  return true;
 }
 
 /** Advance the world by dt seconds. */
 export function step(world: World, dt: number, energy: number, random: Random = Math.random) {
   const { min, max } = radii(world);
   const { cells, width, height } = world;
-  const wander = 4 + 26 * energy;
-  const maxSpeed = 2.5 + 14 * energy;
-  const seek = 1 + 4.5 * energy;
-  const company = 0.7 + 1.5 * energy;
+  const wander = 2.5 + 8 * energy;
+  const maxSpeed = 1.8 + 5.5 * energy;
+  const seek = 0.6 + 2 * energy;
+  const company = 0.5 + 1 * energy;
   const reach = Math.min(width, height) * 0.2;
-  world.time += dt * (0.12 + 0.5 * energy);
+  const colourPace = 0.25 + 0.75 * energy;
+  const ease = 1 - Math.exp(-HUE_EASE * dt);
+  const maxShift = HUE_MAX_RATE * dt;
+  world.time += dt * (0.1 + 0.3 * energy);
 
   for (const cell of cells) {
+    // Colour: the target shifts slowly (turning back at the ends of the range), the shown colour follows it
+    cell.targetHue += cell.hueSpeed * colourPace * dt;
+    if (cell.targetHue < HUE_MIN || cell.targetHue > HUE_MAX) {
+      cell.targetHue = clampHue(cell.targetHue);
+      cell.hueSpeed = -cell.hueSpeed;
+    }
+    cell.hue += Math.max(-maxShift, Math.min(maxShift, (cell.targetHue - cell.hue) * ease));
+    cell.age += dt;
+    if (cell.into) continue; // moved by melt() below
+
     // Roaming: towards a spot on the screen, picked anew every few seconds (more often while thinking)
-    cell.retarget -= dt * (1 + 2 * energy);
+    cell.retarget -= dt * (1 + energy);
     if (cell.retarget <= 0) pickTarget(cell, world, random);
     const toX = cell.tx - cell.x;
     const toY = cell.ty - cell.y;
@@ -164,7 +201,7 @@ export function step(world: World, dt: number, energy: number, random: Random = 
     // Neighbours: drawn together in a sociable mood, pushed off otherwise; never sinking in fully
     const mood = Math.sin(world.time + cell.phase);
     for (const other of cells) {
-      if (other === cell) continue;
+      if (other === cell || other.into) continue;
       const dx = other.x - cell.x;
       const dy = other.y - cell.y;
       const d = Math.hypot(dx, dy) || 0.001;
@@ -172,18 +209,18 @@ export function step(world: World, dt: number, energy: number, random: Random = 
       const social = (mood + Math.sin(world.time + other.phase)) / 2;
       let force = 0;
       if (d < touch * 2.2) force += social * company * (1 - d / (touch * 2.2));
-      if (d < touch * 0.7) force -= 4 * (1 - d / (touch * 0.7));
+      if (d < touch * 0.7) force -= 3 * (1 - d / (touch * 0.7));
       cell.vx += (dx / d) * force * dt;
       cell.vy += (dy / d) * force * dt;
     }
     // Kept on screen (partly outside is fine)
     const margin = cell.r * 0.4;
-    if (cell.x < -margin) cell.vx += 6 * dt;
-    if (cell.x > width + margin) cell.vx -= 6 * dt;
-    if (cell.y < -margin) cell.vy += 6 * dt;
-    if (cell.y > height + margin) cell.vy -= 6 * dt;
+    if (cell.x < -margin) cell.vx += 4 * dt;
+    if (cell.x > width + margin) cell.vx -= 4 * dt;
+    if (cell.y < -margin) cell.vy += 4 * dt;
+    if (cell.y > height + margin) cell.vy -= 4 * dt;
     // Friction and a speed limit
-    const damping = Math.exp(-0.6 * dt);
+    const damping = Math.exp(-0.8 * dt);
     cell.vx *= damping;
     cell.vy *= damping;
     const speed = Math.hypot(cell.vx, cell.vy);
@@ -193,42 +230,47 @@ export function step(world: World, dt: number, energy: number, random: Random = 
     }
     cell.x += cell.vx * dt;
     cell.y += cell.vy * dt;
-    // Colours shift, turning back at the ends of the range
-    cell.hue += cell.hueSpeed * (0.15 + 1.6 * energy) * dt;
-    if (cell.hue < HUE_MIN || cell.hue > HUE_MAX) {
-      cell.hue = clampHue(cell.hue);
-      cell.hueSpeed = -cell.hueSpeed;
-    }
-    cell.age += dt;
   }
 
-  // Two mature cells that sank into each other sometimes become one
-  const mergeChance = (0.08 + 0.9 * energy) * dt;
-  for (let i = 0; i < cells.length && cells.length > MIN_CELLS; i++) {
-    for (let j = i + 1; j < cells.length; j++) {
-      const [a, b] = [cells[i], cells[j]];
-      if (a.age < MATURE_AGE || b.age < MATURE_AGE) continue;
-      if (Math.hypot(a.x - b.x, a.y - b.y) > (a.r + b.r) * 0.55) continue;
-      if (Math.hypot(a.r, b.r) > max * 1.35 || random() > mergeChance) continue;
-      merge(world, a, b);
-      break;
+  // Melting cells hand over their area; gone ones leave the world
+  world.cells = cells.filter((cell) => !(cell.into && melt(cell, dt, min)));
+
+  // Two mature cells that sank into each other sometimes start to merge
+  const live = world.cells.filter((c) => !c.into);
+  const isTarget = (cell: Cell) => world.cells.some((c) => c.into === cell);
+  const mergeChance = (0.05 + 0.45 * energy) * dt;
+  if (live.length > MIN_CELLS) {
+    search: for (let i = 0; i < live.length; i++) {
+      for (let j = i + 1; j < live.length; j++) {
+        const [a, b] = [live[i], live[j]];
+        if (a.age < MATURE_AGE || b.age < MATURE_AGE || isTarget(b)) continue;
+        if (Math.hypot(a.x - b.x, a.y - b.y) > (a.r + b.r) * 0.55) continue;
+        if (Math.hypot(a.r, b.r) > max * 1.35 || random() > mergeChance) continue;
+        // The smaller one melts into the larger one
+        if (a.r >= b.r) startMerge(a, b);
+        else if (!isTarget(a)) startMerge(b, a);
+        break search;
+      }
     }
   }
 
   // Large mature cells sometimes divide; too few cells always lets the largest one divide
-  const divideChance = (0.02 + 0.5 * energy) * dt;
-  const ready = cells.filter((c) => c.age >= MATURE_AGE && c.r / Math.SQRT2 >= min);
-  if (cells.length < MIN_CELLS && ready.length) {
+  const divideChance = (0.015 + 0.25 * energy) * dt;
+  const ready = world.cells.filter(
+    (c) => !c.into && !isTarget(c) && c.age >= MATURE_AGE && c.r / Math.SQRT2 >= min,
+  );
+  const count = world.cells.filter((c) => !c.into).length;
+  if (count < MIN_CELLS && ready.length) {
     divide(world, ready.reduce((a, b) => (b.r > a.r ? b : a)), random);
   } else {
     for (const cell of ready) {
-      if (world.cells.length >= MAX_CELLS) break;
+      if (world.cells.filter((c) => !c.into).length >= MAX_CELLS) break;
       if (random() < divideChance) divide(world, cell, random);
     }
   }
   // Cells too small to divide again regain size slowly, so the picture never fades to specks
   for (const cell of world.cells) {
-    if (cell.r < min * 1.4) cell.r += min * 0.05 * dt;
+    if (!cell.into && cell.r < min * 1.4) cell.r += min * 0.05 * dt;
   }
 }
 
@@ -253,7 +295,7 @@ export function render(world: World, data: Uint8ClampedArray, dark: boolean, ene
     ys[i] = cell.y;
     r2[i] = cell.r * cell.r;
     // Flattens the field at the centre: a small cell inside a large one tints it instead of glowing as a dot
-    soft[i] = 0.3 * r2[i];
+    soft[i] = 0.3 * r2[i] + 0.01;
     rgb.set(hslToRgb(cell.hue, dark ? 0.72 : 0.82, dark ? 0.52 : 0.7), i * 3);
   });
   const maxAlpha = (dark ? 0.5 : 0.55) + 0.1 * energy;
@@ -277,9 +319,10 @@ export function render(world: World, data: Uint8ClampedArray, dark: boolean, ene
         blue += f * rgb[i * 3 + 2];
       }
       const t = Math.min(1, Math.max(0, (field - low) / (high - low)));
-      data[p] = red / field;
-      data[p + 1] = green / field;
-      data[p + 2] = blue / field;
+      const weight = field || 1;
+      data[p] = red / weight;
+      data[p + 1] = green / weight;
+      data[p + 2] = blue / weight;
       data[p + 3] = t * t * (3 - 2 * t) * maxAlpha * 255;
       p += 4;
     }

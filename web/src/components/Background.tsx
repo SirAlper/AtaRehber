@@ -43,7 +43,8 @@ function LivingColors() {
       if (!still) {
         // Hidden tabs pause; a long gap must not throw the cells across the screen
         const dt = Math.min(elapsed / 1000, 0.1);
-        energy += ((isThinking() ? 1 : 0) - energy) * Math.min(1, dt * 1.2);
+        // Speeds up and calms down over a few seconds
+        energy += ((isThinking() ? 1 : 0) - energy) * Math.min(1, dt * 0.6);
         step(world, dt, energy);
       }
       render(world, image.data, document.documentElement.classList.contains("dark"), energy);
