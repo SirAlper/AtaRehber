@@ -85,8 +85,7 @@ class TestEvidence(unittest.TestCase):
     def test_unverified_answers_have_no_evidence(self):
         no = '{"supported": "no", "problem": "üç", "quotes": []}'
         model = ScriptedModel([AIMessage(content="Üç hak."), AIMessage(content="Üç hak.")], grades=[no, no])
-        with patch.object(DocumentRagAgent, "_refine", return_value="Üç hak."):
-            out = DocumentRagAgent(chat_model=model, rag_engine=engine()).execute({"question": "Kaç ek sınav hakkı?"})
+        out = DocumentRagAgent(chat_model=model, rag_engine=engine()).execute({"question": "Kaç ek sınav hakkı?"})
         self.assertNotIn("evidence", out["sources"][0])
 
     def test_quotes_are_matched_to_the_original_sentence(self):
@@ -134,8 +133,7 @@ class TestAnswerCache(unittest.TestCase):
         no = '{"supported": "no", "problem": "x", "quotes": []}'
         rag = engine()
         model = ScriptedModel([AIMessage(content="a"), AIMessage(content="b")], grades=[no, no])
-        with patch.object(DocumentRagAgent, "_refine", return_value="b"):
-            self.ask(rag, model=model)
+        self.ask(rag, model=model)
         self.assertEqual(len(answer_cache), 0)
         self.assertEqual(normalize_question("İzin nedir?"), normalize_question("izin nedir"))
 

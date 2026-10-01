@@ -9,9 +9,9 @@
 ```text
 ┌──────────────────────────────────────────────────────────────────────────────────┐
 │                            Enterprise Client Layer                               │
-│       Streamlit Enterprise UI (Port 8501)   │   External Workplace Apps / Bots   │
+│  React Web UI (8080) · Streamlit UI (8501)  │   External Workplace Apps / Bots   │
 └────────────────────────────────────────┬─────────────────────────────────────────┘
-                                         │ HTTP REST (Bearer JWT)
+                                         │ HTTP REST (Bearer JWT), NDJSON stream
                                          ▼
 ┌──────────────────────────────────────────────────────────────────────────────────┐
 │                             FastAPI Gateway (Port 8000)                          │
@@ -219,6 +219,7 @@ A stronger grader than the answer model catches more of what the 7B model shares
   - **Access Token:** Short-lived HMAC-SHA256 Bearer token (`ACCESS_TOKEN_EXPIRE_MINUTES`, default 60) used for API authorization.
   - **Refresh Token:** Long-lived token (`REFRESH_TOKEN_EXPIRE_DAYS`, default 7) exchanged via `POST /api/v1/auth/refresh`.
   - Tokens carry a `type` claim; refresh tokens are rejected as bearer credentials and vice versa.
+  - **Browser clients:** the React web UI sends `X-Token-Transport: cookie`, so the refresh token arrives as an `HttpOnly`, `SameSite=Strict` cookie scoped to `/api/v1/auth` (`Secure` with `REFRESH_COOKIE_SECURE=true`) instead of in the body. The access token is kept in memory only, so no token is in browser storage where an injected script could read it. Details: [API Reference](api_reference.md#12-refresh-access-token-post-apiv1authrefresh).
 * **Token Revocation:** Each user has a `token_version`, embedded in every token. Changing a password or disabling an account increments it, which invalidates all previously issued access and refresh tokens.
 * **Dynamic Secret Management:** If `JWT_SECRET_KEY` is not set, a random 256-bit secret is generated and persisted in `data/.jwt_secret` (owner read/write only, `0600`, on POSIX systems) so tokens survive restarts without committing secrets to git.
 * **Default Password Replacement:** Accounts using the built-in `admin123` password are flagged `must_change_password`. Until the password is changed via `POST /api/v1/auth/change-password`, every other endpoint returns HTTP 403 (`REQUIRE_DEFAULT_PASSWORD_CHANGE`, default `true`).

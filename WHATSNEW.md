@@ -8,7 +8,7 @@ This document provides a comprehensive log of new features, architectural upgrad
 
 ### Added: new web UI
 * **React instead of Streamlit:** a new web UI in `web/` (React, TypeScript, Vite, Tailwind CSS) with a purple theme, light and dark mode, and Turkish and English texts. Streamlit keeps working during the transition.
-* **Chat:** answers appear as the stages progress ("Searching the documents…", "Checking the answer…") and can be stopped; each answer shows its verification level, the evidence with article and paragraph, the sources (used ones first), and the agents' steps. Conversations are listed on the side and kept in the browser; the agent can be chosen or left to the supervisor. A busy server gets its own message instead of an error.
+* **Chat:** answers appear as the stages progress ("Searching the documents…", "Checking the answer…") and can be stopped; each answer shows its verification level, the evidence with article and paragraph, the sources (used ones first), and the agents' steps. Conversations are listed on the side (a menu on phones) and kept in the browser; the agent can be chosen or left to the supervisor. A busy server gets its own message instead of an error. Cached data is cleared when the user changes, so the next person in the same browser tab never sees the previous user's requests or documents.
 * **Service requests:** create, follow, and cancel requests; staff change the status and add a resolution note.
 * **Administration:** documents (drag-and-drop upload, access groups), users, custom agents, answers to review, audit log with chain check, and system (statistics, database, backups, maintenance), each for the roles allowed to use it.
 * **Guest access:** the login page offers the guest session when `GUEST_ACCESS_ENABLED=true`.
@@ -20,6 +20,10 @@ This document provides a comprehensive log of new features, architectural upgrad
 * **Users learn that they can:** greetings and thanks ("teşekkürler", "sağ olun", now answered without a model call) end with a hint on how to open a request, for logged-in users who can file them (not for guests). The web UI's request suggestion is a concrete example and is not shown to guests.
 * **When the documents have no answer:** "not found" and unverified answers offer to pass the question on to the responsible unit ("bununla ilgili talep oluştur"), for the same users. The evaluation leaves the hint out when counting refusals.
 * **Clearer drafts:** the title states the user's problem as the user put it, the category is shown by name ("Diğer", not `other`), and the draft says how to change it.
+
+### Housekeeping
+* **Unused code removed:** helpers nothing called anymore (`PasswordPolicy.is_valid`, the whole-PDF reader that page-aware reading replaced, `tool_description`, `doc_agent`'s own grade and refine wrappers that the shared answer check replaced), two test patches of those wrappers that had no effect, and unused texts in both web UIs.
+* **Docs follow the new web UI:** where to create custom agents and sync database tables, the language of the UIs, browser token handling in the architecture, the rate limit for logins behind a proxy, and the web checks in [Contributing](CONTRIBUTING.md).
 
 ### Improved: token security for browsers
 * **Refresh token in an HttpOnly cookie:** browser clients send `X-Token-Transport: cookie` and get the refresh token as a cookie that page scripts cannot read; the web UI keeps the access token in memory only. `POST /api/v1/auth/logout` deletes the cookie; `REFRESH_COOKIE_SECURE=true` sends it over HTTPS only (set by the HTTPS compose). Other clients get the refresh token in the body as before.

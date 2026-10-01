@@ -48,6 +48,16 @@ ruff format --check src/ tests/ evals/ ui/
 ```
 Ensure all tests and lint/format checks pass before submitting. Run `ruff format src/ tests/ evals/ ui/` to fix formatting automatically.
 
+For changes to the web UI (`web/`, Node.js 20.19+), run the same checks as CI:
+```bash
+cd web
+npm ci
+npm run typecheck   # TypeScript
+npm test            # Vitest: API client, answer parts, sessions, admin navigation
+npm run build
+```
+Every text the web UI shows goes through `web/src/i18n.ts` in both Turkish and English; a test fails when the two lists of keys differ.
+
 `tests/data/test_db_integration.py` runs only when `TEST_POSTGRES_URL` / `TEST_MYSQL_URL` point at a database server; CI provides both.
 
 ### 6. Measure Retrieval & Answer Quality

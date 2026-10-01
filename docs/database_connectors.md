@@ -100,10 +100,11 @@ cozum: Applied IPMI firmware 2.14 patch and reset static IP.
 
 Re-syncing a table replaces all of its previously indexed rows, so rows deleted from the database also disappear from the index.
 
-### Via Streamlit UI (admin):
-1. Open the **"🗄️ Database"** section in the left sidebar.
-2. Select your target table from **"Select Table to Vectorize"** (e.g., `destek_talepleri`).
-3. Click **"🔄 Vectorize Table"**. All columns are indexed.
+### Via the web UI (admin):
+1. Open **Administration → System**. The **Database** card shows the connection and its tables.
+2. Type the table name (e.g., `destek_talepleri`) and click **"Sync table into the index"**. All columns are indexed.
+
+The same card runs read-only test queries. In the Streamlit UI, the **"🗄️ Database"** section in the sidebar does the same.
 
 ### Via REST API:
 > [!NOTE]

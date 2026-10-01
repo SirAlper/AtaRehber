@@ -109,9 +109,6 @@ class DocumentLoader:
             logger.error(f"PDF read error ({os.path.basename(file_path)}): {e}")
             return []
 
-    def _read_pdf(self, file_path: str) -> str:
-        return "".join(f"{text}\n" for _, text in self._read_pdf_pages(file_path))
-
     def _read_docx(self, file_path: str) -> str:
         try:
             doc = Document(file_path)

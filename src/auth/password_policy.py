@@ -45,10 +45,6 @@ class PasswordPolicy:
 
         return violations
 
-    def is_valid(self, password: str) -> bool:
-        """Return True if password meets all policy requirements."""
-        return len(self.validate(password)) == 0
-
 
 # Singleton instance
 password_policy = PasswordPolicy()

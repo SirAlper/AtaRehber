@@ -15,7 +15,6 @@ const tr = {
     endGuest: "Misafir oturumunu kapat",
     theme: "Temayı değiştir",
     language: "English",
-    guest: "Misafir",
   },
   roles: { admin: "Yönetici", editor: "Editör", viewer: "Kullanıcı", guest: "Misafir" },
   login: {
@@ -37,7 +36,6 @@ const tr = {
     confirm: "Yeni şifre (tekrar)",
     submit: "Şifreyi güncelle",
     mismatch: "Yeni şifreler eşleşmiyor.",
-    changed: "Şifre değiştirildi.",
   },
   chat: {
     newChat: "Yeni sohbet",
@@ -165,9 +163,6 @@ const tr = {
     confirmDelete: "'{{name}}' silinsin mi? Belge ve indeksteki parçaları kalıcı olarak kaldırılır.",
     editAccess: "Erişimi düzenle",
     empty: "Henüz belge yok.",
-    name: "Belge",
-    size: "Boyut",
-    modified: "Değiştirilme",
   },
   users: {
     create: "Yeni kullanıcı",
@@ -230,14 +225,12 @@ const tr = {
     status: "Durum",
     time: "Zaman",
     detail: "Ayrıntı",
-    filter: "Filtrele",
   },
   system: {
     models: "Modeller",
     answerModel: "Cevap modeli",
     device: "Arama cihazı",
     llmStatus: "Model durumu",
-    index: "Belge indeksi",
     documents: "Belge",
     chunks: "Parça",
     database: "Veritabanı",
@@ -258,15 +251,10 @@ const tr = {
     done: "Tamamlandı.",
   },
   common: {
-    loading: "Yükleniyor…",
     save: "Kaydet",
     cancel: "Vazgeç",
     close: "Kapat",
-    confirm: "Onayla",
     error: "Hata: {{error}}",
-    retry: "Tekrar dene",
-    search: "Ara",
-    none: "—",
   },
 };
 
@@ -286,7 +274,6 @@ const en: Resources = {
     endGuest: "End guest session",
     theme: "Toggle theme",
     language: "Türkçe",
-    guest: "Guest",
   },
   roles: { admin: "Admin", editor: "Editor", viewer: "User", guest: "Guest" },
   login: {
@@ -308,7 +295,6 @@ const en: Resources = {
     confirm: "Confirm new password",
     submit: "Update password",
     mismatch: "The new passwords do not match.",
-    changed: "Password changed.",
   },
   chat: {
     newChat: "New chat",
@@ -435,9 +421,6 @@ const en: Resources = {
     confirmDelete: "Delete '{{name}}'? The file and its chunks in the index are removed for good.",
     editAccess: "Edit access",
     empty: "No documents yet.",
-    name: "Document",
-    size: "Size",
-    modified: "Modified",
   },
   users: {
     create: "New user",
@@ -499,14 +482,12 @@ const en: Resources = {
     status: "Status",
     time: "Time",
     detail: "Detail",
-    filter: "Filter",
   },
   system: {
     models: "Models",
     answerModel: "Answer model",
     device: "Search device",
     llmStatus: "Model status",
-    index: "Document index",
     documents: "Documents",
     chunks: "Chunks",
     database: "Database",
@@ -527,15 +508,10 @@ const en: Resources = {
     done: "Done.",
   },
   common: {
-    loading: "Loading…",
     save: "Save",
     cancel: "Cancel",
     close: "Close",
-    confirm: "Confirm",
     error: "Error: {{error}}",
-    retry: "Retry",
-    search: "Search",
-    none: "—",
   },
 };
 
