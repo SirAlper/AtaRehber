@@ -68,18 +68,17 @@ export function useConversations(username: string | null) {
 
   const active = conversations.find((c) => c.id === activeId) ?? conversations[0];
 
+  // State updates are decided here, not inside setConversations updaters, which React may run twice
   const create = useCallback(() => {
-    setConversations((list) => {
-      const empty = list.find((c) => !c.messages.length);
-      if (empty) {
-        setActiveId(empty.id);
-        return list;
-      }
-      const fresh = newConversation();
-      setActiveId(fresh.id);
-      return [fresh, ...list];
-    });
-  }, []);
+    const empty = conversations.find((c) => !c.messages.length);
+    if (empty) {
+      setActiveId(empty.id);
+      return;
+    }
+    const fresh = newConversation();
+    setConversations((list) => [fresh, ...list]);
+    setActiveId(fresh.id);
+  }, [conversations]);
 
   const update = useCallback((id: string, change: (conversation: Conversation) => Conversation) => {
     setConversations((list) =>
@@ -91,15 +90,16 @@ export function useConversations(username: string | null) {
 
   const remove = useCallback(
     (id: string) => {
-      setConversations((list) => {
-        const rest = list.filter((c) => c.id !== id);
-        const next = rest.length ? rest : [newConversation()];
-        if (id === activeId) setActiveId(next[0].id);
-        return next;
-      });
+      const rest = conversations.filter((c) => c.id !== id);
+      const next = rest.length ? rest : [newConversation()];
+      setConversations(next);
+      if (id === activeId) setActiveId(next[0].id);
     },
-    [activeId],
+    [conversations, activeId],
   );
 
-  return { conversations, active, select: setActiveId, create, update, remove };
+  // One question at a time across all conversations: the stop button belongs to the running one
+  const busy = conversations.some((c) => c.messages.some((m) => m.pending));
+
+  return { conversations, active, busy, select: setActiveId, create, update, remove };
 }

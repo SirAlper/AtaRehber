@@ -1,3 +1,4 @@
+import { useQueryClient } from "@tanstack/react-query";
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 
 import { api, authHeaders, onAuthLost, refreshSession, setAccessToken } from "@/api/client";
@@ -30,9 +31,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<UserProfile | null>(null);
   const [ready, setReady] = useState(false);
   const [guestEnabled, setGuestEnabled] = useState(false);
+  const queryClient = useQueryClient();
+
+  // Cached answers belong to the user who loaded them: the next person in this tab must not see them
+  const switchUser = useCallback(
+    (next: UserProfile | null) => {
+      queryClient.clear();
+      setUser(next);
+    },
+    [queryClient],
+  );
 
   useEffect(() => {
-    onAuthLost(() => setUser(null));
+    onAuthLost(() => switchUser(null));
     (async () => {
       const tokens = await refreshSession();
       if (tokens) {
@@ -51,29 +62,29 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setReady(true);
     })();
     return () => onAuthLost(null);
-  }, []);
+  }, [switchUser]);
 
   const login = useCallback(async (username: string, password: string) => {
     const tokens = await api<TokenResponse>("/api/v1/auth/login", {
       json: { username, password },
       cookie: true,
     });
-    setUser(await loadProfile(tokens));
-  }, []);
+    switchUser(await loadProfile(tokens));
+  }, [switchUser]);
 
   const startGuest = useCallback(async () => {
     const tokens = await api<TokenResponse>("/api/v1/auth/guest", { method: "POST" });
-    setUser(await loadProfile(tokens));
-  }, []);
+    switchUser(await loadProfile(tokens));
+  }, [switchUser]);
 
   const logout = useCallback(async () => {
     try {
       await fetch("/api/v1/auth/logout", { method: "POST", headers: authHeaders, credentials: "same-origin" });
     } finally {
       setAccessToken(null);
-      setUser(null);
+      switchUser(null);
     }
-  }, []);
+  }, [switchUser]);
 
   const changePassword = useCallback(async (current: string, next: string) => {
     const tokens = await api<TokenResponse>("/api/v1/auth/change-password", {

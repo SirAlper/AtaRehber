@@ -80,14 +80,17 @@ export function ChatPage() {
   const { t, i18n } = useTranslation();
   const { user, isGuest, isStaff } = useAuth();
   const toast = useToast();
-  const { conversations, active, select, create, update, remove } = useConversations(isGuest ? null : (user?.username ?? null));
+  const { conversations, active, busy, select, create, update, remove } = useConversations(
+    isGuest ? null : (user?.username ?? null),
+  );
   const [input, setInput] = useState("");
   const [agent, setAgent] = useState("auto");
   const [sidebar, setSidebar] = useState(true);
   const abortRef = useRef<AbortController | null>(null);
   const endRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const busy = active.messages.some((m) => m.pending);
+
+  const history = conversations.filter((c) => c.messages.length);
 
   const agents = useQuery({
     queryKey: ["agents"],
@@ -156,6 +159,8 @@ export function ChatPage() {
       if (controller.signal.aborted) error = t("chat.stopped");
       else if (e instanceof ApiError && e.status === 503) error = t("chat.busy");
       else if (e instanceof ApiError && e.status === 401) error = t("chat.sessionExpired");
+      // The server's own text is English and technical
+      else if (e instanceof ApiError && e.status >= 500) error = t("chat.failed");
       else error = t("chat.error", { error: e instanceof Error ? e.message : String(e) });
       setAnswer((m) => ({ ...m, pending: false, error }));
     } finally {
@@ -187,7 +192,6 @@ export function ChatPage() {
     // Guests cannot file requests
     ...(isGuest ? [] : [t("chat.requestSuggestion")]),
   ];
-  const history = conversations.filter((c) => c.messages.length);
 
   return (
     <div className="flex h-full gap-3 p-2 sm:p-4">
@@ -243,17 +247,38 @@ export function ChatPage() {
             </Button>
           )}
           {!isGuest && (
-            <Button variant="secondary" size="sm" className="md:hidden" onClick={create}>
+            <Button variant="secondary" size="icon" className="shrink-0 md:hidden" onClick={create} aria-label={t("chat.newChat")}>
               <MessageSquarePlus className="h-4 w-4" />
-              {t("chat.newChat")}
             </Button>
           )}
+          {/* On phones the conversation list is a menu */}
+          {!isGuest && history.length > 0 && (
+            <Select
+              value={active.messages.length ? active.id : ""}
+              onChange={(e) => e.target.value && select(e.target.value)}
+              className="h-9 min-w-0 flex-1 text-xs md:hidden"
+              aria-label={t("chat.history")}
+            >
+              {!active.messages.length && <option value="">{t("chat.newChat")}</option>}
+              {history.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.title || t("chat.untitled")}
+                </option>
+              ))}
+            </Select>
+          )}
           {!isGuest && (agents.data?.agents?.length ?? 0) > 0 && (
-            <div className="ml-auto flex items-center gap-2">
-              <label htmlFor="agent" className="text-xs text-slate-500 dark:text-slate-400">
+            <div className="ml-auto flex min-w-0 items-center gap-2">
+              <label htmlFor="agent" className="hidden text-xs text-slate-500 sm:inline dark:text-slate-400">
                 {t("chat.agent")}
               </label>
-              <Select id="agent" value={agent} onChange={(e) => setAgent(e.target.value)} className="h-9 w-56 text-xs">
+              <Select
+                id="agent"
+                value={agent}
+                onChange={(e) => setAgent(e.target.value)}
+                className="h-9 w-auto max-w-[45vw] text-xs sm:max-w-xs"
+                aria-label={t("chat.agent")}
+              >
                 <option value="auto">{t("chat.agentAuto")}</option>
                 {agents.data!.agents
                   .filter((a) => a.name !== "auto")
@@ -271,7 +296,8 @@ export function ChatPage() {
           {active.messages.length === 0 ? (
             <div className="flex h-full flex-col items-center justify-center px-4 text-center">
               <div className="relative">
-                <div className="absolute inset-0 animate-pulse rounded-full bg-fuchsia-400/30 blur-2xl" />
+                {/* A gradient, not a blur filter: blur renders as speckles without GPU acceleration */}
+                <div className="absolute -inset-6 animate-pulse rounded-full bg-[radial-gradient(closest-side,rgb(232_121_249/0.35),transparent)]" />
                 <Logo className="relative h-16 w-16 drop-shadow-xl" />
               </div>
               <h1 className="mt-5 text-2xl font-semibold">
@@ -335,7 +361,11 @@ export function ChatPage() {
               </Button>
             )}
           </div>
-          <p className="mt-1.5 text-center text-[11px] text-slate-500 dark:text-slate-400">{t("chat.disclaimer")}</p>
+          <p className="mt-1.5 text-center text-[11px] text-slate-500 dark:text-slate-400">
+            {/* Phones have no Shift+Enter */}
+            <span className="hidden sm:inline">{t("chat.enterHint")} · </span>
+            {t("chat.disclaimer")}
+          </p>
         </div>
       </section>
     </div>

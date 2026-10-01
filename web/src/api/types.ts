@@ -79,7 +79,7 @@ export type StreamEvent =
   | { type: "handoff"; from: string; to: string; reason?: string }
   | { type: "progress"; agent: string; stage: string }
   | { type: "sources"; sources: Source[] }
-  | { type: "error"; message: string }
+  | { type: "error"; message: string; code?: "busy" }
   | ({ type: "done" } & QueryResult);
 
 export interface AgentInfo {

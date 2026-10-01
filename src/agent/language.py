@@ -271,12 +271,14 @@ _MESSAGES = {
     },
     "request_confirm": {
         "en": (
-            "Shall I file this request?\n\n**Title:** {title}\n**Category:** {category}\n**Details:** {description}"
-            "\n\nReply **yes** to file it or **no** to discard it. To change it, describe the request again."
+            # A list, so Markdown shows each field on its own line
+            "Shall I file this request?\n\n- **Title:** {title}\n- **Category:** {category}\n"
+            "- **Details:** {description}\n\nReply **yes** to file it or **no** to discard it. "
+            "To change it, describe the request again."
         ),
         "tr": (
-            "Şu talebi oluşturmamı onaylıyor musunuz?\n\n**Başlık:** {title}\n**Kategori:** {category}\n"
-            "**Açıklama:** {description}\n\nOnaylamak için **evet**, vazgeçmek için **hayır** yazın. "
+            "Şu talebi oluşturmamı onaylıyor musunuz?\n\n- **Başlık:** {title}\n- **Kategori:** {category}\n"
+            "- **Açıklama:** {description}\n\nOnaylamak için **evet**, vazgeçmek için **hayır** yazın. "
             "Değiştirmek için talebi yeniden yazabilirsiniz."
         ),
     },
@@ -289,8 +291,9 @@ _MESSAGES = {
         "tr": "İlgili birime e-posta ile bildirildi.",
     },
     "request_follow_up": {
-        "en": "You can follow its status under “My requests” in the sidebar.",
-        "tr": "Durumunu kenar çubuğundaki “Taleplerim” bölümünden takip edebilirsiniz.",
+        # Both web UIs have "My requests" (the Streamlit sidebar, the React menu)
+        "en": "You can follow its status under “My requests”.",
+        "tr": "Durumunu “Taleplerim” bölümünden takip edebilirsiniz.",
     },
     "request_login_required": {
         "en": "You need to be logged in to file or list service requests.",

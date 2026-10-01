@@ -96,7 +96,7 @@ export function SystemTab() {
       </Card>
 
       <Card>
-        <CardTitle icon={<Wrench className="h-4 w-4" />}>{t("system.maintenance")}</CardTitle>
+        <CardTitle icon={<Wrench className="h-4 w-4" />}>{t("system.maintenanceTitle")}</CardTitle>
         <div className="space-y-3">
           <Button variant="secondary" className="w-full" loading={maintenance.isPending} onClick={() => maintenance.mutate()}>
             <Sparkles className="h-4 w-4" />

@@ -36,6 +36,12 @@ describe("streamQuery", () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({ detail: "busy" }), { status: 503 }));
     await expect(streamQuery({ question: "Kaç?" }, () => {})).rejects.toMatchObject({ status: 503 });
   });
+
+  it("treats busy reported inside the stream like HTTP 503", async () => {
+    const line = JSON.stringify({ type: "error", code: "busy", message: "The assistant is busy." }) + "\n";
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(streamResponse([line]));
+    await expect(streamQuery({ question: "Kaç?" }, () => {})).rejects.toMatchObject({ status: 503 });
+  });
 });
 
 describe("api", () => {

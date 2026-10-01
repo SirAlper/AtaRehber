@@ -51,7 +51,8 @@ export function Layout() {
         </nav>
         <div className="ml-auto flex items-center gap-1">
           <div className="mr-2 hidden items-center gap-2 lg:flex">
-            <span className="text-sm text-slate-600 dark:text-slate-300">{isGuest ? t("nav.guest") : user?.username}</span>
+            {/* A guest's name says no more than the badge */}
+            {!isGuest && <span className="text-sm text-slate-600 dark:text-slate-300">{user?.username}</span>}
             <Badge>{t(`roles.${user?.role ?? "viewer"}`)}</Badge>
           </div>
           <Button

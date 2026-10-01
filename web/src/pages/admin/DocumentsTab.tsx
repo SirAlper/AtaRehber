@@ -34,11 +34,13 @@ export function DocumentsTab() {
       const form = new FormData();
       form.append("file", file!);
       form.append("groups", groups);
-      return api<{ message: string }>("/api/v1/upload-file", { form });
+      return api("/api/v1/upload-file", { form });
     },
-    onSuccess: (data) => {
-      toast(data.message);
+    onSuccess: () => {
+      toast(t("documents.uploaded", { name: file?.name }));
       setFile(null);
+      // Choosing the same file again must fire onChange
+      if (fileRef.current) fileRef.current.value = "";
       setGroups("");
       refresh();
     },

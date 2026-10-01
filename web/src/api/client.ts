@@ -156,7 +156,8 @@ export async function streamQuery(
       if (!line.trim()) continue;
       const event = JSON.parse(line) as StreamEvent;
       if (event.type === "done") return event;
-      if (event.type === "error") throw new ApiError(500, event.message);
+      // The queue can fill up after the request was accepted: the API then reports "busy" in the stream
+      if (event.type === "error") throw new ApiError(event.code === "busy" ? 503 : 500, event.message);
       onEvent(event);
     }
     if (done) break;
