@@ -188,7 +188,7 @@ export function Modal({
       onClose={onClose}
       onCancel={onClose}
       className={cn(
-        "glass m-auto w-[calc(100%-2rem)] max-w-lg p-0 text-slate-800 backdrop:bg-violet-950/40 backdrop:backdrop-blur-sm dark:bg-[#150d28]/95 dark:text-slate-100",
+        "glass m-auto w-[calc(100%-2rem)] max-w-lg p-0 text-slate-800 backdrop:bg-violet-950/40 backdrop:backdrop-blur-sm dark:bg-night-850/95 dark:text-slate-100",
         wide && "max-w-2xl",
       )}
     >

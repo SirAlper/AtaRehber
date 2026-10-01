@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { createWorld, HUE_MAX, HUE_MIN, MAX_CELLS, MIN_CELLS, render, step, type World } from "@/lib/cells";
+import { parseOklch, turnedPalette } from "@/lib/palette";
 
 // Repeatable "random" numbers
 function seeded(seed: number) {
@@ -93,6 +94,48 @@ describe("living colours", () => {
       second.reduce((sum, [x, y]) => sum + Math.min(...first.map(([a, b]) => Math.hypot(x - a, y - b))), 0) /
       second.length;
     expect(offset).toBeGreaterThan(110 * 0.08);
+  });
+
+  it("turn the palette to a new one per question and back to the theme after the answer, smoothly", () => {
+    const random = seeded(9);
+    const world = createWorld(170, 110, random);
+    const turns: number[] = [];
+    let largestStep = 0;
+    const watch = () => {
+      const before = world.paletteShift;
+      return () => (largestStep = Math.max(largestStep, Math.abs(world.paletteShift - before)));
+    };
+    for (let round = 0; round < 3; round++) {
+      for (let t = 0; t < 15 * 30; t++) {
+        const done = watch();
+        step(world, FRAME, true, random);
+        done();
+      }
+      turns.push(world.paletteShift);
+      expect(Math.abs(world.paletteShift)).toBeGreaterThan(50);
+      expect(Math.abs(world.paletteShift)).toBeLessThanOrEqual(150);
+      // Halfway back after a few seconds of scattering, the theme's own colours once calm
+      for (let t = 0; t < 4 * 30; t++) step(world, FRAME, false, random);
+      expect(Math.abs(world.paletteShift)).toBeLessThan(Math.abs(turns[round]));
+      expect(Math.abs(world.paletteShift)).toBeGreaterThan(0);
+      for (let t = 0; t < 20 * 30; t++) {
+        const done = watch();
+        step(world, FRAME, false, random);
+        done();
+      }
+      expect(world.paletteShift).toBe(0);
+    }
+    // A new palette each time, reached at most 18 degrees per second
+    expect(new Set(turns.map((turn) => Math.round(turn))).size).toBe(3);
+    expect(largestStep).toBeLessThanOrEqual(18 * FRAME + 1e-9);
+  });
+
+  it("turn the site's brand colours by the same angle", () => {
+    expect(parseOklch("oklch(60.6% .25 292.717)")).toEqual(["60.6%", 0.25, 292.717]);
+    expect(parseOklch("#8b5cf6")).toBeNull();
+    const base = new Map([["--color-violet-500", parseOklch("oklch(60.6% .25 292.717)")!]]);
+    expect(turnedPalette(base, 100).get("--color-violet-500")).toBe("oklch(60.6% 0.25 32.72)");
+    expect(turnedPalette(base, -300).get("--color-violet-500")).toBe("oklch(60.6% 0.25 352.72)");
   });
 
   it("change colour gradually, also when they divide or merge", () => {

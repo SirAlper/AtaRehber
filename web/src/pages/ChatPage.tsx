@@ -324,7 +324,7 @@ export function ChatPage() {
             <div className="flex h-full flex-col items-center justify-center px-4 text-center">
               <div className="relative">
                 {/* A gradient, not a blur filter: blur renders as speckles without GPU acceleration */}
-                <div className="absolute -inset-6 animate-pulse rounded-full bg-[radial-gradient(closest-side,rgb(232_121_249/0.35),transparent)]" />
+                <div className="absolute -inset-6 animate-pulse rounded-full bg-[radial-gradient(closest-side,color-mix(in_oklab,var(--color-fuchsia-400)_35%,transparent),transparent)]" />
                 <Logo className="relative h-16 w-16 drop-shadow-xl" />
               </div>
               <h1 className="mt-5 text-2xl font-semibold">

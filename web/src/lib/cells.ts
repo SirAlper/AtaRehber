@@ -11,6 +11,10 @@
 //   calm down into idle.
 // "energy" (0 calm .. 1 busy) sets how fast all of this goes; it stays up while they scatter.
 //
+// The palette turns too: each question picks a new hue angle at random, the colours turn towards it while the
+// cells gather, and back to the theme's own colours while they scatter. The page uses the same angle for the
+// site's brand colours (src/lib/palette.ts), so the whole site changes colour with the background.
+//
 // Nothing changes at once: a cell's colour eases towards its target colour, a merging cell melts into the other
 // over a few seconds, and the halves of a divided cell start with the parent's colour.
 
@@ -54,6 +58,9 @@ export interface World {
   gx: number;
   gy: number;
   regather: number;
+  /** Hue angle the whole palette is turned by (degrees), easing towards paletteTarget */
+  paletteShift: number;
+  paletteTarget: number;
 }
 
 export const MIN_CELLS = 4;
@@ -73,6 +80,13 @@ const ENERGY_RATE = 0.6;
 const SCATTER_SECONDS = 8;
 // Cells the scattered mass divides into (at most)
 const SCATTER_CELLS = 7;
+// Palette turn per question: 60 to 150 degrees either way. It follows the target at 0.8/s, at most 18 degrees per
+// second towards a new palette and 10 back to the theme's colours (a slow return while the cells scatter)
+const PALETTE_MIN_TURN = 60;
+const PALETTE_MAX_TURN = 150;
+const PALETTE_EASE = 0.8;
+const PALETTE_RATE_OUT = 18;
+const PALETTE_RATE_BACK = 10;
 
 type Random = () => number;
 
@@ -140,6 +154,7 @@ export function createWorld(width: number, height: number, random: Random = Math
   const world: World = {
     ...{ width, height, cells: [], time: 0 },
     ...{ phase: "idle", phaseTime: 0, energy: 0, gx: width / 2, gy: height / 2, regather: 0 },
+    ...{ paletteShift: 0, paletteTarget: 0 },
   };
   for (let i = 0; i < 6; i++) world.cells.push(newCell(world, random));
   return world;
@@ -228,9 +243,12 @@ function updatePhase(world: World, thinking: boolean, dt: number, random: Random
     world.phaseTime = 0;
     [world.gx, world.gy] = randomSpot(world, random, 0.25);
     world.regather = 10 + random() * 6;
+    const turn = PALETTE_MIN_TURN + random() * (PALETTE_MAX_TURN - PALETTE_MIN_TURN);
+    world.paletteTarget = random() < 0.5 ? -turn : turn;
   } else if (!thinking && world.phase === "gather") {
     world.phase = "scatter";
     world.phaseTime = 0;
+    world.paletteTarget = 0;
     for (const cell of world.cells) if (!cell.into) spreadTarget(cell, world, random);
   } else if (world.phase === "scatter") {
     const settled = world.cells.every(
@@ -250,6 +268,11 @@ function updatePhase(world: World, thinking: boolean, dt: number, random: Random
   }
   const busy = world.phase === "idle" ? 0 : 1;
   world.energy += (busy - world.energy) * (1 - Math.exp(-ENERGY_RATE * dt));
+
+  const towards = world.paletteTarget - world.paletteShift;
+  const rate = (world.paletteTarget === 0 ? PALETTE_RATE_BACK : PALETTE_RATE_OUT) * dt;
+  world.paletteShift += Math.max(-rate, Math.min(rate, towards * (1 - Math.exp(-PALETTE_EASE * dt))));
+  if (world.paletteTarget === 0 && Math.abs(world.paletteShift) < 0.5) world.paletteShift = 0;
 }
 
 /** Advance the world by dt seconds; thinking: the assistant is preparing an answer. */
@@ -370,7 +393,8 @@ export function step(world: World, dt: number, thinking: boolean, random: Random
   }
 }
 
-function hslToRgb(h: number, s: number, l: number): [number, number, number] {
+function hslToRgb(hue: number, s: number, l: number): [number, number, number] {
+  const h = ((hue % 360) + 360) % 360;
   const k = (n: number) => (n + h / 30) % 12;
   const a = s * Math.min(l, 1 - l);
   const f = (n: number) => l - a * Math.max(-1, Math.min(k(n) - 3, Math.min(9 - k(n), 1)));
@@ -379,7 +403,7 @@ function hslToRgb(h: number, s: number, l: number): [number, number, number] {
 
 /** The field as RGBA pixels: colours mixed by each cell's weight, transparent where the field is weak. */
 export function render(world: World, data: Uint8ClampedArray, dark: boolean) {
-  const { cells, width, height, energy } = world;
+  const { cells, width, height, energy, paletteShift } = world;
   const n = cells.length;
   const xs = new Float32Array(n);
   const ys = new Float32Array(n);
@@ -392,7 +416,7 @@ export function render(world: World, data: Uint8ClampedArray, dark: boolean) {
     r2[i] = cell.r * cell.r;
     // Flattens the field at the centre: a small cell inside a large one tints it instead of glowing as a dot
     soft[i] = 0.3 * r2[i] + 0.01;
-    rgb.set(hslToRgb(cell.hue, dark ? 0.72 : 0.82, dark ? 0.52 : 0.7), i * 3);
+    rgb.set(hslToRgb(cell.hue + paletteShift, dark ? 0.72 : 0.82, dark ? 0.52 : 0.7), i * 3);
   });
   const maxAlpha = (dark ? 0.5 : 0.55) + 0.1 * energy;
   // The field fades in from 0.3 and is full at 1.6 (soft edges, no rim)
