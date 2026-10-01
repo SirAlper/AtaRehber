@@ -156,8 +156,10 @@ The strategic development roadmap for `OpenLocalRagAgents` is structured below t
   - Removed the unused `EnterpriseRAGAgent` graph (`agent_graph.py`, `nodes.py`, `query_service.py`, `tools.py`); the grading helpers live in `src/agent/grading.py`. Package `__init__` files no longer import eagerly (torch, the user store), the Streamlit UI and the database connector are split into focused modules, and tests are grouped by topic.
 - [ ] **Explicit LLM-Outage Answers:**
   - When Ollama is unreachable, `doc_agent` returns the "cannot be fully verified" fallback, which reads like a document problem. Return a clear "language model unavailable" message instead.
-- [ ] **Streamlit Multi-Page Refactoring:**
-  - `ui/app.py` is split into modules (session, API client, components, sidebar); moving the admin sections to Streamlit pages (`pages/`) is still open.
+- [x] **Modern Web UI:**
+  - A React + TypeScript web UI (`web/`) replaces the Streamlit UI: chat with live progress, requests, and administration, a refresh token in an `HttpOnly` cookie, its own tests in CI, and an nginx image.
+- [ ] **Retire the Streamlit UI:**
+  - Serve the React UI at `/` behind the HTTPS proxy, then remove `ui/`, `Dockerfile.frontend`, `requirements-ui.txt`, and the `frontend` compose service.
 - [x] **Specific Exception Handling:**
   - Replaced broad `except Exception as e` blocks in the Self-RAG nodes and `jwt_handler.py` with specific exception types (`ConnectionError`, `TimeoutError`, `IOError`, `OSError`, `RuntimeError`).
 - [ ] **Async Node Migration:**
@@ -165,7 +167,7 @@ The strategic development roadmap for `OpenLocalRagAgents` is structured below t
 - [x] **Real Database Integration Tests:**
   - CI runs the read-only enforcement tests against PostgreSQL 16 and MySQL 8.4 service containers, bypassing the SQL guard to verify the database-level protection on its own.
 - [ ] **Test Coverage Expansion:**
-  - Streamlit UI tests; run the model-backed evaluation (`evals/`) on a GPU runner and gate on quality regressions.
+  - Browser tests of the web UI against a running backend (the unit tests run in CI); run the model-backed evaluation (`evals/`) on a GPU runner and gate on quality regressions.
   - Enforce a minimum coverage target (e.g. 80%) as a CI gate; coverage is currently reported but not enforced.
 - [x] **CONTRIBUTING.md & Code of Conduct:**
   - Created contributor guidelines, code style guide, and code of conduct for open-source community readiness.

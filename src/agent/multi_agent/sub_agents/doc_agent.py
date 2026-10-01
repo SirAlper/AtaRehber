@@ -10,7 +10,6 @@ from src.agent.answer_cache import answer_cache
 from src.agent.grading import quote_in_context
 from src.agent.multi_agent.tools import ToolRun, build_tools, run_with_tools
 from src.agent.prompts import build_rag_messages, build_rewrite_messages, split_evidence
-from src.agent.self_rag import grade_answer, refine_answer
 from src.agent.verification import UNVERIFIED, VERIFIED, verify_answer
 from src.core import config
 from src.rag.evidence import attach_evidence
@@ -188,11 +187,3 @@ class DocumentRagAgent(BaseSubAgent):
             if key in details and details[key] not in (None, []):
                 entry[key] = details[key]
         return entry
-
-    def _grade(self, context: str, question: str, answer: str) -> str:
-        """Ask the grading model whether the answer is supported by the context (see src/agent/self_rag.py)."""
-        return grade_answer(self.grader_model, context, question, answer, agent_name=self.name)
-
-    def _refine(self, context: str, question: str, draft_answer: str, language: str, objection: str = "") -> str:
-        """Prune claims from the draft that the context does not support (the grader's objection first)."""
-        return refine_answer(self.chat_model, context, question, draft_answer, language, objection, self.name)

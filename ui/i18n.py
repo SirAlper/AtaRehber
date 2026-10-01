@@ -366,9 +366,7 @@ TEXTS: Dict[str, Dict[str, str]] = {
     "chunk": {"tr": "parça #{index}", "en": "chunk #{index}"},
     "score": {"tr": "skor {score}", "en": "score {score}"},
     # ── Generic API messages ──
-    "unknown_response": {"tr": "Bilinmeyen yanıt.", "en": "Unknown response."},
     "deleted": {"tr": "Silindi.", "en": "Deleted."},
-    "operation_completed": {"tr": "İşlem tamamlandı.", "en": "Operation completed."},
 }
 
 

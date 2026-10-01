@@ -23,10 +23,6 @@ export function setAccessToken(token: string | null) {
   accessToken = token;
 }
 
-export function hasAccessToken() {
-  return accessToken !== null;
-}
-
 /** Called when the session cannot be renewed (the UI goes back to the login page). */
 export function onAuthLost(handler: (() => void) | null) {
   authLostHandler = handler;

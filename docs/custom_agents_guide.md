@@ -11,7 +11,7 @@ The system is centered around an **Intelligent Supervisor Orchestrator**. Whenev
 
 ## 🧩 Agents Without Code (Web UI)
 
-Admins create agents in the sidebar under **🧩 Custom Agents** (or with `PUT /api/v1/admin/custom-agents/{name}`):
+Admins create agents in the web UI under **Administration → Custom Agents** (in the Streamlit UI: **🧩 Custom Agents** in the sidebar), or with `PUT /api/v1/admin/custom-agents/{name}`:
 
 | Field | Meaning |
 | :--- | :--- |
@@ -250,7 +250,7 @@ agent_registry.unregister("my_custom_agent")
    * `state["chat_history"]` holds the session's previous turns. Include the last few in your prompt so follow-up questions resolve correctly.
 
 4. **Transparent Auditing (`agent_trace`):**
-   * Always append an `agent_trace` entry in the dictionary returned by `execute()`. This feeds the Streamlit UI trace panel and the audit database.
+   * Always append an `agent_trace` entry in the dictionary returned by `execute()`. This feeds the trace panel the web UIs show to admins and editors, and the audit database.
 
 5. **Graceful Degradation and Handoffs:**
    * Wrap external API or database calls in `try-except` blocks. If an error occurs, return a helpful, generic message with `status: "error"` in the trace entry without crashing the pipeline. Log the exception details; do not put them in `final_answer`, which is shown to users and stored in the audit log.

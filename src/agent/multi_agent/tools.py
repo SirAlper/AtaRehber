@@ -12,7 +12,7 @@ import operator
 import re
 from dataclasses import dataclass, field
 from datetime import date, timedelta
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List
 
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from langchain_core.tools import StructuredTool
@@ -292,11 +292,6 @@ def available_tools(names: List[str]) -> List[str]:
 
 def build_tools(names: List[str], run: ToolRun, state: Dict[str, Any]) -> List[StructuredTool]:
     return [TOOLS[name].build(run, state) for name in available_tools(names)]
-
-
-def tool_description(name: str) -> Optional[str]:
-    spec = TOOLS.get(name)
-    return spec.descriptions["en"] if spec else None
 
 
 # Model calls with tool results before the model must answer
