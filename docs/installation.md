@@ -238,11 +238,11 @@ pytest tests/ -v
 pytest tests/ --cov=src --cov-report=term-missing
 
 # Lint and formatting checks (same as CI; settings in ruff.toml):
-ruff check src/ tests/ evals/ ui/
-ruff format --check src/ tests/ evals/ ui/
+ruff check src/ tests/ evals/
+ruff format --check src/ tests/ evals/
 ```
 
-Tests run against an isolated temporary data directory (see `tests/conftest.py`) and never touch your `data/` folder. LLM calls are stubbed, so tests do not need Ollama. Tests are grouped by topic (`tests/agents/`, `rag/`, `api/`, `security/`, `data/`, `frontend/`, `quality/`, `performance/`). The memory-profiling tests in `tests/performance/` load the real embedding models and run only with `RUN_PROFILE_TESTS=1`.
+Tests run against an isolated temporary data directory (see `tests/conftest.py`) and never touch your `data/` folder. LLM calls are stubbed, so tests do not need Ollama. Tests are grouped by topic (`tests/agents/`, `rag/`, `api/`, `security/`, `data/`, `quality/`, `performance/`). The memory-profiling tests in `tests/performance/` load the real embedding models and run only with `RUN_PROFILE_TESTS=1`.
 
 ---
 

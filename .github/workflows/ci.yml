@@ -22,10 +22,10 @@ jobs:
         run: pip install "ruff>=0.5.0,<0.6"
 
       - name: Run Ruff linter
-        run: ruff check src/ tests/ evals/ ui/ --output-format=github
+        run: ruff check src/ tests/ evals/ --output-format=github
 
       - name: Run Ruff formatter check
-        run: ruff format --check src/ tests/ evals/ ui/
+        run: ruff format --check src/ tests/ evals/
 
   web:
     name: Web UI (types, tests, build)
