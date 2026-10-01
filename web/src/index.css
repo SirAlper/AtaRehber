@@ -6,23 +6,9 @@
 
 @theme {
   --font-sans: "Inter Variable", ui-sans-serif, system-ui, sans-serif;
-  --animate-float-slow: float 22s ease-in-out infinite;
-  --animate-float-slower: float 30s ease-in-out infinite reverse;
   --animate-shimmer: shimmer 2.2s linear infinite;
   --animate-fade-up: fade-up 0.35s ease-out both;
 
-  @keyframes float {
-    0%,
-    100% {
-      transform: translate3d(0, 0, 0) scale(1);
-    }
-    33% {
-      transform: translate3d(4%, -6%, 0) scale(1.08);
-    }
-    66% {
-      transform: translate3d(-5%, 4%, 0) scale(0.95);
-    }
-  }
   @keyframes shimmer {
     from {
       background-position: -200% 0;

@@ -1,13 +1,79 @@
-// Decorative backdrop: soft drifting purple glows, a faint dot grid fading towards the edges, and a light grain.
-// Purely visual (aria-hidden); animations stop for users who prefer reduced motion (index.css).
+// Decorative backdrop: living colour fields (src/lib/cells.ts), a faint dot grid fading towards the edges, and a
+// light grain. Purely visual (aria-hidden).
+
+import { useEffect, useRef } from "react";
+
+import { isThinking } from "@/lib/activity";
+import { createWorld, render, resizeWorld, step, type World } from "@/lib/cells";
+
+// The field is drawn at most this many pixels and scaled up by the browser, which also softens its edges (a blur
+// filter would render as speckles without GPU acceleration)
+const MAX_FIELD_PIXELS = 20_000;
+const FRAME_MS = 33;
+
+function fieldSize() {
+  const scale = Math.max(8, Math.sqrt((window.innerWidth * window.innerHeight) / MAX_FIELD_PIXELS));
+  return [Math.ceil(window.innerWidth / scale), Math.ceil(window.innerHeight / scale)];
+}
+
+/** Calm while idle; faster, dividing, merging, and changing colour while the assistant thinks. Still for users
+ * who prefer reduced motion. */
+function LivingColors() {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    const context = canvas?.getContext("2d");
+    if (!canvas || !context) return;
+    const still = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
+    const [width, height] = fieldSize();
+    const world: World = createWorld(width, height);
+    let image = context.createImageData(width, height);
+    canvas.width = width;
+    canvas.height = height;
+
+    let energy = 0;
+    let last = performance.now();
+    let frame = 0;
+    const draw = (now: number) => {
+      frame = requestAnimationFrame(draw);
+      const elapsed = now - last;
+      if (elapsed < (still ? 1000 : FRAME_MS)) return;
+      last = now;
+      if (!still) {
+        // Hidden tabs pause; a long gap must not throw the cells across the screen
+        const dt = Math.min(elapsed / 1000, 0.1);
+        energy += ((isThinking() ? 1 : 0) - energy) * Math.min(1, dt * 1.2);
+        step(world, dt, energy);
+      }
+      render(world, image.data, document.documentElement.classList.contains("dark"), energy);
+      context.putImageData(image, 0, 0);
+    };
+    frame = requestAnimationFrame(draw);
+
+    const onResize = () => {
+      const [w, h] = fieldSize();
+      if (w === world.width && h === world.height) return;
+      resizeWorld(world, w, h);
+      canvas.width = w;
+      canvas.height = h;
+      image = context.createImageData(w, h);
+    };
+    window.addEventListener("resize", onResize);
+    return () => {
+      cancelAnimationFrame(frame);
+      window.removeEventListener("resize", onResize);
+    };
+  }, []);
+
+  return <canvas ref={canvasRef} className="absolute inset-0 h-full w-full" />;
+}
 
 export function Background() {
   return (
     <div aria-hidden className="pointer-events-none fixed inset-0 -z-10 overflow-hidden">
       <div className="absolute inset-0 bg-gradient-to-br from-violet-50 via-white to-fuchsia-50 dark:from-[#0c0718] dark:via-[#110a24] dark:to-[#1a0b2e]" />
-      <div className="animate-float-slow absolute -top-40 -left-32 h-[34rem] w-[34rem] rounded-full bg-violet-400/30 blur-3xl dark:bg-violet-600/25" />
-      <div className="animate-float-slower absolute top-1/3 -right-40 h-[30rem] w-[30rem] rounded-full bg-fuchsia-400/25 blur-3xl dark:bg-fuchsia-600/20" />
-      <div className="animate-float-slow absolute -bottom-48 left-1/4 h-[28rem] w-[28rem] rounded-full bg-indigo-300/30 blur-3xl dark:bg-indigo-600/20" />
+      <LivingColors />
       <div
         className="absolute inset-0 opacity-[0.35] dark:opacity-[0.18]"
         style={{

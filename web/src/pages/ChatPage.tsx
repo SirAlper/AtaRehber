@@ -23,6 +23,7 @@ import { useConversations, type ChatMessage } from "@/chat/conversations";
 import { Logo } from "@/components/Background";
 import { useToast } from "@/components/Toast";
 import { Button, Select } from "@/components/ui";
+import { setThinking } from "@/lib/activity";
 import { cn, newId } from "@/lib/utils";
 
 function Markdown({ text }: { text: string }) {
@@ -107,6 +108,12 @@ export function ChatPage() {
   const abortRef = useRef<AbortController | null>(null);
   const endRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // The background comes alive while an answer is being prepared
+  useEffect(() => {
+    setThinking(busy);
+    return () => setThinking(false);
+  }, [busy]);
 
   const history = conversations.filter((c) => c.messages.length);
 
