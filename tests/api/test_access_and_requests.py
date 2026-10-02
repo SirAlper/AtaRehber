@@ -22,6 +22,7 @@ from src.auth.jwt_handler import create_access_token
 from src.auth.user_store import user_store
 from src.core import config
 from src.services import notifier
+from src.services.document_service import DocumentService
 from src.auth.document_access import (
     DocumentAccessStore,
     access_metadata,
@@ -189,6 +190,23 @@ class TestDocumentAccessApi(unittest.TestCase):
         self.assertIn(self.filename, self.listed(self.editor))
         stats = self.client.get("/api/v1/stats", headers=self.viewer_other).json()
         self.assertEqual(stats["total_documents"], 0)
+
+    def test_a_document_is_listed_as_indexing_until_its_chunks_are_stored(self):
+        def listed_entry():
+            documents = DocumentService.list_documents(role="editor")["documents"]
+            return next(d for d in documents if d["filename"] == self.filename)
+
+        during = []
+        self.engine.get_stats.return_value = {"document_chunks": {}, "total_chunks": 0}
+        self.engine.add_documents.side_effect = lambda *args: during.append(listed_entry())
+        self.assertEqual(self.upload("").status_code, 200)
+        self.assertEqual((during[0]["indexing"], during[0]["chunk_count"]), (True, 0))
+        self.assertFalse(listed_entry()["indexing"])
+
+        # A failed indexing does not leave the file marked as indexing forever
+        self.engine.add_documents.side_effect = RuntimeError("embedding failed")
+        self.assertEqual(self.upload("").status_code, 500)
+        self.assertFalse(listed_entry()["indexing"])
 
     def test_access_can_be_changed_and_is_cleared_on_delete(self):
         self.upload("akademik")

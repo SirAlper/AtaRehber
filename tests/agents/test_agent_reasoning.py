@@ -245,6 +245,19 @@ class TestUnansweredQuestions(unittest.TestCase):
         self.assertEqual(out["final_answer"], message("no_context", "tr"))
         self.assertEqual(out["verification"], {"level": "unverified", "issues": ["not_found"]})
 
+    def test_passages_that_did_not_answer_are_not_shown_as_sources(self):
+        model = MagicMock()
+        model.invoke.side_effect = [
+            AIMessage(content=message("no_context", "tr")),
+            AIMessage(content='{"supported": "yes", "problem": "", "quotes": []}'),
+        ]
+        out = DocumentRagAgent(chat_model=model, rag_engine=engine()).execute({"question": "Yıllık izin kaç gündür?"})
+        self.assertEqual(out["final_answer"], message("no_context", "tr"))
+        self.assertEqual(out["sources"], [])
+        self.assertEqual(out["verification"], {"level": "unverified", "issues": ["not_found"]})
+        # The trace still says how many passages were read
+        self.assertGreater(out["agent_trace"][-1]["sources_count"], 0)
+
 
 if __name__ == "__main__":
     unittest.main()

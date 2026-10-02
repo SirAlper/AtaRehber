@@ -27,6 +27,10 @@ from src.core.logger import get_logger
 
 logger = get_logger("Services.Document")
 
+# Files saved to disk whose chunks are still being embedded (minutes for a long document on the CPU): they are
+# listed, but cannot be searched yet
+_indexing: set = set()
+
 
 class DocumentService:
     """Service handling all document file workflows, vector indexing, and sanitization."""
@@ -85,6 +89,8 @@ class DocumentService:
                         "filename": filename,
                         "size_kb": round(stat.st_size / 1024, 2),
                         "chunk_count": chunk_map.get(filename, 0),
+                        # Still being embedded: not searchable yet
+                        "indexing": filename in _indexing,
                         "modified_at": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(stat.st_mtime)),
                         # Empty: visible to everyone
                         "groups": access.get(filename, []),
@@ -196,6 +202,19 @@ class DocumentService:
             logger.error(f"File upload write error: {e}")
             raise HTTPException(status_code=500, detail="Failed to write uploaded file.")
 
+        _indexing.add(safe_filename)
+        try:
+            return await DocumentService._index_saved_file(
+                file_path, safe_filename, total_bytes, groups, username, user_role
+            )
+        finally:
+            _indexing.discard(safe_filename)
+
+    @staticmethod
+    async def _index_saved_file(
+        file_path: str, safe_filename: str, total_bytes: int, groups: list, username: str, user_role: str
+    ) -> Dict[str, Any]:
+        """Chunk a saved upload and put its chunks into the vector store."""
         # Chunk loaded file in worker thread
         loader = get_document_loader()
         chunks, ids, metadatas = await asyncio.to_thread(loader.load_and_chunk_file, file_path)

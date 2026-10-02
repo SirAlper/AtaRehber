@@ -118,6 +118,8 @@ export interface DocumentInfo {
   filename: string;
   size_kb: number;
   chunk_count: number;
+  /** Still being embedded: listed, but not searchable yet */
+  indexing?: boolean;
   modified_at: string;
   groups: string[];
 }

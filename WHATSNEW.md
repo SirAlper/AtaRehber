@@ -6,6 +6,10 @@ This document provides a comprehensive log of new features, architectural upgrad
 
 ## 🧭 Unreleased
 
+### Fixed: documents still being indexed, and sources under "not in the documents"
+* **A document being indexed is shown as such:** an uploaded file is on disk minutes before its chunks are in the index (a long law takes several minutes on the CPU), and the document list showed it like a ready one. The list now marks it "Indexing… not searchable yet" (`indexing` in `GET /api/v1/documents`) and reloads until it is done; a file whose indexing failed is marked "Not indexed; upload it again".
+* **No sources under "not in the documents":** when the model read passages and found that they do not answer the question, the answer said so but still listed those passages as its sources. They are no longer returned; the trace keeps their count.
+
 ### Added: landing page, and the project is named AtaRehber
 * **Landing page:** visitors first see what the assistant is (sources under every answer, no made-up answers, data stays on the organization's server) and how to use it in four steps, then go on to the login page with "Sohbete başla". Shown once per browser tab; the login page links back to it. Logged-in users go straight to the chat.
 * **Lava lamp:** behind the landing page the colour fields rise and sink like wax in a lamp: a blob warms at the bottom, rises, cools at the top, and sinks again, clinging to others on the way (`web/src/lib/lava.ts`). It moves the same fields as the chat's background, so they roam on from where the lamp left them.

@@ -211,9 +211,12 @@ class DocumentRagAgent(BaseSubAgent):
         grade = verification.grade if verification else ""
         is_refined = verification.is_refined if verification else False
         verification_dict = verification.as_dict() if verification else {"level": UNVERIFIED, "issues": []}
+        retrieved = len(sources)
         if message("no_context", language) in answer:
-            # The model or the refiner found nothing that answers the question: an unanswered question to review
+            # The model or the refiner found nothing that answers the question: an unanswered question to review.
+            # The passages it read did not answer it, so they are not shown as sources of "not in the documents"
             verification_dict = {"level": UNVERIFIED, "issues": [NOT_FOUND]}
+            sources = []
         verified = verification_dict["level"] == VERIFIED
 
         output = {
@@ -225,7 +228,7 @@ class DocumentRagAgent(BaseSubAgent):
         }
         details = {"hallucination_grade": grade, "is_refined": is_refined, "tools_called": tools_called}
         details["status"] = "success" if verified else (verification.level if verification else "unverified")
-        trace_entry = self._trace_entry("retrieval_and_generation", search_query, len(sources), details, start_time)
+        trace_entry = self._trace_entry("retrieval_and_generation", search_query, retrieved, details, start_time)
         if cache_key is not None and verified:
             answer_cache.put(cache_key, output)
         return {**output, "agent_trace": list(state.get("agent_trace", [])) + [trace_entry]}

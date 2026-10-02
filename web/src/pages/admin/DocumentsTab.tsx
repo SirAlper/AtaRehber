@@ -10,6 +10,8 @@ import { Badge, Button, Card, CardTitle, EmptyState, Field, Input, Modal, Spinne
 import { cn, documentName, splitGroups } from "@/lib/utils";
 
 const ACCEPTED = ".pdf,.docx,.txt";
+// How often the list is reloaded while a document is being indexed (a long one takes minutes)
+const INDEXING_REFRESH_MS = 3000;
 
 export function DocumentsTab() {
   const { t } = useTranslation();
@@ -25,6 +27,7 @@ export function DocumentsTab() {
   const documents = useQuery({
     queryKey: ["documents"],
     queryFn: () => api<{ documents: DocumentInfo[] }>("/api/v1/documents"),
+    refetchInterval: (query) => (query.state.data?.documents.some((doc) => doc.indexing) ? INDEXING_REFRESH_MS : false),
   });
   const refresh = () => void queryClient.invalidateQueries({ queryKey: ["documents"] });
   const fail = (e: unknown) => toast(t("common.error", { error: (e as Error).message }), "error");
@@ -34,6 +37,8 @@ export function DocumentsTab() {
       const form = new FormData();
       form.append("file", file!);
       form.append("groups", groups);
+      // The file is listed as "indexing" as soon as the server has saved it
+      window.setTimeout(refresh, 1000);
       return api("/api/v1/upload-file", { form });
     },
     onSuccess: () => {
@@ -132,6 +137,14 @@ export function DocumentsTab() {
                   {doc.size_kb} KB · {t("documents.chunks", { count: doc.chunk_count })} · {doc.modified_at}
                 </p>
               </div>
+              {doc.indexing ? (
+                <Badge tone="amber">
+                  <Spinner className="h-3 w-3" />
+                  {t("documents.indexing")}
+                </Badge>
+              ) : (
+                doc.chunk_count === 0 && <Badge tone="rose">{t("documents.notIndexed")}</Badge>
+              )}
               {doc.groups.length ? (
                 <Badge tone="amber">
                   <Lock className="h-3 w-3" />
