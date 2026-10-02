@@ -15,6 +15,7 @@ from src.agent.verification import (
     UNVERIFIED,
     VERIFIED,
     check_answer,
+    lacks_quantity,
     partial_answer,
     relies_only_on_transitional,
     unsupported_numbers,
@@ -85,7 +86,7 @@ class TestCodeChecks(unittest.TestCase):
 
 class TestCheckAnswer(unittest.TestCase):
     def check(self, answer, grades, sources=SOURCES, question="İtiraz süresi kaç gün?", strict=True):
-        return check_answer(Grader(grades), CONTEXT, question, answer, sources, strict_transitional=strict)
+        return check_answer(Grader(grades), CONTEXT, question, answer, sources, strict=strict)
 
     def test_a_second_opinion_can_overturn_a_rejection(self):
         result = self.check("İtiraz süresi 15 gündür.", [grade("no", "süre belirtilmemiş", ()), grade()])
@@ -104,6 +105,34 @@ class TestCheckAnswer(unittest.TestCase):
         self.assertFalse(result.passed)
         self.assertTrue(result.first_verdict)
         self.assertIn("30", result.objection)
+
+    def test_an_answer_without_the_quantity_asked_for_is_sent_back_once(self):
+        about_the_topic = "Yıllık izinler öğrenime ara verilen zamanlarda kullanılır (Madde 64)."
+        question = "Yıllık izin hakkı kaç gündür?"
+        result = self.check(about_the_topic, [grade()], question=question)
+        self.assertFalse(result.passed)
+        self.assertTrue(result.first_verdict)
+        self.assertIn("quantity", result.objection)
+        # Not twice (the refined answer), not for other questions, and not when turned off
+        self.assertTrue(self.check(about_the_topic, [grade()], question=question, strict=False).passed)
+        self.assertTrue(self.check(about_the_topic, [grade()], question="Yıllık izin ne zaman kullanılır?").passed)
+        with patch("src.core.config.GRADER_QUANTITY_CHECK", False):
+            self.assertTrue(self.check(about_the_topic, [grade()], question=question).passed)
+
+    def test_quantities_are_recognized_in_digits_words_and_as_none(self):
+        for question in ("Kaç gün?", "Süre ne kadar?", "Yüzde kaç devam gerekir?", "How many days?", "Saat kaçta?"):
+            self.assertTrue(lacks_quantity(question, "Madde 64'e göre rektör karar verir."), question)
+        for answer in (
+            "15 gündür.",
+            "On beş gün içinde itiraz edilir.",
+            "İki yarıyıldır.",
+            "Bir yıl süreyle verilir.",
+            "Herhangi bir süre sınırı yoktur.",
+            "Two semesters.",
+            message("no_context", "tr"),
+        ):
+            self.assertFalse(lacks_quantity("Süre kaç gün?", answer), answer)
+        self.assertFalse(lacks_quantity("İtiraz nereye yapılır?", "Rektörlüğe yapılır."))
 
     def test_numbers_next_to_the_quoted_sentence_count(self):
         # The grader quoted the rule but not the numbers after it; they are in the same article
@@ -158,6 +187,34 @@ class TestVerifyAnswer(unittest.TestCase):
                 Grader([], ["Rektör 45 gün verir."]), grader, CONTEXT, "?", "Rektör 45 gün verir.", SOURCES, "tr"
             )
         self.assertEqual((result.level, result.answer), (UNVERIFIED, message("fallback", "tr")))
+
+    def test_no_quantity_after_refining_means_the_documents_do_not_answer(self):
+        context = (
+            "[KANUN | Madde 64]\nÖğretim elemanları yıllık izinlerini öğrenime ara verilen zamanlarda kullanırlar."
+        )
+        quote = "yıllık izinlerini öğrenime ara verilen zamanlarda kullanırlar"
+        sources = [{"source": "kanun.txt", "chunk_index": 1, "article": "Madde 64", "content": context}]
+        about_the_topic = "Yıllık izinler öğrenime ara verilen zamanlarda kullanılır (Madde 64)."
+        question = "Yıllık izin hakkı kaç gündür?"
+
+        # The grader accepts the answer (what it says is in the law), and the editor has nothing better
+        grader = Grader([grade(quotes=[quote]), grade(quotes=[quote])])
+        result = verify_answer(Grader([], [about_the_topic]), grader, context, question, about_the_topic, sources, "tr")
+        self.assertEqual(result.answer, message("no_context", "tr"))
+        self.assertEqual(result.as_dict(), {"level": "unverified", "issues": ["not_found"]})
+
+        # Also when a wrong sentence was dropped and the rest (a partial answer) does not state the quantity
+        with patch("src.core.config.GRADER_SECOND_OPINION", False):
+            wrong = f"{about_the_topic} Ayrıca yurtdışı izni için rektörün onayı gerekir."
+            grader = Grader([grade("no", "rektör onayı", [quote]), grade("no", "rektör onayı", [quote])])
+            result = verify_answer(Grader([], [wrong]), grader, context, question, wrong, sources, "tr")
+        self.assertEqual(result.answer, message("no_context", "tr"))
+
+        # The editor finds the number: a normal verified answer
+        grader = Grader([grade(), grade()])
+        editor = Grader([], ["İtiraz süresi 15 gündür."])
+        result = verify_answer(editor, grader, CONTEXT, "İtiraz süresi kaç gün?", "İtiraz edilebilir.", SOURCES, "tr")
+        self.assertEqual((result.level, result.answer), (VERIFIED, "İtiraz süresi 15 gündür."))
 
     def test_combined_answers_take_the_weakest_level(self):
         parts = [

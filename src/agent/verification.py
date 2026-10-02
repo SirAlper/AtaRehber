@@ -7,7 +7,10 @@
    * every number of the answer must be in the grader's quotes, the question, or a tool result (the grader may
      quote the right sentence and still accept "30 days" where it says "15 days");
    * an answer that relies only on a transitional article or footnote while a provision in force was also
-     retrieved is sent back once (superseded values such as "65 points" instead of the "55 points" in force).
+     retrieved is sent back once (superseded values such as "65 points" instead of the "55 points" in force);
+   * an answer to a question that asks for a quantity ("kaç gün", "how many") must state one or say that there
+     is none; an answer that only talks about the topic is sent back once (the grader accepts it, since what it
+     says is in the documents).
 3. A failed check is refined once with the objection and checked again.
 4. Still failed: the sentences of the answer that the quotes cover are shown as a partial answer; if none are,
    the safe fallback. The result is 'verified', 'partial', or 'unverified', with the reasons.
@@ -18,7 +21,7 @@ from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional
 
 from src.agent.grading import GRADE_UNAVAILABLE, grade_objection, is_grade_passed, verified_quotes
-from src.agent.language import message
+from src.agent.language import message, message_variants
 from src.agent.llm import json_mode
 from src.agent.prompts import build_second_opinion_messages
 from src.agent.self_rag import grade_answer_with_quotes, refine_answer
@@ -82,6 +85,32 @@ class Verification:
 
     def as_dict(self) -> Dict[str, Any]:
         return {"level": self.level, "issues": list(self.issues)}
+
+
+# Questions that ask for a quantity ("Kaç gün?", "Ne kadar sürer?", "Yüzde kaç?", "How many days?")
+_QUANTITY_QUESTION = re.compile(r"(?i)\bkaç(?:ta|a|ar|er)?\b|\bne kadar\b|\bhow (?:many|much|long|old|often)\b")
+# Quantities an answer may state without digits: small numbers in words (the loader adds digits from ten on), and
+# "bir" only before a unit, as it is also the indefinite article
+_SMALL_NUMBER = re.compile(
+    r"(?i)\b(?:yarım|iki|üç|dört|beş|altı|yedi|sekiz|dokuz|birer|ikişer|üçer|çeyrek|buçuk"
+    r"|half|one|two|three|four|five|six|seven|eight|nine|ten|once|twice)\b"
+    r"|\bbir\s+(?:yıl|ay|gün|hafta|saat|dakika|yarıyıl|dönem|kez|defa|kere|kat|ders|kişi)"
+)
+# "There is no limit" and "none" also answer a quantity question
+_NO_QUANTITY = re.compile(
+    r"(?i)\b(?:yok\w*|sınırsız\w*|sınır\w* bulunma\w*|bulunmamakta\w*|hiçbir|no limit|unlimited|none|not limited)\b"
+)
+
+
+def lacks_quantity(question: str, answer: str) -> bool:
+    """The question asks for a quantity and the answer states none: no number (references like 'Madde 64' left
+    out), no "there is none", and not the "not in the documents" answer."""
+    if not _QUANTITY_QUESTION.search(str(question).replace("İ", "i")):
+        return False
+    if any(text in str(answer) for text in message_variants("no_context")):
+        return False
+    facts = _REFERENCES.sub(" ", str(answer)).replace("İ", "i")
+    return not (numbers(facts) or _SMALL_NUMBER.search(facts) or _NO_QUANTITY.search(facts))
 
 
 # Clock times: documents write "11.30", answers often "11:30"; both mean the same number
@@ -157,10 +186,13 @@ def check_answer(
     answer: str,
     sources: List[Dict[str, Any]],
     tool_context: str = "",
-    strict_transitional: bool = True,
+    strict: bool = True,
     agent_name: str = "",
 ) -> Check:
-    """Grader verdict (with a second opinion on 'no') plus the code checks; see the module docstring."""
+    """Grader verdict (with a second opinion on 'no') plus the code checks; see the module docstring.
+
+    strict: the first check of an answer; False for a refined answer, whose transitional evidence becomes a
+    warning and whose missing quantity is let through (nothing is sent back twice)."""
     full_context = "\n\n".join(part for part in (context, tool_context) if part)
     grade, quotes = grade_answer_with_quotes(grader_model, full_context, question, answer, agent_name)
     first_verdict = is_grade_passed(grade)
@@ -181,6 +213,14 @@ def check_answer(
             objection = f"the number(s) {', '.join(missing)} are not stated in the quoted articles"
             return Check(False, f"no: {objection}", quotes, objection, first_verdict)
 
+    if strict and config.GRADER_QUANTITY_CHECK and lacks_quantity(question, answer):
+        objection = (
+            "the question asks for a quantity (how many, how much, how long) but the answer states none; state "
+            "the number the Context gives for exactly what is asked, or, if the Context does not state it, answer "
+            "that the information is not in the documents"
+        )
+        return Check(False, f"no: {objection}", quotes, objection, first_verdict)
+
     if config.GRADER_TRANSITIONAL_CHECK:
         article = relies_only_on_transitional(attach_evidence(sources, quotes), question)
         if article:
@@ -188,7 +228,7 @@ def check_answer(
                 f"the answer relies on a transitional provision ({article}); use the provision in force from the "
                 "Context unless the question asks about the transitional rule"
             )
-            if strict_transitional:
+            if strict:
                 return Check(False, f"no: {objection}", quotes, objection, first_verdict)
             return Check(True, grade, quotes, "", first_verdict, warnings=[ISSUE_TRANSITIONAL])
     return Check(True, grade, quotes, "", first_verdict)
@@ -225,6 +265,21 @@ def verify_answer(
     progress: Optional[Callable[[str], None]] = None,
 ) -> Verification:
     """Check, refine once, and fall back to a partial answer or the safe answer; see the module docstring."""
+    result = _verify(
+        chat_model, grader_model, context, question, answer, sources, language, tool_context, agent_name, progress
+    )
+    # What is left after refining still does not state the quantity the question asks for: the documents do not
+    # answer the question, and a text about the topic would read as if they did
+    if config.GRADER_QUANTITY_CHECK and result.level != UNVERIFIED and lacks_quantity(question, result.answer):
+        logger.info(f"[{agent_name}] The answer states no quantity for a question that asks for one: not found.")
+        grade = "no: the documents do not state the quantity the question asks for"
+        return Verification(message("no_context", language), UNVERIFIED, grade, sources, True, [NOT_FOUND])
+    return result
+
+
+def _verify(
+    chat_model, grader_model, context, question, answer, sources, language, tool_context, agent_name, progress
+) -> Verification:
     report = progress or (lambda stage: None)
     report("verifying")
     check = check_answer(grader_model, context, question, answer, sources, tool_context, True, agent_name)

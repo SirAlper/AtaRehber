@@ -72,6 +72,31 @@ def _fmt(value: Any, pct: bool = True) -> str:
 # ─────────────────────────────── Retrieval ───────────────────────────────
 
 
+def _clock(seconds: float) -> str:
+    minutes, seconds = divmod(int(round(seconds)), 60)
+    return f"{minutes}:{seconds:02d}"
+
+
+class Progress:
+    """Says which case of a stage is running, and after each one how far the stage is and how long the rest takes
+    (from the mean time per case so far)."""
+
+    def __init__(self, stage: str, total: int):
+        self.stage, self.total, self.done = stage, total, 0
+        self.started = time.perf_counter()
+
+    def begin(self, case_id: str) -> None:
+        """Printed before the case runs, so a slow or hanging case is visible by name."""
+        self.done += 1
+        print(f"  > {self.stage} {self.done}/{self.total}: {case_id} ...")
+
+    def status(self) -> str:
+        """Appended to the line that reports the finished case."""
+        elapsed = time.perf_counter() - self.started
+        left = elapsed / self.done * (self.total - self.done) if self.done else 0.0
+        return f"| {self.done}/{self.total}, {_clock(elapsed)} elapsed, about {_clock(left)} left"
+
+
 def index_cache_key(corpus_dir: str) -> str:
     """Changes whenever the corpus, the chunking settings, the loader code, or the embedding model change."""
     from src.core import config
@@ -126,9 +151,10 @@ def run_retrieval(engine, cases: List[Dict[str, Any]], pool: int = DEFAULT_RETRI
     pool = min(max(pool, RAG_CANDIDATE_POOL, *POOL_SWEEP), engine.collection.count())
     sweep_pools = [size for size in POOL_SWEEP if size <= pool]
     records = []
+    cases = [case for case in cases if case["category"] in metrics.RETRIEVAL_CATEGORIES]
+    progress = Progress("retrieval", len(cases))
     for case in cases:
-        if case["category"] not in metrics.RETRIEVAL_CATEGORIES:
-            continue
+        progress.begin(case["id"])
         # Score the candidate pool once; production selection is then replayed without extra model calls
         result = engine.search(
             case["question"], n_results=pool, min_similarity=-2.0, top_n=pool, min_reranker_score=-1.0
@@ -187,6 +213,11 @@ def run_retrieval(engine, cases: List[Dict[str, Any]], pool: int = DEFAULT_RETRI
                 },
             }
         )
+        if expected:
+            outcome = f"[{'ok' if rank else 'XX'}] {case['id']:<12} rank={rank or '-'}"
+        else:
+            outcome = f"[{'ok' if not selected else 'XX'}] {case['id']:<12} off-topic, {len(selected)} chunks pass"
+        print(f"  {outcome}  {progress.status()}")
 
     in_scope = [r for r in records if r["expected_sources"]]
     out_of_scope = [r for r in records if r["category"] == "out_of_scope"]
@@ -309,7 +340,9 @@ def run_routing(chat_model, registry, cases: List[Dict[str, Any]]) -> Dict[str, 
 
     supervisor = SupervisorAgent(chat_model=chat_model, registry=registry)
     records = []
+    progress = Progress("routing", len(cases))
     for case in cases:
+        progress.begin(case["id"])
         decision = supervisor.route({"question": case["question"], "chat_history": [], "agent_trace": []})
         predicted = decision.get("next_agent") or "finish"
         predicted = "supervisor" if predicted == "finish" else predicted
@@ -323,7 +356,7 @@ def run_routing(chat_model, registry, cases: List[Dict[str, Any]]) -> Dict[str, 
                 "correct": ok,
             }
         )
-        print(f"  [{'ok' if ok else 'XX'}] {case['id']:<12} -> {predicted}")
+        print(f"  [{'ok' if ok else 'XX'}] {case['id']:<12} -> {predicted}  {progress.status()}")
 
     summary = {"accuracy": metrics.mean(float(r["correct"]) for r in records), "by_category": {}}
     for category in metrics.CATEGORIES:
@@ -342,7 +375,9 @@ def run_e2e(chat_model, registry, cases: List[Dict[str, Any]]) -> Dict[str, Any]
 
     orchestrator = MultiAgentOrchestrator(chat_model=chat_model, registry=registry, checkpointer=MemorySaver())
     records = []
+    progress = Progress("end-to-end", len(cases))
     for case in cases:
+        progress.begin(case["id"])
         start = time.perf_counter()
         try:
             # Asked like a logged-in admin: documents unfiltered, requests allowed. No session, so requests are
@@ -398,7 +433,10 @@ def run_e2e(chat_model, registry, cases: List[Dict[str, Any]]) -> Dict[str, Any]
         else:  # e.g. greetings: no facts to check, only the routing
             passed = record["agent_correct"]
         status = "ok" if passed else "XX"
-        print(f"  [{status}] {case['id']:<12} {latency:6.1f}s  agent={record['agent']}  facts={_fmt(recall)}")
+        print(
+            f"  [{status}] {case['id']:<12} {latency:6.1f}s  agent={record['agent']}  facts={_fmt(recall)}  "
+            f"{progress.status()}"
+        )
 
     def rate(rows, key):
         return metrics.mean(float(r[key]) if r[key] is not None else None for r in rows)
@@ -477,7 +515,9 @@ def run_agents(chat_model, registry, cases: List[Dict[str, Any]]) -> Dict[str, A
     supervisor = SupervisorAgent(chat_model=chat_model, registry=registry)
     orchestrator = MultiAgentOrchestrator(chat_model=chat_model, registry=registry, checkpointer=MemorySaver())
     records = []
+    progress = Progress("agents", len(cases))
     for case in cases:
+        progress.begin(case["id"])
         record: Dict[str, Any] = {"id": case["id"], "kind": case["kind"]}
         start = time.perf_counter()
         if case["kind"] == "plan":
@@ -496,7 +536,8 @@ def run_agents(chat_model, registry, cases: List[Dict[str, Any]]) -> Dict[str, A
                     fact_recall=metrics.fact_recall(result.get("answer", ""), case["expected_facts"]),
                 )
             mark = "ok" if record["correct"] else "XX"
-            print(f"  [{mark}] {case['id']:<14} -> {planned}  facts: {_fmt(record.get('fact_recall'))}")
+            facts = _fmt(record.get("fact_recall"))
+            print(f"  [{mark}] {case['id']:<14} -> {planned}  facts: {facts}  {progress.status()}")
         else:
             # In a conversation, through the whole workflow: doc_agent asks back after seeing the rules
             result = orchestrator.query(case["question"], thread_id=f"eval-{case['id']}", user=EVAL_USER)
@@ -504,7 +545,8 @@ def run_agents(chat_model, registry, cases: List[Dict[str, Any]]) -> Dict[str, A
             record.update(asked_back=bool(clarification), clarification=clarification)
             record["correct"] = record["asked_back"] == (case["kind"] == "clarify")
             mark = "ok" if record["correct"] else "XX"
-            print(f"  [{mark}] {case['id']:<14} asked back: {record['asked_back']}  {clarification or ''}")
+            asked = f"asked back: {record['asked_back']}  {clarification or ''}"
+            print(f"  [{mark}] {case['id']:<14} {asked}  {progress.status()}")
         record["latency_s"] = round(time.perf_counter() - start, 2)
         records.append(record)
 
@@ -548,7 +590,9 @@ def run_grader(engine, chat_model, items: List[Dict[str, Any]]) -> Dict[str, Any
     from src.agent.verification import check_answer
 
     records = []
+    progress = Progress("answer check", len(items))
     for item in items:
+        progress.begin(item["id"])
         start = time.perf_counter()
         result = engine.search(item["question"])
         check = check_answer(
@@ -565,7 +609,8 @@ def run_grader(engine, chat_model, items: List[Dict[str, Any]]) -> Dict[str, Any
             }
         )
         print(
-            f"  {item['id']:<24} grader {'pass' if check.first_verdict else 'FAIL'}  full {'pass' if check.passed else 'FAIL'}"
+            f"  {item['id']:<24} grader {'pass' if check.first_verdict else 'FAIL'}  "
+            f"full {'pass' if check.passed else 'FAIL'}  {progress.status()}"
         )
 
     def accepted(kind, mode):
@@ -704,6 +749,7 @@ def main(argv=None) -> int:
             report["config"]["corpus_chunks"] = chunk_count
 
         if "retrieval" in args.stages:
+            print("\n== Running retrieval ==")
             section = run_retrieval(engine, cases, pool=args.retrieval_pool)
             report["summary"]["retrieval"] = section["summary"]
             report["details"]["retrieval"] = section

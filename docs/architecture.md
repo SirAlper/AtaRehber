@@ -185,6 +185,7 @@ The verdict and refinement flag are returned as `hallucination_grade` and `is_re
 2. **Code checks** the grader cannot be trusted with:
    * **Numbers** (`GRADER_NUMBER_CHECK`): every number of the answer (references such as "Madde 30" or "2547 sayılı" left out) must be in the grader's quotes (digits or words), the question, or a tool result. The grader may quote the right sentence and still accept "30 days" where it says "15 days".
    * **Transitional articles** (`GRADER_TRANSITIONAL_CHECK`): if all evidence comes from a `Geçici Madde` or footnote while a provision in force was also retrieved, the answer is sent back once with that objection (superseded values such as "65 points" instead of the "55 points" in force). If the refined answer still relies on it, it is shown with a warning.
+   * **Quantities** (`GRADER_QUANTITY_CHECK`): an answer to a question that asks for a quantity ("kaç gün", "ne kadar", "how many") must state one (digits, words, or "there is no limit"). An answer that only talks about the topic is sent back once; if the refined or partial answer still states none, the answer is "not in the documents" (issue `not_found`), since the grader accepts such answers: what they say is in the documents.
 3. A failed check is **refined once** with the objection and checked again.
 4. Still failed: the sentences of the answer the quotes support (all their numbers quoted, or most word stems) are shown as a **partial answer**; if none are, the safe fallback.
 

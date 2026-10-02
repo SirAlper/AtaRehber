@@ -99,10 +99,12 @@ OLLAMA_GRADER_MODEL = os.getenv("OLLAMA_GRADER_MODEL", "").strip()
 ANSWER_CACHE_SIZE = int(os.getenv("ANSWER_CACHE_SIZE", "256"))
 ANSWER_CACHE_MINUTES = int(os.getenv("ANSWER_CACHE_MINUTES", "1440"))
 # Answer check (src/agent/verification.py): a second look when the grader rejects an answer; every number of the
-# answer must be in the grader's quotes; an answer relying only on a transitional article is sent back once
+# answer must be in the grader's quotes; an answer relying only on a transitional article is sent back once; so
+# is an answer without a quantity to a question that asks for one ("kaç gün", "how many")
 GRADER_SECOND_OPINION = os.getenv("GRADER_SECOND_OPINION", "true").lower() == "true"
 GRADER_NUMBER_CHECK = os.getenv("GRADER_NUMBER_CHECK", "true").lower() == "true"
 GRADER_TRANSITIONAL_CHECK = os.getenv("GRADER_TRANSITIONAL_CHECK", "true").lower() == "true"
+GRADER_QUANTITY_CHECK = os.getenv("GRADER_QUANTITY_CHECK", "true").lower() == "true"
 # doc_agent copies the sentences its answer relies on before answering (EVIDENCE / ANSWER lines)
 ANSWER_EVIDENCE_FIRST = os.getenv("ANSWER_EVIDENCE_FIRST", "false").lower() == "true"
 # doc_agent may call the calculator and date tools (deadlines, averages) while answering

@@ -8,6 +8,7 @@ This document provides a comprehensive log of new features, architectural upgrad
 
 ### Fixed: documents still being indexed, and sources under "not in the documents"
 * **A document being indexed is shown as such:** an uploaded file is on disk minutes before its chunks are in the index (a long law takes several minutes on the CPU), and the document list showed it like a ready one. The list now marks it "Indexing… not searchable yet" (`indexing` in `GET /api/v1/documents`) and reloads until it is done; a file whose indexing failed is marked "Not indexed; upload it again".
+* **Answers that talk about the topic instead of answering:** "Yıllık izin hakkı kaç gündür?" got "leave is used while teaching is suspended (Madde 64)" as a verified answer, because everything it said is in the law, although the law states no number of days. An answer to a question that asks for a quantity ("kaç gün", "ne kadar", "how many") must now state one or say that there is none; otherwise it is sent back once, and if it still states none, the answer is "not in the documents" (`GRADER_QUANTITY_CHECK`). None of the 48 correct answers to quantity questions in the university answer-check dataset is affected; the end-to-end evaluation has not been re-run.
 * **No sources under "not in the documents":** when the model read passages and found that they do not answer the question, the answer said so but still listed those passages as its sources. They are no longer returned; the trace keeps their count.
 
 ### Added: landing page, and the project is named AtaRehber
