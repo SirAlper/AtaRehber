@@ -1,6 +1,6 @@
 # 🏗️ System Architecture & Engineering Principles
 
-`OpenLocalRagAgents` is built upon **Two-Stage Retrieval**, a **LangGraph Multi-Agent Supervisor workflow**, **Role-Based Access Control (RBAC)**, and **Hash-Chained Audit Logging**, designed to execute 100% locally on private enterprise hardware without sending proprietary data to third-party cloud APIs.
+`AtaRehber` is built upon **Two-Stage Retrieval**, a **LangGraph Multi-Agent Supervisor workflow**, **Role-Based Access Control (RBAC)**, and **Hash-Chained Audit Logging**, designed to execute 100% locally on private enterprise hardware without sending proprietary data to third-party cloud APIs.
 
 ---
 

@@ -1,6 +1,6 @@
 # 🗄️ Enterprise Database Integration (SQLAlchemy)
 
-`OpenLocalRagAgents` features a modular, database-agnostic connector layer (`src/connectors/`) built on **SQLAlchemy**. It enables plug-and-play connectivity to **PostgreSQL, MSSQL, MySQL, Oracle, or SQLite** without coupling to proprietary database vendor APIs.
+`AtaRehber` features a modular, database-agnostic connector layer (`src/connectors/`) built on **SQLAlchemy**. It enables plug-and-play connectivity to **PostgreSQL, MSSQL, MySQL, Oracle, or SQLite** without coupling to proprietary database vendor APIs.
 
 ---
 

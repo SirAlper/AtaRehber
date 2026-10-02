@@ -52,15 +52,15 @@ describe("organization texts", () => {
   it("replace the built-in ones on screen and come back when cleared", () => {
     void i18n.changeLanguage("tr");
     render(<Probe />);
-    expect(screen.getByRole("heading")).toHaveTextContent("OpenLocal Asistan");
-
-    act(() => applyUiSettings(settings({ app_name: "AtaRehber" }, { suggestions: ["Burs ne zaman yatar?"] })));
     expect(screen.getByRole("heading")).toHaveTextContent("AtaRehber");
+
+    act(() => applyUiSettings(settings({ app_name: "Kampüs Rehberi" }, { suggestions: ["Burs ne zaman yatar?"] })));
+    expect(screen.getByRole("heading")).toHaveTextContent("Kampüs Rehberi");
     expect(screen.getAllByRole("listitem").map((li) => li.textContent)).toEqual(["Burs ne zaman yatar?"]);
-    expect(document.title).toBe("AtaRehber");
+    expect(document.title).toBe("Kampüs Rehberi");
 
     act(() => applyUiSettings(settings()));
-    expect(screen.getByRole("heading")).toHaveTextContent("OpenLocal Asistan");
+    expect(screen.getByRole("heading")).toHaveTextContent("AtaRehber");
     expect(screen.getAllByRole("listitem")).toHaveLength(3);
   });
 
@@ -112,18 +112,18 @@ describe("appearance tab", () => {
     );
 
     const name = await screen.findByLabelText("Asistanın adı");
-    expect(name).toHaveAttribute("placeholder", "OpenLocal Asistan");
+    expect(name).toHaveAttribute("placeholder", "AtaRehber");
     expect(screen.getByLabelText("Örnek sorular").getAttribute("placeholder")).toContain("Yıllık izin hakkı kaç gündür?");
     expect(screen.getByText(/Son değişiklik: admin/)).toBeInTheDocument();
 
-    await userEvent.type(name, "AtaRehber");
+    await userEvent.type(name, "Kampüs Rehberi");
     await userEvent.type(screen.getByLabelText("Örnek sorular"), "Burs ne zaman yatar?{Enter}{Enter}Yurt ücreti?");
     await userEvent.type(screen.getByLabelText("Birim alanı"), "Fakülte");
     await userEvent.click(screen.getByRole("button", { name: "Kaydet" }));
 
     await waitFor(() => expect(saved).toHaveLength(1));
     const body = saved[0] as UiSettings;
-    expect(body.app_name).toBe("AtaRehber");
+    expect(body.app_name).toBe("Kampüs Rehberi");
     expect(body.texts.tr.suggestions).toEqual(["Burs ne zaman yatar?", "Yurt ücreti?"]);
     expect(body.texts.tr.unit_label).toBe("Fakülte");
     expect(body.texts.en.suggestions).toEqual([]);

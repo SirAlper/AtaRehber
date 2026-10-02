@@ -50,7 +50,7 @@ async def lifespan(app: FastAPI):
 API_VERSION = "2.1.1"
 
 app = FastAPI(
-    title="OpenLocalRagAgents API",
+    title="AtaRehber API",
     description="Privacy-first, on-premise RAG and Agentic AI gateway with zero cloud dependencies.",
     version=API_VERSION,
     lifespan=lifespan,

@@ -3,8 +3,9 @@
 
 import { useEffect, useRef } from "react";
 
-import { isThinking } from "@/lib/activity";
+import { isLanding, isThinking } from "@/lib/activity";
 import { createWorld, render, resizeWorld, step, type World } from "@/lib/cells";
+import { stepLava } from "@/lib/lava";
 import { setHueShift } from "@/lib/palette";
 
 // The field is drawn at most this many pixels and scaled up by the browser, which also softens its edges (a blur
@@ -18,8 +19,8 @@ function fieldSize() {
 }
 
 /** Calm while idle; gathering and merging while the assistant thinks (the site's colours turn to a new palette),
- * scattering to new places when the answer is in (the colours turn back). Still for users who prefer reduced
- * motion. */
+ * scattering to new places when the answer is in (the colours turn back). Behind the landing page they rise and
+ * sink like a lava lamp (src/lib/lava.ts). Still for users who prefer reduced motion. */
 function LivingColors() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
@@ -44,7 +45,8 @@ function LivingColors() {
       if (!still) {
         // Hidden tabs pause; a long gap must not throw the cells across the screen
         const dt = Math.min(elapsed / 1000, 0.1);
-        step(world, dt, isThinking());
+        if (isLanding()) stepLava(world, dt);
+        else step(world, dt, isThinking());
         // The site's brand colours turn with the background
         setHueShift(world.paletteShift);
       }

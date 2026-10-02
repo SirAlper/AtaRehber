@@ -1,4 +1,4 @@
-"""OpenLocalRagAgents backend.
+"""AtaRehber backend.
 
 - src.core: settings, logging, audit trail
 - src.auth: users, tokens, roles, document access groups

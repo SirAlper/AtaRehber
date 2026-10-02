@@ -1,6 +1,6 @@
 # 🔌 REST API Documentation
 
-`OpenLocalRagAgents` exposes a high-performance REST API built on **FastAPI** to enable turnkey integration with enterprise portals, CRM, ERP, and internal workplace bots.
+`AtaRehber` exposes a high-performance REST API built on **FastAPI** to enable turnkey integration with enterprise portals, CRM, ERP, and internal workplace bots.
 
 The interactive OpenAPI Swagger UI is available at `http://localhost:8000/docs` whenever the server is running.
 

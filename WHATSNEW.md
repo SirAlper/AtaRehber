@@ -1,10 +1,15 @@
-# 🚀 What's New in OpenLocalEnterpriseRag
+# 🚀 What's New in AtaRehber
 
-This document provides a comprehensive log of new features, architectural upgrades, system components, API endpoints, and user experience enhancements introduced in **OpenLocalEnterpriseRag**.
+This document provides a comprehensive log of new features, architectural upgrades, system components, API endpoints, and user experience enhancements introduced in **AtaRehber**.
 
 ---
 
 ## 🧭 Unreleased
+
+### Added: landing page, and the project is named AtaRehber
+* **Landing page:** visitors first see what the assistant is (sources under every answer, no made-up answers, data stays on the organization's server) and how to use it in four steps, then go on to the login page with "Sohbete başla". Shown once per browser tab; the login page links back to it. Logged-in users go straight to the chat.
+* **Lava lamp:** behind the landing page the colour fields rise and sink like wax in a lamp: a blob warms at the bottom, rises, cools at the top, and sinks again, clinging to others on the way (`web/src/lib/lava.ts`). It moves the same fields as the chat's background, so they roam on from where the lamp left them.
+* **Name:** the repository, the docs, the API title, the Docker image tags, and the web UI's built-in name are now AtaRehber (before: OpenLocalRagAgents, OpenLocalEnterpriseRag, "OpenLocal Asistan"). Admins can still set another name under **Administration → Appearance**.
 
 ### Improved: ready to install for any organization
 * **Texts per organization:** admins set the assistant's name, the welcome and disclaimer texts, up to six example questions, the example request, and the names of the profile fields, in Turkish and English, under **Administration → Appearance**. Empty fields keep the built-in texts, which no longer refer to a university ("Yıllık izin hakkı kaç gündür?" instead of the retirement age of faculty members). `UI_LANGUAGE` and `UI_DISCLAIMER` now apply to the React web UI.
@@ -196,7 +201,7 @@ This document provides a comprehensive log of new features, architectural upgrad
 
 ## 🌟 Version 2.1.0 — Pluggable Multi-Agent Ecosystem
 
-OpenLocalEnterpriseRag has evolved from a single-agent RAG pipeline into an **extensible, modular, and pluggable Multi-Agent framework** powered by LangGraph. The platform now features an intelligent **Supervisor Orchestrator** paired with domain-specific **Specialist Sub-Agents**, complete with real-time execution trace auditing.
+AtaRehber has evolved from a single-agent RAG pipeline into an **extensible, modular, and pluggable Multi-Agent framework** powered by LangGraph. The platform now features an intelligent **Supervisor Orchestrator** paired with domain-specific **Specialist Sub-Agents**, complete with real-time execution trace auditing.
 
 ---
 

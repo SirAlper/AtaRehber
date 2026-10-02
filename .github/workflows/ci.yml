@@ -160,7 +160,7 @@ jobs:
         with:
           context: .
           push: false
-          tags: openlocalragagents:ci
+          tags: atarehber:ci
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -169,7 +169,7 @@ jobs:
         with:
           context: web
           push: false
-          tags: openlocalragagents-web:ci
+          tags: atarehber-web:ci
 
       - name: Validate compose files
         run: |

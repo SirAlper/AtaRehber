@@ -1,4 +1,4 @@
-# 🏢 OpenLocalRagAgents
+# 🏢 AtaRehber
 
 [![Python Version](https://img.shields.io/badge/python-3.12%20%7C%203.13%20%7C%203.14-blue.svg)](https://www.python.org/)
 [![PyTorch](https://img.shields.io/badge/PyTorch-EE4C2C?logo=pytorch&logoColor=white)](https://pytorch.org/)
@@ -82,8 +82,8 @@ Explore our detailed architectural, operational, and development guides:
 
 ### 1. Clone Repository & Install Dependencies
 ```bash
-git clone https://github.com/SirAlper/OpenLocalRagAgents.git
-cd OpenLocalRagAgents
+git clone https://github.com/SirAlper/AtaRehber.git
+cd AtaRehber
 
 # Create and activate virtual environment
 python -m venv .venv
@@ -147,7 +147,7 @@ pytest tests/ -v
 ## 📁 Repository Structure
 
 ```text
-OpenLocalRagAgents/
+AtaRehber/
 ├── data/                  # Documents (PDF, DOCX, TXT), sample DB, audit.db, conversations, requests.db, users.json
 ├── models/                # Local retrieval model weights (BGE-M3, BGE-Reranker); the LLM lives in Ollama
 ├── vector_db/             # ChromaDB persistent vector collection

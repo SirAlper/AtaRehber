@@ -1,4 +1,4 @@
-import { lazy, Suspense } from "react";
+import { lazy, Suspense, useState } from "react";
 import { Navigate, Route, Routes } from "react-router-dom";
 
 import { useAuth } from "@/auth/AuthContext";
@@ -7,6 +7,7 @@ import { Spinner } from "@/components/ui";
 import { useUiSettings } from "@/lib/uiSettings";
 import { ChangePasswordPage } from "@/pages/ChangePasswordPage";
 import { ChatPage } from "@/pages/ChatPage";
+import { LandingPage } from "@/pages/LandingPage";
 import { LoginPage } from "@/pages/LoginPage";
 
 // Pages most users never open are loaded on demand
@@ -21,12 +22,35 @@ function Splash() {
   );
 }
 
+// Visitors see the landing page once per browser tab, then the login page
+const LANDING_SEEN_KEY = "landing-seen";
+
+function landingSeen() {
+  try {
+    return sessionStorage.getItem(LANDING_SEEN_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
 export default function App() {
   const { user, ready, isStaff, isGuest } = useAuth();
-  // The organization's name and texts, for the login page too
+  const [entered, setEntered] = useState(landingSeen);
+  // The organization's name and texts, for the landing and login pages too
   useUiSettings();
+
+  function enter(value: boolean) {
+    setEntered(value);
+    try {
+      if (value) sessionStorage.setItem(LANDING_SEEN_KEY, "1");
+      else sessionStorage.removeItem(LANDING_SEEN_KEY);
+    } catch {
+      // The landing page then shows again after a reload
+    }
+  }
+
   if (!ready) return <Splash />;
-  if (!user) return <LoginPage />;
+  if (!user) return entered ? <LoginPage onAbout={() => enter(false)} /> : <LandingPage onStart={() => enter(true)} />;
   if (user.must_change_password) return <ChangePasswordPage />;
 
   return (

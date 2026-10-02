@@ -1,6 +1,6 @@
 # 🤖 Custom Sub-Agent Development Guide
 
-`OpenLocalEnterpriseRag` features a **modular, extensible, and pluggable Multi-Agent architecture** designed to incorporate specialized domain sub-agents according to enterprise requirements.
+`AtaRehber` features a **modular, extensible, and pluggable Multi-Agent architecture** designed to incorporate specialized domain sub-agents according to enterprise requirements.
 
 The system is centered around an **Intelligent Supervisor Orchestrator**. Whenever a new sub-agent is registered, the Supervisor **automatically discovers it**, registers its specialization domain, and delegates relevant incoming user inquiries accordingly.
 

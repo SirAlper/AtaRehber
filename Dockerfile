@@ -1,5 +1,5 @@
 # ==============================================================================
-# OpenLocalRagAgents — Backend Production Dockerfile
+# AtaRehber — Backend Production Dockerfile
 # Multi-stage build for Python 3.12. PyTorch wheel variant is selected at build time:
 #   CPU (default):  docker build .
 #   CUDA 12.1:      docker build --build-arg TORCH_INDEX_URL=https://download.pytorch.org/whl/cu121 .

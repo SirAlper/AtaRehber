@@ -1,6 +1,6 @@
 # 🐳 Docker Deployment Guide
 
-This guide details how to deploy `OpenLocalRagAgents` using **Docker** and **Docker Compose** for production and on-premise enterprise environments.
+This guide details how to deploy `AtaRehber` using **Docker** and **Docker Compose** for production and on-premise enterprise environments.
 
 ---
 

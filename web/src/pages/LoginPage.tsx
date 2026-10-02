@@ -15,7 +15,7 @@ const FEATURES = [
   { icon: LockKeyhole, tr: "Veriler kurum sunucusundan çıkmaz", en: "Data never leaves the organization's server" },
 ];
 
-export function LoginPage() {
+export function LoginPage({ onAbout }: { onAbout?: () => void }) {
   const { t, i18n } = useTranslation();
   const { login, startGuest, guestEnabled } = useAuth();
   const { theme, toggle } = useTheme();
@@ -132,6 +132,16 @@ export function LoginPage() {
               </Button>
               <p className="mt-2 text-center text-xs text-slate-500 dark:text-slate-400">{t("login.guestHint")}</p>
             </>
+          )}
+
+          {onAbout && (
+            <button
+              type="button"
+              onClick={onAbout}
+              className="mx-auto mt-6 block text-sm text-violet-700 underline-offset-2 hover:underline dark:text-violet-300"
+            >
+              {t("landing.about", { name: t("app.name") })}
+            </button>
           )}
         </section>
       </div>

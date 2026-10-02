@@ -1,6 +1,6 @@
-# 🤝 Contributing to OpenLocalRagAgents
+# 🤝 Contributing to AtaRehber
 
-Thank you for considering contributing to **OpenLocalRagAgents**! Every contribution matters — whether it's fixing a bug, improving documentation, or proposing a new feature.
+Thank you for considering contributing to **AtaRehber**! Every contribution matters — whether it's fixing a bug, improving documentation, or proposing a new feature.
 
 ---
 
@@ -8,8 +8,8 @@ Thank you for considering contributing to **OpenLocalRagAgents**! Every contribu
 
 ### 1. Fork & Clone
 ```bash
-git clone https://github.com/<your-username>/OpenLocalRagAgents.git
-cd OpenLocalRagAgents
+git clone https://github.com/<your-username>/AtaRehber.git
+cd AtaRehber
 ```
 
 ### 2. Create a Feature Branch

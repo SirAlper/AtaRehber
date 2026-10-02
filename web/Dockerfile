@@ -1,5 +1,5 @@
 # ==============================================================================
-# OpenLocalRagAgents — React web UI
+# AtaRehber — React web UI
 # Stage 1 builds the static files; stage 2 serves them with nginx, which also forwards /api to the backend,
 # so the browser talks to a single origin (refresh token cookie, no CORS).
 # ==============================================================================

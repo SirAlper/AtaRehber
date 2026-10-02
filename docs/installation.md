@@ -1,6 +1,6 @@
 # 📦 Installation & Hardware Guide
 
-This guide provides step-by-step instructions for deploying `OpenLocalRagAgents` on local workstations or enterprise on-premise servers with hardware acceleration.
+This guide provides step-by-step instructions for deploying `AtaRehber` on local workstations or enterprise on-premise servers with hardware acceleration.
 
 ---
 
@@ -28,8 +28,8 @@ The LLM runs in a local [Ollama](https://ollama.com) server; the API process onl
 
 ### 1. Clone the Repository
 ```bash
-git clone https://github.com/SirAlper/OpenLocalRagAgents.git
-cd OpenLocalRagAgents
+git clone https://github.com/SirAlper/AtaRehber.git
+cd AtaRehber
 ```
 
 ### 2. Create and Activate Virtual Environment
