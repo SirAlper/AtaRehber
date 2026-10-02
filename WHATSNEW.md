@@ -6,6 +6,11 @@ This document provides a comprehensive log of new features, architectural upgrad
 
 ## 🧭 Unreleased
 
+### Measuring several models
+* **Reply length is a setting:** `OLLAMA_NUM_PREDICT` (default 512, as before) instead of a fixed value in the code.
+* **Reports say which models and checks ran:** the `config` block of an evaluation report now records the router and grader models, the reply length, and the answer-check switches (`GRADER_*`, `ANSWER_EVIDENCE_FIRST`, `DOC_AGENT_TOOLS`), so two runs can be told apart later.
+* **Kaggle notebook:** `evals/kaggle_eval.ipynb` runs the evaluation once per model of `MODELS` and shows the reports side by side; `GRADER_MODEL` lets one model check the answers of another, `EXTRA_ENV` sets any other setting.
+
 ### Fixed: documents still being indexed, and sources under "not in the documents"
 * **A document being indexed is shown as such:** an uploaded file is on disk minutes before its chunks are in the index (a long law takes several minutes on the CPU), and the document list showed it like a ready one. The list now marks it "Indexing… not searchable yet" (`indexing` in `GET /api/v1/documents`) and reloads until it is done; a file whose indexing failed is marked "Not indexed; upload it again".
 * **Answers that talk about the topic instead of answering:** "Yıllık izin hakkı kaç gündür?" got "leave is used while teaching is suspended (Madde 64)" as a verified answer, because everything it said is in the law, although the law states no number of days. An answer to a question that asks for a quantity ("kaç gün", "ne kadar", "how many") must now state one or say that there is none; otherwise it is sent back once, and if it still states none, the answer is "not in the documents" (`GRADER_QUANTITY_CHECK`). None of the 48 correct answers to quantity questions in the university answer-check dataset is affected; the end-to-end evaluation has not been re-run.

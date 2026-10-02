@@ -44,6 +44,10 @@ class TestOllamaChatModel(unittest.TestCase):
         with patch.object(llm, "OLLAMA_NUM_GPU", 99):
             self.assertEqual(llm.create_chat_model().num_gpu, 99)
 
+    def test_num_predict_limits_the_reply_length(self):
+        with patch.object(llm, "OLLAMA_NUM_PREDICT", 1024):
+            self.assertEqual(llm.create_chat_model().num_predict, 1024)
+
     def test_removed_huggingface_settings_are_reported(self):
         with (
             patch.dict("os.environ", {"LLM_BACKEND": "huggingface", "LLM_MODEL_ID": "Qwen/Qwen2.5-1.5B-Instruct"}),

@@ -17,6 +17,7 @@ from src.core.config import (
     OLLAMA_MODEL,
     OLLAMA_NUM_CTX,
     OLLAMA_NUM_GPU,
+    OLLAMA_NUM_PREDICT,
     OLLAMA_ROUTER_MODEL,
 )
 from src.core.logger import get_logger
@@ -59,7 +60,7 @@ def create_chat_model(model: Optional[str] = None) -> ChatOllama:
         base_url=OLLAMA_BASE_URL,
         model=model,
         temperature=0.0,
-        num_predict=512,
+        num_predict=OLLAMA_NUM_PREDICT,
         num_ctx=OLLAMA_NUM_CTX,
         # None: Ollama decides how many layers fit on the GPU
         num_gpu=OLLAMA_NUM_GPU if OLLAMA_NUM_GPU >= 0 else None,

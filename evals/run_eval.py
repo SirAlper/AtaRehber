@@ -713,7 +713,10 @@ def main(argv=None) -> int:
                 "reranker_model": os.path.basename(config.RERANKER_MODEL_NAME),
                 "llm_backend": "ollama",
                 "llm_model": config.OLLAMA_MODEL,
+                "router_model": config.OLLAMA_ROUTER_MODEL or config.OLLAMA_MODEL,
+                "grader_model": config.OLLAMA_GRADER_MODEL or config.OLLAMA_MODEL,
                 "ollama_num_ctx": config.OLLAMA_NUM_CTX,
+                "ollama_num_predict": config.OLLAMA_NUM_PREDICT,
                 "rag_min_similarity": config.RAG_MIN_SIMILARITY,
                 "rag_min_reranker_score": config.RAG_MIN_RERANKER_SCORE,
                 "reranker_top_n": config.RERANKER_TOP_N,
@@ -722,6 +725,12 @@ def main(argv=None) -> int:
                 "article_chunk_size": config.ARTICLE_CHUNK_SIZE,
                 "ollama_num_gpu": config.OLLAMA_NUM_GPU,
                 "grader_mode": config.GRADER_MODE,
+                "grader_second_opinion": config.GRADER_SECOND_OPINION,
+                "grader_number_check": config.GRADER_NUMBER_CHECK,
+                "grader_transitional_check": config.GRADER_TRANSITIONAL_CHECK,
+                "grader_quantity_check": config.GRADER_QUANTITY_CHECK,
+                "answer_evidence_first": config.ANSWER_EVIDENCE_FIRST,
+                "doc_agent_tools": config.DOC_AGENT_TOOLS,
                 "database": not args.no_database,
             },
             "summary": {},
@@ -738,6 +747,8 @@ def main(argv=None) -> int:
                 print(f"LLM not available: {llm_problem}")
                 return 1
             print(f"LLM: {config.OLLAMA_MODEL} via Ollama at {config.OLLAMA_BASE_URL}")
+            if config.OLLAMA_GRADER_MODEL and config.OLLAMA_GRADER_MODEL != config.OLLAMA_MODEL:
+                print(f"Answers are checked by: {config.OLLAMA_GRADER_MODEL}")
 
         # Routing only needs the agents' descriptions, not the vector store
         engine = None

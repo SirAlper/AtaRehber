@@ -99,6 +99,8 @@ PASSWORD_REQUIRE_SPECIAL=false
 OLLAMA_BASE_URL=http://localhost:11434
 OLLAMA_MODEL=qwen2.5:7b
 OLLAMA_NUM_CTX=4096
+# Longest reply in tokens (a longer one is cut off):
+OLLAMA_NUM_PREDICT=512
 # Layers on the GPU (empty = Ollama decides; 99 = all, e.g. qwen2.5:7b on a 6 GB card):
 OLLAMA_NUM_GPU=
 OLLAMA_NUM_PARALLEL=4

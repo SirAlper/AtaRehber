@@ -75,6 +75,8 @@ OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen2.5:7b")
 # Context window in tokens. Set explicitly because some Ollama versions default to 2048 and silently
 # drop the start of longer prompts (system prompt and retrieved context).
 OLLAMA_NUM_CTX = int(os.getenv("OLLAMA_NUM_CTX", "4096"))
+# Longest reply in tokens; a longer one is cut off (a compliance report with four sections comes close to 512)
+OLLAMA_NUM_PREDICT = int(os.getenv("OLLAMA_NUM_PREDICT", "512"))
 # Model layers Ollama puts on the GPU; empty lets Ollama decide. Ollama keeps a safety margin and moves the last
 # layers of qwen2.5:7b to the CPU on a 6 GB card; 99 forces all layers on the GPU (about 4x faster prompt
 # processing there). Too high a value for the free VRAM makes loading the model fail.
