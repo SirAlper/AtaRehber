@@ -94,15 +94,26 @@ def phrase_in_context(phrase: str, context: str) -> bool:
     return len(words) >= 2 and f" {' '.join(words)}" in f" {' '.join(_words(context))} "
 
 
-def grade_from_quotes(raw: str, context: str, answer: str = "", question: str = "") -> str:
-    """Turn the quote grader's JSON into a grade string ('yes' / 'no: <reason>').
-
-    The answer passes if the grader says it is supported and every quote it gives is really in the context: a
-    quote the grader made up fails the answer. Empty quotes are ignored.
+def _rejection(problem: str, context: str, answer: str, question: str) -> str:
+    """Grade for a grader's 'no'.
 
     A 'no' whose problem is a phrase the context states word for word ("azami yedi yıl") is a grader mistake, as
     the prompt asks for a fact missing from the context; the answer then passes if all its numbers occur in the
     context or the question, so an invented number is still caught.
+    """
+    problem = problem.strip()[:150]
+    if answer and phrase_in_context(problem, context) and numbers_grounded(answer, context, question):
+        return f"yes (the grader's objection '{problem}' is stated in the documents)"
+    return f"no: {problem}" if problem else "no"
+
+
+def grade_from_quotes(raw: str, context: str, answer: str = "", question: str = "", strict_quotes: bool = True) -> str:
+    """Turn the quote grader's JSON into a grade string ('yes' / 'no: <reason>').
+
+    The answer passes if the grader says it is supported and every quote it gives is really in the context: a
+    quote the grader made up fails the answer. Empty quotes are ignored. With strict_quotes=False a quote that is
+    not in the context is only left out, as long as another one is: a model that garbles a word while copying
+    ("teşebbıs") does not lose a correct answer for it. See _rejection for a 'no' of the grader.
     """
     verdict = _parse_verdict(raw)
     if verdict is None:
@@ -110,11 +121,61 @@ def grade_from_quotes(raw: str, context: str, answer: str = "", question: str = 
         return str(raw or "").strip() or GRADE_UNAVAILABLE
     supported, problem, quotes = verdict
     if not is_grade_passed(supported):
-        problem = problem.strip()[:150]
-        if answer and phrase_in_context(problem, context) and numbers_grounded(answer, context, question):
-            return f"yes (the grader's objection '{problem}' is stated in the documents)"
-        return f"no: {problem}" if problem else "no"
-    for quote in quotes:
-        if quote.strip() and not quote_in_context(quote, context):
-            return f"no: quote not found in the documents ({quote.strip()[:150]})"
+        return _rejection(problem, context, answer, question)
+    quotes = [quote.strip() for quote in quotes if quote.strip()]
+    missing = [quote for quote in quotes if not quote_in_context(quote, context)]
+    if missing and (strict_quotes or len(missing) == len(quotes)):
+        return f"no: quote not found in the documents ({missing[0][:150]})"
     return "yes"
+
+
+# GRADER_MODE=sentences: the grader points to numbered sentences of the context instead of copying them
+
+# Chunk header added by the document loader: "[YÜKSEKÖĞRETİM KANUNU | Madde 30 – Emeklilik yaş haddi]"
+_HEADER_LINE = re.compile(r"^\[[^\]\n]*\]$")
+_SENTENCE_END = re.compile(r"(?<=[.;!?])\s+")
+
+
+def number_sentences(context: str) -> tuple:
+    """(context with a number before every sentence, the sentences): "[3] Disiplin cezalarına karşı ...".
+
+    Chunk headers and empty lines are kept without a number: they say which article a sentence belongs to.
+    """
+    lines, sentences = [], []
+    for line in str(context or "").split("\n"):
+        if not line.strip() or _HEADER_LINE.match(line.strip()):
+            lines.append(line)
+            continue
+        for sentence in _SENTENCE_END.split(line.strip()):
+            if sentence.strip():
+                sentences.append(sentence.strip())
+                lines.append(f"[{len(sentences)}] {sentence.strip()}")
+    return "\n".join(lines), sentences
+
+
+def cited_sentences(raw: str, sentences: list) -> list:
+    """The sentences the grader's reply points to ("sentences": [3, 7]); numbers that do not exist are ignored.
+
+    Read with a pattern, so a reply cut off by the token limit or with the numbers as strings still counts.
+    """
+    match = re.search(r'"sentences"\s*:\s*\[((?:\s*"?\[?\d+\]?"?\s*,?)*)', str(raw or ""))
+    if not match:
+        return []
+    numbers = dict.fromkeys(int(n) for n in re.findall(r"\d+", match.group(1)))
+    return [sentences[n - 1] for n in numbers if 1 <= n <= len(sentences)]
+
+
+def grade_from_sentences(raw: str, context: str, answer: str = "", question: str = "") -> str:
+    """Grade string of a grader reply that points to sentences; see grade_from_quotes. There is nothing copied
+    to check: the evidence is taken from the context itself (cited_sentences)."""
+    verdict = _parse_verdict(raw)
+    if verdict is None:
+        return str(raw or "").strip() or GRADE_UNAVAILABLE
+    supported, problem, _ = verdict
+    return "yes" if is_grade_passed(supported) else _rejection(problem, context, answer, question)
+
+
+def answers_question(raw: str) -> bool:
+    """The grader's "answers_question" (GRADER_RELEVANCE_CHECK); True when the reply does not say."""
+    match = re.search(r'"answers_question"\s*:\s*"?\s*(\w+)', str(raw or ""))
+    return not match or match.group(1).lower() not in ("no", "false", "hayır", "hayir")

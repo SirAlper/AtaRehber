@@ -6,6 +6,13 @@ This document provides a comprehensive log of new features, architectural upgrad
 
 ## 🧭 Unreleased
 
+### Answer check that does not depend on how well a model copies
+Measured on the 127 university questions, `qwen2.5:14b` scored below `qwen2.5:7b` (documents 83.8% against 91.4%), and half of the loss came from the answer check, not from the answers: the larger model garbled Turkish letters in the quotes it copied, so they were not found in the documents. New settings; the first three keep the earlier behaviour by default until both models are measured with them:
+* **`GRADER_MODE=sentences`:** the sentences of the retrieved passages are numbered and the grader gives the numbers of the ones that state the facts; the evidence shown with the answer is then the documents' own text, and the grader's reply is shorter.
+* **`GRADER_STRICT_QUOTES=false`** (with `GRADER_MODE=quotes`): a quote that is not in the documents is left out instead of failing the answer, as long as another quote is found.
+* **`GRADER_RELEVANCE_CHECK=true`:** the grader also says whether the answer gives what the question asks for; the general form of the quantity check (`GRADER_QUANTITY_CHECK`), which only knows "how many" questions and rejected a correct answer in that measurement.
+* **`ANSWER_SCRIPT_CHECK`** (on): an answer with letters of a script the documents do not use (Chinese in the middle of a Turkish answer) is written again once.
+
 ### Measuring several models
 * **Reply length is a setting:** `OLLAMA_NUM_PREDICT` (default 512, as before) instead of a fixed value in the code.
 * **Reports say which models and checks ran:** the `config` block of an evaluation report now records the router and grader models, the reply length, and the answer-check switches (`GRADER_*`, `ANSWER_EVIDENCE_FIRST`, `DOC_AGENT_TOOLS`), so two runs can be told apart later.

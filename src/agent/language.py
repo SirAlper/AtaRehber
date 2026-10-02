@@ -100,6 +100,15 @@ def detect_language(text: str) -> Optional[str]:
     return winners[0]
 
 
+def foreign_script(text: str, allowed: str = "") -> bool:
+    """Whether the text has letters of a non-Latin script (Chinese, Cyrillic, Arabic) that `allowed` (the
+    documents, the question) does not have: multilingual models now and then slip into Chinese mid-answer."""
+    known = set(str(allowed))
+    return any(
+        c.isalpha() and c not in known and not unicodedata.name(c, "").startswith("LATIN") for c in str(text or "")
+    )
+
+
 def _has_turkish_suffix(token: str) -> bool:
     if any(token.endswith(suffix) and len(token) > len(suffix) + 1 for suffix in _TURKISH_SUFFIXES):
         return True

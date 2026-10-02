@@ -10,7 +10,7 @@
      retrieved is sent back once (superseded values such as "65 points" instead of the "55 points" in force);
    * an answer to a question that asks for a quantity ("kaç gün", "how many") must state one or say that there
      is none; an answer that only talks about the topic is sent back once (the grader accepts it, since what it
-     says is in the documents).
+     says is in the documents). GRADER_RELEVANCE_CHECK asks the grader the same for every kind of question.
 3. A failed check is refined once with the objection and checked again.
 4. Still failed: the sentences of the answer that the quotes cover are shown as a partial answer; if none are,
    the safe fallback. The result is 'verified', 'partial', or 'unverified', with the reasons.
@@ -20,11 +20,9 @@ import re
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional
 
-from src.agent.grading import GRADE_UNAVAILABLE, grade_objection, is_grade_passed, verified_quotes
+from src.agent.grading import GRADE_UNAVAILABLE, grade_objection, is_grade_passed
 from src.agent.language import message, message_variants
-from src.agent.llm import json_mode
-from src.agent.prompts import build_second_opinion_messages
-from src.agent.self_rag import grade_answer_with_quotes, refine_answer
+from src.agent.self_rag import grade_answer_with_quotes, grade_with_evidence, refine_answer
 from src.core import config
 from src.core.logger import get_logger
 from src.rag.evidence import attach_evidence
@@ -72,6 +70,8 @@ class Check:
     objection: str = ""
     first_verdict: bool = False  # the grader's first verdict, before the second opinion and the code checks
     warnings: List[str] = field(default_factory=list)
+    # GRADER_RELEVANCE_CHECK: False for a refined answer that still does not give what the question asks for
+    answers_question: bool = True
 
 
 @dataclass
@@ -194,12 +194,12 @@ def check_answer(
     strict: the first check of an answer; False for a refined answer, whose transitional evidence becomes a
     warning and whose missing quantity is let through (nothing is sent back twice)."""
     full_context = "\n\n".join(part for part in (context, tool_context) if part)
-    grade, quotes = grade_answer_with_quotes(grader_model, full_context, question, answer, agent_name)
+    grade, quotes, on_topic = grade_answer_with_quotes(grader_model, full_context, question, answer, agent_name)
     first_verdict = is_grade_passed(grade)
     if not first_verdict and grade != GRADE_UNAVAILABLE and config.GRADER_SECOND_OPINION:
         second = _second_opinion(grader_model, full_context, question, answer, grade_objection(grade), agent_name)
         if second is not None:
-            grade, quotes = second
+            grade, quotes, on_topic = second
     if not is_grade_passed(grade):
         return Check(False, grade, quotes, grade_objection(grade), first_verdict)
 
@@ -221,6 +221,16 @@ def check_answer(
         )
         return Check(False, f"no: {objection}", quotes, objection, first_verdict)
 
+    # The grader's own view of the same thing, for every kind of question; "not in the documents" answers it
+    if any(text in str(answer) for text in message_variants("no_context")):
+        on_topic = True
+    if strict and not on_topic:
+        objection = (
+            "the answer does not give what the question asks for; answer exactly what is asked from the Context, "
+            "or, if the Context does not state it, answer that the information is not in the documents"
+        )
+        return Check(False, f"no: {objection}", quotes, objection, first_verdict)
+
     if config.GRADER_TRANSITIONAL_CHECK:
         article = relies_only_on_transitional(attach_evidence(sources, quotes), question)
         if article:
@@ -230,26 +240,19 @@ def check_answer(
             )
             if strict:
                 return Check(False, f"no: {objection}", quotes, objection, first_verdict)
-            return Check(True, grade, quotes, "", first_verdict, warnings=[ISSUE_TRANSITIONAL])
-    return Check(True, grade, quotes, "", first_verdict)
+            return Check(True, grade, quotes, "", first_verdict, [ISSUE_TRANSITIONAL], on_topic)
+    return Check(True, grade, quotes, "", first_verdict, answers_question=on_topic)
 
 
 def _second_opinion(grader_model, context: str, question: str, answer: str, objection: str, agent_name: str):
-    """(grade, quotes) of a second look at a rejected answer, or None if it fails."""
-    from src.agent.grading import grade_from_quotes
-
-    messages = build_second_opinion_messages(context, question, answer, objection)
+    """(grade, quotes, answers the question) of a second look at a rejected answer, or None if it fails."""
     try:
-        try:
-            response = json_mode(grader_model).invoke(messages)
-        except Exception:
-            response = grader_model.invoke(messages)
+        second = grade_with_evidence(grader_model, context, question, answer, agent_name, objection=objection)
     except Exception as e:
         logger.warning(f"[{agent_name}] Second opinion failed: {e}")
         return None
-    grade = grade_from_quotes(response.content, context, answer=answer, question=question)
-    logger.info(f"[{agent_name}] Second opinion on a rejected answer: {grade[:80]}")
-    return grade, verified_quotes(response.content, context)
+    logger.info(f"[{agent_name}] Second opinion on a rejected answer: {second[0][:80]}")
+    return second
 
 
 def verify_answer(
@@ -311,6 +314,11 @@ def _verify(
                 )
             logger.warning(f"[{agent_name}] Refined answer still unverified, using safe fallback.")
             return Verification(message("fallback", language), UNVERIFIED, recheck.grade, sources, True)
+    if not check.answers_question:
+        # Sent back once and still about the topic instead of what was asked: the documents do not answer it
+        logger.info(f"[{agent_name}] The refined answer does not give what the question asks for: not found.")
+        grade = "no: the documents do not state what the question asks for"
+        return Verification(message("no_context", language), UNVERIFIED, grade, sources, True, [NOT_FOUND])
     return Verification(
         answer, VERIFIED, check.grade, attach_evidence(sources, check.quotes), is_refined, list(check.warnings)
     )

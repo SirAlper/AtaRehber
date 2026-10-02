@@ -107,12 +107,17 @@ OLLAMA_NUM_PARALLEL=4
 # Optional separate models for routing and answer grading (empty = OLLAMA_MODEL):
 OLLAMA_ROUTER_MODEL=
 OLLAMA_GRADER_MODEL=
-# Answer check: quotes (facts backed by copied sentences) or simple (yes/no):
+# Answer check: quotes (facts backed by copied sentences), sentences (backed by sentence numbers), or simple (yes/no):
 GRADER_MODE=quotes
-# Answer check: second opinion on rejections, number check, transitional-article check:
+GRADER_STRICT_QUOTES=true
+# Answer check: second opinion on rejections, number check, transitional-article check, quantity check,
+# relevance check (off until measured), other-script check:
 GRADER_SECOND_OPINION=true
 GRADER_NUMBER_CHECK=true
 GRADER_TRANSITIONAL_CHECK=true
+GRADER_QUANTITY_CHECK=true
+GRADER_RELEVANCE_CHECK=false
+ANSWER_SCRIPT_CHECK=true
 # Reuse verified answers to first questions (0 = off):
 ANSWER_CACHE_SIZE=256
 ANSWER_CACHE_MINUTES=1440

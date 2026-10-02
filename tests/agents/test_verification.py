@@ -9,7 +9,9 @@ from langchain_core.messages import AIMessage
 
 from src.agent.language import message
 from src.agent.multi_agent.orchestrator_graph import _combined_verification
-from src.agent.prompts import SYSTEM_PROMPT_GRADER_QUOTES
+from src.agent.grading import cited_sentences, grade_from_quotes, grade_from_sentences, number_sentences
+from src.agent.language import foreign_script
+from src.agent.self_rag import refine_answer
 from src.agent.verification import (
     PARTIAL,
     UNVERIFIED,
@@ -38,14 +40,15 @@ class Grader:
     """Scripted grader and editor: grader prompts get the next grade, the editor the next refined answer."""
 
     def __init__(self, grades, refined=()):
-        self.grades, self.refined, self.prompts = list(grades), list(refined), []
+        self.grades, self.refined, self.prompts, self.contexts = list(grades), list(refined), [], []
 
     def bind(self, **kwargs):
         return self
 
     def invoke(self, messages):
         self.prompts.append(messages[0].content)
-        if messages[0].content.startswith(SYSTEM_PROMPT_GRADER_QUOTES):
+        if messages[0].content.startswith("You are a factual auditor"):
+            self.contexts.append(messages[1].content)
             return AIMessage(content=self.grades.pop(0))
         # The editor's prompt is localized, so everything else is the refinement
         return AIMessage(content=self.refined.pop(0))
@@ -154,6 +157,114 @@ class TestCheckAnswer(unittest.TestCase):
         lenient = self.check("15 gün.", [grade()], sources=sources, strict=False)
         self.assertTrue(lenient.passed)
         self.assertEqual(lenient.warnings, ["transitional"])
+
+
+class TestEvidenceBySentenceNumber(unittest.TestCase):
+    """GRADER_MODE=sentences: the grader points to numbered sentences instead of copying them."""
+
+    CONTEXT = (
+        "[KANUN | Madde 54]\n(10) Disiplin cezalarına karşı on beş gün içinde itiraz edilir. İtiraz kurula yapılır.\n\n"
+        "[KANUN | Madde 55]\nSoruşturma iki ay içinde bitirilir."
+    )
+
+    def test_sentences_are_numbered_and_headers_are_not(self):
+        numbered, sentences = number_sentences(self.CONTEXT)
+        self.assertEqual(len(sentences), 3)
+        self.assertIn(
+            "[KANUN | Madde 54]\n[1] (10) Disiplin cezalarına karşı on beş gün içinde itiraz edilir.", numbered
+        )
+        self.assertIn("\n[2] İtiraz kurula yapılır.\n\n[KANUN | Madde 55]\n[3] Soruşturma", numbered)
+
+    def test_cited_numbers_become_the_evidence(self):
+        sentences = number_sentences(self.CONTEXT)[1]
+        reply = '{"supported": "yes", "sentences": [3, 1, 3, 9]}'
+        self.assertEqual(cited_sentences(reply, sentences), [sentences[2], sentences[0]])
+        # Numbers as text, and a reply cut off by the token limit
+        self.assertEqual(cited_sentences('{"supported": "yes", "sentences": ["[2]", "1', sentences), sentences[1::-1])
+        self.assertEqual(cited_sentences('{"supported": "yes"}', sentences), [])
+        self.assertEqual(grade_from_sentences('{"supported": "yes", "sentences": [1]}', self.CONTEXT), "yes")
+        self.assertEqual(grade_from_sentences('{"supported": "no", "problem": "30 gün"}', self.CONTEXT), "no: 30 gün")
+
+    def test_an_answer_is_verified_with_the_sentence_the_grader_points_to(self):
+        reply = json.dumps({"supported": "yes", "problem": "", "sentences": [1]})
+        grader = Grader([reply])
+        with patch("src.core.config.GRADER_MODE", "sentences"):
+            result = verify_answer(grader, grader, CONTEXT, "Süre?", "İtiraz süresi 15 gündür.", SOURCES, "tr")
+            # The number check still works on the cited sentence
+            wrong = check_answer(Grader([reply]), CONTEXT, "Süre?", "İtiraz süresi 30 gündür.", SOURCES)
+        self.assertEqual(result.level, VERIFIED)
+        self.assertEqual(result.sources[0]["evidence"][0]["citation"], "Madde 54/10")
+        self.assertIn('"sentences": []', grader.prompts[0])
+        self.assertIn("[1] (10) Disiplin cezalarına", grader.contexts[0])
+        self.assertFalse(wrong.passed)
+
+    def test_a_garbled_quote_is_left_out_when_quotes_are_not_strict(self):
+        garbled = "Soruşturma teşebbıs halinde yeniden açılır"
+        reply = grade(quotes=[garbled, QUOTE])
+        self.assertTrue(grade_from_quotes(reply, CONTEXT).startswith("no: quote not found"))
+        self.assertEqual(grade_from_quotes(reply, CONTEXT, strict_quotes=False), "yes")
+        # No quote is in the documents: still rejected
+        self.assertNotEqual(grade_from_quotes(grade(quotes=[garbled]), CONTEXT, strict_quotes=False), "yes")
+        with patch("src.core.config.GRADER_STRICT_QUOTES", False):
+            self.assertTrue(check_answer(Grader([reply]), CONTEXT, "Süre?", "15 gün.", SOURCES).passed)
+
+
+class TestRelevanceAndScript(unittest.TestCase):
+    """GRADER_RELEVANCE_CHECK: the grader says whether the answer gives what is asked; ANSWER_SCRIPT_CHECK."""
+
+    QUESTION = "Yıllık izin hakkı kaç gündür?"
+    ANSWER = "Disiplin cezalarına itiraz edilebilir (Madde 54)."
+
+    def setUp(self):
+        for setting, value in (("GRADER_RELEVANCE_CHECK", True), ("GRADER_QUANTITY_CHECK", False)):
+            patcher = patch(f"src.core.config.{setting}", value)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+    @staticmethod
+    def reply(answers="no"):
+        return json.dumps({"supported": "yes", "problem": "", "answers_question": answers, "quotes": [QUOTE]})
+
+    def test_an_answer_beside_the_question_is_sent_back_once(self):
+        grader = Grader([self.reply()])
+        result = check_answer(grader, CONTEXT, self.QUESTION, self.ANSWER, SOURCES)
+        self.assertFalse(result.passed)
+        self.assertIn("does not give what the question asks for", result.objection)
+        self.assertIn("answers_question", grader.prompts[0])
+        # A refined answer is not sent back again, only marked; "not in the documents" answers the question
+        again = check_answer(Grader([self.reply()]), CONTEXT, self.QUESTION, self.ANSWER, SOURCES, strict=False)
+        self.assertEqual((again.passed, again.answers_question), (True, False))
+        not_found = check_answer(Grader([self.reply()]), CONTEXT, self.QUESTION, message("no_context", "tr"), SOURCES)
+        self.assertTrue(not_found.passed)
+        self.assertTrue(check_answer(Grader([self.reply("yes")]), CONTEXT, "Süre?", "15 gün.", SOURCES).passed)
+
+    def test_still_beside_the_question_after_refining_means_not_found(self):
+        grader = Grader([self.reply(), self.reply()])
+        result = verify_answer(Grader([], [self.ANSWER]), grader, CONTEXT, self.QUESTION, self.ANSWER, SOURCES, "tr")
+        self.assertEqual(result.answer, message("no_context", "tr"))
+        self.assertEqual(result.as_dict(), {"level": "unverified", "issues": ["not_found"]})
+        # The editor finds the answer: verified as usual
+        grader = Grader([self.reply(), self.reply("yes")])
+        result = verify_answer(Grader([], ["15 gün."]), grader, CONTEXT, "Süre kaç gün?", self.ANSWER, SOURCES, "tr")
+        self.assertEqual((result.level, result.answer), (VERIFIED, "15 gün."))
+
+    def test_the_prompt_is_unchanged_when_the_check_is_off(self):
+        grader = Grader([grade()])
+        with patch("src.core.config.GRADER_RELEVANCE_CHECK", False):
+            check_answer(grader, CONTEXT, "Süre?", "15 gün.", SOURCES)
+        self.assertNotIn("answers_question", grader.prompts[0])
+
+    def test_letters_of_another_script(self):
+        self.assertTrue(foreign_script("İtiraz süresi 15 gündür. 条件下不符合规则"))
+        self.assertFalse(foreign_script("İtiraz süresi 15 gündür (Madde 54/10): %50, â, ş."))
+        # A script the documents use is not foreign
+        self.assertFalse(foreign_script("Katsayı α ile gösterilir.", allowed="α katsayısı"))
+        # The editor slipped into Chinese: the draft is kept
+        editor = Grader([], ["15 gün. 不符合规则"])
+        self.assertEqual(refine_answer(editor, CONTEXT, "Süre?", "30 gün.", "tr"), "30 gün.")
+        with patch("src.core.config.ANSWER_SCRIPT_CHECK", False):
+            editor = Grader([], ["15 gün. 不符合规则"])
+            self.assertEqual(refine_answer(editor, CONTEXT, "Süre?", "30 gün.", "tr"), "15 gün. 不符合规则")
 
 
 class TestVerifyAnswer(unittest.TestCase):

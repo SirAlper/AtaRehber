@@ -53,16 +53,43 @@ SYSTEM_PROMPT_GRADER = (
     "Do not write anything else."
 )
 
-SYSTEM_PROMPT_GRADER_QUOTES = (
+_GRADER_RULES = (
     "You are a factual auditor. Check whether the Answer is supported by the Context.\n"
     "- 'supported' is 'yes' if the key facts of the Answer (numbers, durations, deadlines, penalties, conditions, "
     "bodies, names) are stated in the Context. Paraphrasing and summarizing are fine.\n"
     "- It is 'no' if a key fact is missing from the Context or the Context states something different (another "
     "number, another penalty, a different condition); 'problem' then names that fact in a few words.\n"
-    "- 'quotes': for each key fact, copy the words of the Context that state it, word for word "
-    "(at most 25 words each, at most 4 quotes).\n"
-    'Reply with JSON only: {"supported": "yes", "problem": "", "quotes": ["..."]}'
 )
+# How the grader shows its evidence (GRADER_MODE): copied words, or the numbers of the Context's sentences. A
+# model that garbles Turkish letters while copying loses correct answers with "quotes"; numbers cannot be garbled.
+_GRADER_EVIDENCE = {
+    "quotes": (
+        "- 'quotes': for each key fact, copy the words of the Context that state it, word for word "
+        "(at most 25 words each, at most 4 quotes).\n",
+        '"quotes": ["..."]',
+    ),
+    "sentences": (
+        "- 'sentences': the sentences of the Context are numbered in square brackets ([1], [2], ...); for each key "
+        "fact, give the number of the sentence that states it (at most 6 numbers).\n",
+        '"sentences": []',
+    ),
+}
+# GRADER_RELEVANCE_CHECK: an answer can be supported and still not answer the question (it talks about the topic)
+_GRADER_RELEVANCE_RULE = (
+    "- 'answers_question' is 'no' if the Answer does not give what the Question asks for: the Question asks for "
+    "a number, a duration, a date, a name, or a yes or no and the Answer gives none, or the Answer is about "
+    "something else. It is 'yes' otherwise, also for an Answer saying that the documents do not state it.\n"
+)
+
+
+def grader_system_prompt(mode: str = "quotes", relevance: bool = False) -> str:
+    """System prompt of the grader that shows its evidence; mode: "quotes" or "sentences"."""
+    rule, example = _GRADER_EVIDENCE[mode]
+    fields = '"supported": "yes", "problem": "", ' + ('"answers_question": "yes", ' if relevance else "") + example
+    return f"{_GRADER_RULES}{_GRADER_RELEVANCE_RULE if relevance else ''}{rule}Reply with JSON only: {{{fields}}}"
+
+
+SYSTEM_PROMPT_GRADER_QUOTES = grader_system_prompt()
 
 SYSTEM_PROMPT_REFINE = (
     "You are an editor and verification specialist.\n"
@@ -205,14 +232,6 @@ def build_grader_messages(context: str, question: str, answer: str) -> list:
     ]
 
 
-def build_quote_grader_messages(context: str, question: str, answer: str) -> list:
-    """Build messages for the grader that backs every fact of the answer with a quote from the context."""
-    return [
-        SystemMessage(content=SYSTEM_PROMPT_GRADER_QUOTES),
-        HumanMessage(content=f"Context:\n{context}\n\nQuestion: {question}\n\nAnswer:\n{answer}"),
-    ]
-
-
 SECOND_OPINION_NOTE = (
     'Another auditor rejected this Answer with the objection: "{objection}". Check that objection against the '
     "Context yourself: it may be wrong. Reject the Answer only if the Context really does not state a key fact of it "
@@ -220,11 +239,26 @@ SECOND_OPINION_NOTE = (
 )
 
 
-def build_second_opinion_messages(context: str, question: str, answer: str, objection: str) -> list:
-    """Second look of the grader at an answer it rejected, with the first objection to check."""
-    note = SECOND_OPINION_NOTE.format(objection=objection or "no reason given")
+def build_evidence_grader_messages(
+    context: str,
+    question: str,
+    answer: str,
+    mode: str = "quotes",
+    relevance: bool = False,
+    objection: Optional[str] = None,
+) -> list:
+    """Messages for the grader that backs every fact of the answer with evidence from the context.
+
+    mode: "quotes" (copied words) or "sentences" (numbers; the context must then be numbered, see
+    number_sentences in src/agent/grading.py). relevance: also ask whether the answer gives what is asked.
+    objection: a second look at an answer the grader rejected, with the first objection to check ("" if it gave
+    none); None for the first look.
+    """
+    system_prompt = grader_system_prompt(mode, relevance)
+    if objection is not None:
+        system_prompt += "\n" + SECOND_OPINION_NOTE.format(objection=objection or "no reason given")
     return [
-        SystemMessage(content=f"{SYSTEM_PROMPT_GRADER_QUOTES}\n{note}"),
+        SystemMessage(content=system_prompt),
         HumanMessage(content=f"Context:\n{context}\n\nQuestion: {question}\n\nAnswer:\n{answer}"),
     ]
 

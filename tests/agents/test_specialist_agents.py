@@ -129,6 +129,19 @@ class TestDocAgentSelfRag(unittest.TestCase):
         out = self._agent(chat).execute({"question": "How many leave days?"})
         self.assertEqual((out["final_answer"], out["hallucination_grade"]), ("20 days.", "yes"))
 
+    def test_an_answer_that_slips_into_another_script_is_written_again(self):
+        chat = MagicMock()
+        replies = iter(["20 days. 条件下不符合规则", "20 days."])
+
+        def invoke(messages):
+            if messages[0].content.startswith(SYSTEM_PROMPT_GRADER_QUOTES):
+                return MagicMock(content="yes")
+            return MagicMock(content=next(replies))
+
+        chat.invoke.side_effect = invoke
+        out = self._agent(chat).execute({"question": "How many leave days?"})
+        self.assertEqual(out["final_answer"], "20 days.")
+
     def test_grade_parsing(self):
         self.assertTrue(is_grade_passed("yes"))
         self.assertTrue(is_grade_passed("Evet, belgelerle tutarlı"))

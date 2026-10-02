@@ -107,12 +107,24 @@ GRADER_SECOND_OPINION = os.getenv("GRADER_SECOND_OPINION", "true").lower() == "t
 GRADER_NUMBER_CHECK = os.getenv("GRADER_NUMBER_CHECK", "true").lower() == "true"
 GRADER_TRANSITIONAL_CHECK = os.getenv("GRADER_TRANSITIONAL_CHECK", "true").lower() == "true"
 GRADER_QUANTITY_CHECK = os.getenv("GRADER_QUANTITY_CHECK", "true").lower() == "true"
+# The grader also says whether the answer gives what the question asks for; an answer that only talks about the
+# topic is sent back once, and "not in the documents" is answered if it still does not. The general form of
+# GRADER_QUANTITY_CHECK, which knows quantity questions only; off until measured (docs/evaluation.md)
+GRADER_RELEVANCE_CHECK = os.getenv("GRADER_RELEVANCE_CHECK", "false").lower() == "true"
+# GRADER_MODE=quotes: one quote that is not in the documents fails the answer. With false such a quote is only
+# left out as long as another quote is found (larger models garble a Turkish letter now and then while copying)
+GRADER_STRICT_QUOTES = os.getenv("GRADER_STRICT_QUOTES", "true").lower() == "true"
+# An answer in Turkish or English with letters of another script (Chinese, Cyrillic) that are not in the
+# documents is written again once
+ANSWER_SCRIPT_CHECK = os.getenv("ANSWER_SCRIPT_CHECK", "true").lower() == "true"
 # doc_agent copies the sentences its answer relies on before answering (EVIDENCE / ANSWER lines)
 ANSWER_EVIDENCE_FIRST = os.getenv("ANSWER_EVIDENCE_FIRST", "false").lower() == "true"
 # doc_agent may call the calculator and date tools (deadlines, averages) while answering
 DOC_AGENT_TOOLS = os.getenv("DOC_AGENT_TOOLS", "false").lower() == "true"
 # How doc_agent checks its answers: "quotes" makes the grader back every fact with a sentence copied from the
-# documents and verifies the copies in code; "simple" asks only for yes/no (faster, less reliable).
+# documents and verifies the copies in code; "sentences" numbers the sentences of the documents and the grader
+# gives the numbers (nothing to copy wrongly, shorter replies); "simple" asks only for yes/no (faster, less
+# reliable).
 GRADER_MODE = os.getenv("GRADER_MODE", "quotes").strip().lower()
 
 # ──────────────────────────── ORGANIZATION ────────────────────────────

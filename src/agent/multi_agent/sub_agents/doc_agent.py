@@ -4,7 +4,15 @@ import time
 from datetime import datetime, timezone
 from typing import Dict, Any, Optional
 
-from src.agent.language import message, response_language
+from langchain_core.messages import AIMessage, HumanMessage
+
+from src.agent.language import (
+    SUPPORTED_LANGUAGES,
+    foreign_script,
+    language_instruction,
+    message,
+    response_language,
+)
 from src.agent.llm import json_mode
 from src.agent.multi_agent.base import BaseSubAgent
 from src.agent.multi_agent.clarify import clarification_text, is_about_the_asker, parse_clarification
@@ -179,6 +187,14 @@ class DocumentRagAgent(BaseSubAgent):
         tools = build_tools(["calculator", "dates"], run, state) if config.DOC_AGENT_TOOLS else []
         answer, tools_called, status = run_with_tools(self.chat_model, messages, tools, self.name)
         generation_failed = status != "success" or not answer
+        if not generation_failed and self._has_foreign_script(answer, language, context, question):
+            # Multilingual models now and then continue in Chinese mid-answer: written again once
+            logger.warning(f"[{self.name}] The answer has text in another script, writing it again.")
+            retry = messages + [AIMessage(content=answer), HumanMessage(content=language_instruction(language))]
+            rewritten, retry_tools, retry_status = run_with_tools(self.chat_model, retry, tools, self.name)
+            if retry_status == "success" and rewritten:
+                if not self._has_foreign_script(rewritten, language, context, question):
+                    answer, tools_called = rewritten, tools_called + retry_tools
         answer_quotes = []
         if not generation_failed and config.ANSWER_EVIDENCE_FIRST:
             answer_quotes, answer = split_evidence(answer)
@@ -232,6 +248,13 @@ class DocumentRagAgent(BaseSubAgent):
         if cache_key is not None and verified:
             answer_cache.put(cache_key, output)
         return {**output, "agent_trace": list(state.get("agent_trace", [])) + [trace_entry]}
+
+    @staticmethod
+    def _has_foreign_script(answer: str, language: str, context: str, question: str) -> bool:
+        """An answer in Turkish or English with letters of a script neither the documents nor the question use."""
+        if not config.ANSWER_SCRIPT_CHECK or language not in SUPPORTED_LANGUAGES:
+            return False
+        return foreign_script(answer, f"{context}\n{question}")
 
     def _clarification(self, state, question: str, context: str, language: str, user_note: str):
         """A question back when the rules found depend on the asker's situation, or None.
