@@ -45,9 +45,16 @@ class TestDocAgentSelfRag(unittest.TestCase):
     """Grade -> refine -> fallback with scripted grades; the second opinion is tested in test_verification.py."""
 
     def setUp(self):
-        patcher = patch("src.core.config.GRADER_SECOND_OPINION", False)
-        patcher.start()
-        self.addCleanup(patcher.stop)
+        # The scripted grades below are in the quotes format without "answers_question";
+        # test_the_default_grader_points_to_sentences covers the defaults
+        for setting, value in (
+            ("GRADER_SECOND_OPINION", False),
+            ("GRADER_MODE", "quotes"),
+            ("GRADER_RELEVANCE_CHECK", False),
+        ):
+            patcher = patch(f"src.core.config.{setting}", value)
+            patcher.start()
+            self.addCleanup(patcher.stop)
 
     def _agent(self, chat):
         engine = MagicMock()
@@ -141,6 +148,24 @@ class TestDocAgentSelfRag(unittest.TestCase):
         chat.invoke.side_effect = invoke
         out = self._agent(chat).execute({"question": "How many leave days?"})
         self.assertEqual(out["final_answer"], "20 days.")
+
+    def test_the_default_grader_points_to_sentences(self):
+        grader_prompts = []
+
+        def invoke(messages):
+            if messages[0].content.startswith("You are a factual auditor"):
+                grader_prompts.append(messages[1].content)
+                return MagicMock(
+                    content='{"supported": "yes", "problem": "", "answers_question": "yes", "sentences": [1]}'
+                )
+            return MagicMock(content="20 days.")
+
+        chat = MagicMock()
+        chat.invoke.side_effect = invoke
+        with patch("src.core.config.GRADER_MODE", "sentences"), patch("src.core.config.GRADER_RELEVANCE_CHECK", True):
+            out = self._agent(chat).execute({"question": "How many leave days?"})
+        self.assertEqual((out["final_answer"], out["verification"]["level"]), ("20 days.", "verified"))
+        self.assertIn("[1] Annual leave is 20 days.", grader_prompts[0])
 
     def test_grade_parsing(self):
         self.assertTrue(is_grade_passed("yes"))

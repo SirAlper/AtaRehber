@@ -728,7 +728,6 @@ def main(argv=None) -> int:
                 "grader_second_opinion": config.GRADER_SECOND_OPINION,
                 "grader_number_check": config.GRADER_NUMBER_CHECK,
                 "grader_transitional_check": config.GRADER_TRANSITIONAL_CHECK,
-                "grader_quantity_check": config.GRADER_QUANTITY_CHECK,
                 "grader_relevance_check": config.GRADER_RELEVANCE_CHECK,
                 "grader_strict_quotes": config.GRADER_STRICT_QUOTES,
                 "answer_script_check": config.ANSWER_SCRIPT_CHECK,

@@ -40,6 +40,25 @@ def definition(name="not_asistani", tools=("calculator",), **extra):
     }
 
 
+# The scripted graders of this module reply in the quotes format without "answers_question"; the defaults
+# (GRADER_MODE=sentences, GRADER_RELEVANCE_CHECK) are tested in test_verification.py and
+# test_specialist_agents.py
+_grader_format = [
+    patch("src.core.config.GRADER_MODE", "quotes"),
+    patch("src.core.config.GRADER_RELEVANCE_CHECK", False),
+]
+
+
+def setUpModule():
+    for patcher in _grader_format:
+        patcher.start()
+
+
+def tearDownModule():
+    for patcher in _grader_format:
+        patcher.stop()
+
+
 class FakeToolModel:
     """Chat model that replies from a script; tool calls are AIMessages with tool_calls."""
 

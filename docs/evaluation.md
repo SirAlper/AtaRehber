@@ -216,6 +216,27 @@ Runs of the same configuration differ by a few questions (the grader's decisions
 
 On the demo dataset, four chunks instead of three changed no answer (95.1% either way, documents 100%) and added 0.2 s median latency.
 
+### Two models, two answer checks (Kaggle, T4 GPU)
+
+The same 127 questions on Kaggle (`evals/kaggle_eval.ipynb`, `RAG_DEVICE=cuda`, `RAG_MIN_RERANKER_SCORE=0.05`, `--no-database`), each model checking its own answers. "Before" is the quote grader with the code rule for "how many" questions (`GRADER_MODE=quotes`); "after" is the sentence-number grader with the grader's `answers_question` instead of the rule (`GRADER_MODE=sentences`, `GRADER_RELEVANCE_CHECK=true`), the defaults since.
+
+| Metric | `qwen2.5:7b` before | `qwen2.5:7b` after | `qwen2.5:14b` before | `qwen2.5:14b` after |
+| :--- | :---: | :---: | :---: | :---: |
+| Routing accuracy | 100% | 100% | 97.6% | 97.6% |
+| Answer accuracy | 88.8% | **91.4%** | 81.9% | **87.9%** |
+| ↳ documents / compliance / requests | 91.4% / 55.6% / 100% | 94.3% / 55.6% / 100% | 83.8% / 55.6% / 100% | 90.5% / 55.6% / 100% |
+| Answerable questions refused | 7 of 116 | 7 of 116 | 11 of 116 | 5 of 116 |
+| Off-topic questions refused | 9 of 10 | 10 of 10 | 8 of 10 | 8 of 10 |
+| Verified answers (grounded rate) | — | 95.3% | 84.5% | 96.1% |
+| Latency p50 / p95 | 9.4 s / 26.4 s | 8.6 s / 25.0 s | 19.1 s / 87.4 s ¹ | 17.1 s / 69.3 s |
+
+¹ A first run of the same configuration had 22.2 s / 103.2 s with exactly the same answers scored correct; with temperature 0 the two runs gave the same accuracy figures.
+
+* **The larger model lost to the answer check, not to its answers.** With quotes, `qwen2.5:14b` garbled Turkish letters while copying ("teşebbıs", "Yüksekığım"); the copies were not found in the documents and correct answers were refused, one after 128 s of retries. Its grader also rejected correct answers with an exception as objection ("three vice-rectors, but five in some universities"), and once had the refinement change the 55 points in force into the transitional 65. Pointing to sentence numbers recovered all seven of these questions and changed no correct answer into a wrong one.
+* **The "how many" rule** rejected the English question on the Council of Higher Education (21 members, spelled out); the grader's `answers_question` handles every kind of question without such rules.
+* **`qwen2.5:7b` improved too** (documents 91.4% → 94.3%), at the same speed: the sentence numbers are a shorter reply than copied quotes.
+* **Still wrong** with both models: a question that needs a computed year (2020 + 5), the penalty for cheating, and four compliance scenarios (three undetermined, party membership). `qwen2.5:14b` also routes three "can someone …?" document questions to `compliance_agent`.
+
 ---
 
 ## 📈 How We Got Here

@@ -101,16 +101,14 @@ OLLAMA_GRADER_MODEL = os.getenv("OLLAMA_GRADER_MODEL", "").strip()
 ANSWER_CACHE_SIZE = int(os.getenv("ANSWER_CACHE_SIZE", "256"))
 ANSWER_CACHE_MINUTES = int(os.getenv("ANSWER_CACHE_MINUTES", "1440"))
 # Answer check (src/agent/verification.py): a second look when the grader rejects an answer; every number of the
-# answer must be in the grader's quotes; an answer relying only on a transitional article is sent back once; so
-# is an answer without a quantity to a question that asks for one ("kaç gün", "how many")
+# answer must be in the grader's quotes; an answer relying only on a transitional article is sent back once
 GRADER_SECOND_OPINION = os.getenv("GRADER_SECOND_OPINION", "true").lower() == "true"
 GRADER_NUMBER_CHECK = os.getenv("GRADER_NUMBER_CHECK", "true").lower() == "true"
 GRADER_TRANSITIONAL_CHECK = os.getenv("GRADER_TRANSITIONAL_CHECK", "true").lower() == "true"
-GRADER_QUANTITY_CHECK = os.getenv("GRADER_QUANTITY_CHECK", "true").lower() == "true"
 # The grader also says whether the answer gives what the question asks for; an answer that only talks about the
-# topic is sent back once, and "not in the documents" is answered if it still does not. The general form of
-# GRADER_QUANTITY_CHECK, which knows quantity questions only; off until measured (docs/evaluation.md)
-GRADER_RELEVANCE_CHECK = os.getenv("GRADER_RELEVANCE_CHECK", "false").lower() == "true"
+# topic ("Yıllık izin kaç gün?" answered with when leave is taken) is sent back once, and "not in the documents" is
+# answered if it still does not
+GRADER_RELEVANCE_CHECK = os.getenv("GRADER_RELEVANCE_CHECK", "true").lower() == "true"
 # GRADER_MODE=quotes: one quote that is not in the documents fails the answer. With false such a quote is only
 # left out as long as another quote is found (larger models garble a Turkish letter now and then while copying)
 GRADER_STRICT_QUOTES = os.getenv("GRADER_STRICT_QUOTES", "true").lower() == "true"
@@ -121,11 +119,12 @@ ANSWER_SCRIPT_CHECK = os.getenv("ANSWER_SCRIPT_CHECK", "true").lower() == "true"
 ANSWER_EVIDENCE_FIRST = os.getenv("ANSWER_EVIDENCE_FIRST", "false").lower() == "true"
 # doc_agent may call the calculator and date tools (deadlines, averages) while answering
 DOC_AGENT_TOOLS = os.getenv("DOC_AGENT_TOOLS", "false").lower() == "true"
-# How doc_agent checks its answers: "quotes" makes the grader back every fact with a sentence copied from the
-# documents and verifies the copies in code; "sentences" numbers the sentences of the documents and the grader
-# gives the numbers (nothing to copy wrongly, shorter replies); "simple" asks only for yes/no (faster, less
-# reliable).
-GRADER_MODE = os.getenv("GRADER_MODE", "quotes").strip().lower()
+# How doc_agent checks its answers: "sentences" numbers the sentences of the documents and the grader gives the
+# numbers of the ones that state the facts (nothing to copy wrongly, shorter replies); "quotes" makes the grader
+# copy those sentences and verifies the copies in code; "simple" asks only for yes/no (faster, less reliable).
+# Measured on 127 university questions: "sentences" was better than "quotes" with qwen2.5:7b and :14b
+# (docs/evaluation.md).
+GRADER_MODE = os.getenv("GRADER_MODE", "sentences").strip().lower()
 
 # ──────────────────────────── ORGANIZATION ────────────────────────────
 # Name used in prompts and fixed answers, e.g. "Example University". Empty: "the organization".

@@ -1,16 +1,16 @@
 """Checking an answer against its sources before it is shown (doc_agent and custom agents).
 
-1. The grader says whether the answer is supported and quotes the context (src/agent/self_rag.py). If it says
-   no, a second opinion is asked with its objection to check, as the 7B grader rejects correct answers now and
-   then.
+1. The grader says whether the answer is supported, points to the sentences of the context that state its facts
+   (or copies them, GRADER_MODE=quotes), and whether the answer gives what the question asks for
+   (src/agent/self_rag.py). If it says the answer is not supported, a second opinion is asked with its objection
+   to check, as the 7B grader rejects correct answers now and then. An answer that is supported but only talks
+   about the topic is sent back once; if the refined answer still does not give what is asked, the documents do
+   not answer the question ("not in the documents", issue not_found).
 2. Code checks what the grader cannot be trusted with:
    * every number of the answer must be in the grader's quotes, the question, or a tool result (the grader may
      quote the right sentence and still accept "30 days" where it says "15 days");
    * an answer that relies only on a transitional article or footnote while a provision in force was also
-     retrieved is sent back once (superseded values such as "65 points" instead of the "55 points" in force);
-   * an answer to a question that asks for a quantity ("kaç gün", "how many") must state one or say that there
-     is none; an answer that only talks about the topic is sent back once (the grader accepts it, since what it
-     says is in the documents). GRADER_RELEVANCE_CHECK asks the grader the same for every kind of question.
+     retrieved is sent back once (superseded values such as "65 points" instead of the "55 points" in force).
 3. A failed check is refined once with the objection and checked again.
 4. Still failed: the sentences of the answer that the quotes cover are shown as a partial answer; if none are,
    the safe fallback. The result is 'verified', 'partial', or 'unverified', with the reasons.
@@ -85,32 +85,6 @@ class Verification:
 
     def as_dict(self) -> Dict[str, Any]:
         return {"level": self.level, "issues": list(self.issues)}
-
-
-# Questions that ask for a quantity ("Kaç gün?", "Ne kadar sürer?", "Yüzde kaç?", "How many days?")
-_QUANTITY_QUESTION = re.compile(r"(?i)\bkaç(?:ta|a|ar|er)?\b|\bne kadar\b|\bhow (?:many|much|long|old|often)\b")
-# Quantities an answer may state without digits: small numbers in words (the loader adds digits from ten on), and
-# "bir" only before a unit, as it is also the indefinite article
-_SMALL_NUMBER = re.compile(
-    r"(?i)\b(?:yarım|iki|üç|dört|beş|altı|yedi|sekiz|dokuz|birer|ikişer|üçer|çeyrek|buçuk"
-    r"|half|one|two|three|four|five|six|seven|eight|nine|ten|once|twice)\b"
-    r"|\bbir\s+(?:yıl|ay|gün|hafta|saat|dakika|yarıyıl|dönem|kez|defa|kere|kat|ders|kişi)"
-)
-# "There is no limit" and "none" also answer a quantity question
-_NO_QUANTITY = re.compile(
-    r"(?i)\b(?:yok\w*|sınırsız\w*|sınır\w* bulunma\w*|bulunmamakta\w*|hiçbir|no limit|unlimited|none|not limited)\b"
-)
-
-
-def lacks_quantity(question: str, answer: str) -> bool:
-    """The question asks for a quantity and the answer states none: no number (references like 'Madde 64' left
-    out), no "there is none", and not the "not in the documents" answer."""
-    if not _QUANTITY_QUESTION.search(str(question).replace("İ", "i")):
-        return False
-    if any(text in str(answer) for text in message_variants("no_context")):
-        return False
-    facts = _REFERENCES.sub(" ", str(answer)).replace("İ", "i")
-    return not (numbers(facts) or _SMALL_NUMBER.search(facts) or _NO_QUANTITY.search(facts))
 
 
 # Clock times: documents write "11.30", answers often "11:30"; both mean the same number
@@ -192,7 +166,7 @@ def check_answer(
     """Grader verdict (with a second opinion on 'no') plus the code checks; see the module docstring.
 
     strict: the first check of an answer; False for a refined answer, whose transitional evidence becomes a
-    warning and whose missing quantity is let through (nothing is sent back twice)."""
+    warning and which is only marked when it does not give what is asked (nothing is sent back twice)."""
     full_context = "\n\n".join(part for part in (context, tool_context) if part)
     grade, quotes, on_topic = grade_answer_with_quotes(grader_model, full_context, question, answer, agent_name)
     first_verdict = is_grade_passed(grade)
@@ -213,15 +187,8 @@ def check_answer(
             objection = f"the number(s) {', '.join(missing)} are not stated in the quoted articles"
             return Check(False, f"no: {objection}", quotes, objection, first_verdict)
 
-    if strict and config.GRADER_QUANTITY_CHECK and lacks_quantity(question, answer):
-        objection = (
-            "the question asks for a quantity (how many, how much, how long) but the answer states none; state "
-            "the number the Context gives for exactly what is asked, or, if the Context does not state it, answer "
-            "that the information is not in the documents"
-        )
-        return Check(False, f"no: {objection}", quotes, objection, first_verdict)
-
-    # The grader's own view of the same thing, for every kind of question; "not in the documents" answers it
+    # Supported, but about the topic instead of what was asked (GRADER_RELEVANCE_CHECK); "not in the documents"
+    # answers the question
     if any(text in str(answer) for text in message_variants("no_context")):
         on_topic = True
     if strict and not on_topic:
@@ -268,21 +235,6 @@ def verify_answer(
     progress: Optional[Callable[[str], None]] = None,
 ) -> Verification:
     """Check, refine once, and fall back to a partial answer or the safe answer; see the module docstring."""
-    result = _verify(
-        chat_model, grader_model, context, question, answer, sources, language, tool_context, agent_name, progress
-    )
-    # What is left after refining still does not state the quantity the question asks for: the documents do not
-    # answer the question, and a text about the topic would read as if they did
-    if config.GRADER_QUANTITY_CHECK and result.level != UNVERIFIED and lacks_quantity(question, result.answer):
-        logger.info(f"[{agent_name}] The answer states no quantity for a question that asks for one: not found.")
-        grade = "no: the documents do not state the quantity the question asks for"
-        return Verification(message("no_context", language), UNVERIFIED, grade, sources, True, [NOT_FOUND])
-    return result
-
-
-def _verify(
-    chat_model, grader_model, context, question, answer, sources, language, tool_context, agent_name, progress
-) -> Verification:
     report = progress or (lambda stage: None)
     report("verifying")
     check = check_answer(grader_model, context, question, answer, sources, tool_context, True, agent_name)

@@ -1,7 +1,7 @@
 """Database answers state only the query's values; compliance verdicts must rest on the retrieved rules."""
 
 import unittest
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 from langchain_core.messages import AIMessage
 
@@ -12,6 +12,25 @@ from src.agent.multi_agent.sub_agents.db_agent import DatabaseAgent
 from src.agent.verification import unsupported_numbers
 
 ROWS = [{"urun": "Kablo", "stok": 2, "fiyat": 1234.567}, {"urun": "Fare", "stok": 15, "fiyat": 349.9}]
+
+
+# The scripted graders of this module reply in the quotes format without "answers_question"; the defaults
+# (GRADER_MODE=sentences, GRADER_RELEVANCE_CHECK) are tested in test_verification.py and
+# test_specialist_agents.py
+_grader_format = [
+    patch("src.core.config.GRADER_MODE", "quotes"),
+    patch("src.core.config.GRADER_RELEVANCE_CHECK", False),
+]
+
+
+def setUpModule():
+    for patcher in _grader_format:
+        patcher.start()
+
+
+def tearDownModule():
+    for patcher in _grader_format:
+        patcher.stop()
 
 
 class Scripted:
