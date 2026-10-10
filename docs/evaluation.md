@@ -111,6 +111,7 @@ LLM output varies slightly between runs, so treat differences of one or two ques
 | `expected_agent` | ✅ | Agent name or list of acceptable agents; `supervisor` means a direct answer. |
 | `expected_sources` | | Corpus file names that contain the answer. Required for `document` and `compliance`. |
 | `expected_facts` | | Strings that must appear in the answer. A list inside the list gives alternatives: `[["Salı", "Tuesday"], "10:00"]`. |
+| `expected_context` | | Words of the rule itself that must be in the chunks given to the model (same format as `expected_facts`). Used for `context_fact_recall` instead of the expected facts where those are a poor check: a verdict label is never in a document, and a penalty's name also appears where the penalties are only listed. |
 | `expect_refusal` | | The system should say it does not know. Defaults to `true` for `out_of_scope`. |
 
 The bundled set has 51 questions over six fictional NovaTech policy documents (`evals/corpus/`) and the sample database. The documents deliberately overlap (several numbers, approval rules, and "30 days" appear in more than one document), so retrieval has to pick the right one.

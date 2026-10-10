@@ -78,6 +78,16 @@ def search_filter(groups: List[str]) -> dict:
     return {"$or": [public] + [{group_key(g): True} for g in groups]}
 
 
+def metadata_allowed(metadata: Optional[dict], groups: Optional[List[str]]) -> bool:
+    """search_filter() applied to one chunk's metadata, for searches outside the vector store (None: no limit)."""
+    if groups is None:
+        return True
+    metadata = metadata or {}
+    if groups and groups[0] == ONLY_GROUPS:
+        return any(metadata.get(group_key(g)) is True for g in groups[1:])
+    return metadata.get(PUBLIC_KEY) is not False or any(metadata.get(group_key(g)) is True for g in groups)
+
+
 def allowed_groups_for(role: Optional[str], groups: Optional[Iterable[str]]) -> Optional[List[str]]:
     """Search scope of a user: None means no filtering (document managers); a list means public documents plus
     the documents of these groups; a list starting with ONLY_GROUPS means only the documents of these groups."""

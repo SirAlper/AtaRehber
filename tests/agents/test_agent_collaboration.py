@@ -217,9 +217,15 @@ class TestSupervisorPlans(unittest.TestCase):
         decision = self.route({"agent": "compliance_agent", "reason": "r"}, question="Uygun mu?")
         self.assertEqual(decision["plan"], [planned("compliance_agent", "Uygun mu?")])
 
-    def test_empty_plan_answers_directly(self):
-        decision = self.route({"steps": [], "direct_response": "Merhaba!"})
-        self.assertEqual((decision["next_agent"], decision["final_answer"]), ("finish", "Merhaba!"))
+    def test_empty_plan_answers_directly_only_about_the_assistant(self):
+        reply = {"steps": [], "direct_response": "Belgeler hakkında soru sorabilirsiniz."}
+        decision = self.route(reply, question="Bu sistem neler yapabilir?")
+        self.assertEqual((decision["next_agent"], decision["final_answer"]), ("finish", reply["direct_response"]))
+        # A content question the model answered by itself goes to doc_agent, which checks the documents
+        reply = {"steps": [], "direct_response": "Şifre için teknik destek ekibine başvurun."}
+        decision = self.route(reply, question="Kampüs Wi-Fi ağının şifresi nedir?")
+        self.assertEqual(decision["plan"], [planned("doc_agent", "Kampüs Wi-Fi ağının şifresi nedir?")])
+        self.assertNotIn("final_answer", decision)
 
     def test_unavailable_agents_are_not_offered(self):
         prompt = self.registry.get_supervisor_prompt()

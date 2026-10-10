@@ -1,15 +1,18 @@
+import json
 import re
 import time
 from datetime import datetime, timezone
-from typing import Dict, Any, Optional
+from typing import Dict, Any, List, Optional
 
 from langchain_core.messages import SystemMessage, HumanMessage
 from src.agent.language import language_instruction, message, response_language
+from src.agent.llm import json_mode
 from src.agent.multi_agent.base import BaseSubAgent
 from src.agent.multi_agent.registry import register_agent
 from src.agent.prompts import ORGANIZATION, step_context_text
 from src.auth.profile import profile_note
 from src.agent.verification import UNVERIFIED, VERIFIED, check_answer
+from src.core import config
 from src.rag.evidence import attach_evidence
 from src.rag.rag_engine import RAGEngine
 from src.core.logger import get_logger
@@ -47,6 +50,16 @@ Base the verdict only on the rules above. If none of them address the scenario, 
 
 LANGUAGE: {language_rule} Use the section headings exactly as written above, and copy the verdict label exactly as listed (e.g. [VIOLATION / PROHIBITED]).
 """
+
+# A scenario often involves several rules ("70% attendance, may they sit the exam?": the attendance rule and who
+# may sit the exam); searching with the scenario alone finds the passages that resemble its wording
+SEARCH_QUERIES_PROMPT = """You prepare the document search for a compliance audit.
+Name the rules that must be looked up to judge the scenario: one short search query per rule, condition, limit, or deadline it involves (at most {count}), worded as a regulation would state the rule, in the language of the scenario. Do not judge the scenario.
+Example: "Stajını tamamlamayan bir öğrencinin mezun edilmesi uygun mu?" -> {{"queries": ["staj zorunluluğu", "mezuniyet koşulları"]}}
+Reply with JSON only: {{"queries": ["..."]}}"""
+
+# The verdict label of a report, e.g. "[VIOLATION / PROHIBITED]"
+_VERDICT_LABEL = re.compile(r"\[(COMPLIANT|WARNING[^\]]*|VIOLATION[^\]]*|UNDETERMINED)\]")
 
 # Section headings per response language. Models copy template headings verbatim, so the template itself is
 # localized instead of asking the model to translate. Verdict labels stay English (machine-readable).
@@ -109,9 +122,17 @@ class ComplianceAuditorAgent(BaseSubAgent):
 
         # 1. Search relevant compliance policies and regulations
         engine = self._get_engine()
-        search_result = engine.search(question, allowed_groups=self.search_groups(state))
+        scope = self.search_groups(state)
+        search_result = engine.search(question, allowed_groups=scope)
         context = search_result.get("context", "").strip()
         sources = search_result.get("sources", [])
+        # Rules exist on the topic: also search the rules the scenario involves one by one. A scenario no
+        # document covers is still answered below without calling the model.
+        queries = self._search_queries(question) if context else []
+        if queries:
+            search_result = engine.search_many(queries, allowed_groups=scope, initial=sources)
+            context = search_result.get("context", "").strip()
+            sources = search_result.get("sources", [])
 
         if not context:
             duration_ms = int((time.time() - start_time) * 1000)
@@ -148,8 +169,12 @@ class ComplianceAuditorAgent(BaseSubAgent):
         status = "success"
         scenario = f"{earlier_steps}Scenario / Request to Audit: {question}"
         verification = None
+        # For the trace: the first verdict and why a verdict was sent back or dropped
+        first_verdict, objections = "", []
         try:
             audit_report = self._report(prompt, scenario)
+            label = _VERDICT_LABEL.search(audit_report)
+            first_verdict = label.group(1) if label else ""
             # The verdict and the rules it cites must be in the retrieved rules: a wrong VIOLATION is costly.
             # One revision with the objection, then an undetermined verdict instead of an unsupported one.
             self.report_progress("verifying")
@@ -158,6 +183,7 @@ class ComplianceAuditorAgent(BaseSubAgent):
             )
             if not check.passed:
                 logger.warning(f"[{self.name}] Verdict not supported by the rules: {check.objection}")
+                objections.append(check.objection or check.grade)
                 revision = f"{scenario}\n\nAn auditor rejected the previous verdict: {check.objection}"
                 audit_report = self._report(prompt, revision)
                 check = check_answer(
@@ -167,6 +193,7 @@ class ComplianceAuditorAgent(BaseSubAgent):
                 sources = attach_evidence(sources, check.quotes)
                 verification = {"level": VERIFIED, "issues": check.warnings}
             else:
+                objections.append(check.objection or check.grade)
                 audit_report = message("compliance_unsupported", language)
                 verification = {"level": UNVERIFIED, "issues": []}
                 status = "unverified"
@@ -185,6 +212,9 @@ class ComplianceAuditorAgent(BaseSubAgent):
             "status": status,
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
+        for key, value in (("search_queries", queries), ("first_verdict", first_verdict), ("objections", objections)):
+            if value:
+                trace_entry[key] = value
 
         result = {
             "final_answer": audit_report,
@@ -194,6 +224,23 @@ class ComplianceAuditorAgent(BaseSubAgent):
         if verification:
             result["verification"] = verification
         return result
+
+    def _search_queries(self, question: str) -> List[str]:
+        """Search queries for the rules the scenario involves, written by the model; [] to search with the
+        scenario only (turned off, or the model's reply cannot be read)."""
+        count = config.COMPLIANCE_SEARCH_QUERIES
+        if count <= 0:
+            return []
+        try:
+            reply = json_mode(self.chat_model).invoke(
+                [SystemMessage(content=SEARCH_QUERIES_PROMPT.format(count=count)), HumanMessage(content=question)]
+            )
+            data = json.loads(re.sub(r"^```(?:json)?\s*|\s*```$", "", reply.content.strip()))
+            queries = [str(q).strip() for q in data.get("queries") or [] if isinstance(q, str) and q.strip()]
+            return [q for q in queries if len(q) <= 200][:count]
+        except Exception as e:
+            logger.info(f"[{self.name}] No search queries from the model, searching with the scenario: {e}")
+            return []
 
     def _report(self, prompt: str, scenario: str) -> str:
         response = self.chat_model.invoke([SystemMessage(content=prompt), HumanMessage(content=scenario)])

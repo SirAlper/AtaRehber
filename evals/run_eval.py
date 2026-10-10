@@ -41,6 +41,22 @@ EXTRA_STAGES = ("grader", "agents")
 DEFAULT_GRADER_DATASET = os.path.join(EVALS_DIR, "grader_dataset_university.jsonl")
 DEFAULT_AGENTS_DATASET = os.path.join(EVALS_DIR, "dataset_agents.jsonl")
 EVAL_USER = {"username": "eval", "role": "admin", "groups": []}
+# Fields of an agent's trace entry kept in the report of an end-to-end case
+TRACE_KEYS = (
+    "agent",
+    "action",
+    "status",
+    "target_agent",
+    "reason",
+    "search_query",
+    "search_queries",
+    "hallucination_grade",
+    "is_refined",
+    "first_objection",
+    "first_verdict",
+    "objections",
+    "duration_ms",
+)
 # RAGEngine.search() default candidate pool (n_results)
 # Cross-encoder scores are sigmoid outputs clustered near 0 and 1, so the grid is denser at the low end
 RERANKER_SWEEP_THRESHOLDS = [0.0, 0.001, 0.002, 0.005, 0.01, 0.02, 0.05, 0.1, 0.2, 0.3, 0.5]
@@ -155,33 +171,42 @@ def run_retrieval(engine, cases: List[Dict[str, Any]], pool: int = DEFAULT_RETRI
     progress = Progress("retrieval", len(cases))
     for case in cases:
         progress.begin(case["id"])
-        # Score the candidate pool once; production selection is then replayed without extra model calls
+        # Score the candidate pool once; the threshold and pool sweeps replay the selection without extra model
+        # calls (word-search candidates included, the pieces added between chosen pieces of an article not)
         result = engine.search(
-            case["question"], n_results=pool, min_similarity=-2.0, top_n=pool, min_reranker_score=-1.0
+            case["question"], n_results=pool, min_similarity=-2.0, top_n=pool, min_reranker_score=-1.0, fill_gaps=0
         )
-        candidates = [
-            {
+
+        def as_candidate(s):
+            return {
                 "source": s["source"],
                 "chunk_index": s["chunk_index"],
-                "similarity": round(distance_to_similarity(s["distance"], engine.distance_space), 4),
+                # A chunk found by its words has a distance only if the store returned its embedding
+                "similarity": round(distance_to_similarity(s["distance"], engine.distance_space), 4)
+                if s["distance"] is not None
+                else 0.0,
                 "reranker_score": s["reranker_score"],
                 "content": s.get("content", ""),
+                "lexical": bool(s.get("lexical")),
             }
-            for s in result["sources"]
-        ]
+
+        candidates = [as_candidate(s) for s in result["sources"]]
 
         def select(pool_size: int, min_similarity: float = RAG_MIN_SIMILARITY, min_score=RAG_MIN_RERANKER_SCORE):
             return metrics.select_like_production(
                 candidates, min_similarity, pool_size=pool_size, top_n=RERANKER_TOP_N, min_reranker_score=min_score
             )
 
-        selected = select(RAG_CANDIDATE_POOL)
+        # What the agents get: the search as in production
+        selected = [as_candidate(s) for s in engine.search(case["question"])["sources"]]
         unfiltered = select(RAG_CANDIDATE_POOL, -2.0, None)
-        facts = case.get("expected_facts") or []
+        # "expected_context" names the words of the rule itself where the expected facts are a poor check: a
+        # verdict label is never in a document, and a penalty's name also appears where the penalties are listed
+        facts = case.get("expected_context") or case.get("expected_facts") or []
 
         def context_recall(chunks) -> Optional[float]:
-            # Whether the facts of the expected answer are in the chunks given to the model: a chunk-level check
-            # (the right document can still be the wrong article)
+            # Whether the rule (or the facts of the expected answer) is in the chunks given to the model: a
+            # chunk-level check (the right document can still be the wrong article)
             return metrics.fact_recall("\n".join(c["content"] for c in chunks), facts) if facts else None
 
         expected = case["expected_sources"]
@@ -415,8 +440,16 @@ def run_e2e(chat_model, registry, cases: List[Dict[str, Any]]) -> Dict[str, Any]
             "source_hit": bool(returned_sources & set(case["expected_sources"])) if case["expected_sources"] else None,
             # Facts of the expected answer in the returned sources (chunk level) and evidence shown with the answer
             "context_fact_recall": metrics.fact_recall(
-                "\n".join(src.get("content", "") for src in result.get("sources", [])), case["expected_facts"]
+                "\n".join(src.get("content", "") for src in result.get("sources", [])),
+                case.get("expected_context") or case["expected_facts"],
             ),
+            # Which chunks the answer had, and what each step did: the routing reason, search queries, a verdict
+            # or answer the check sent back and why
+            "retrieved": [f"{src.get('source')}#{src.get('chunk_index')}" for src in result.get("sources", [])],
+            "trace": [
+                {key: step[key] for key in TRACE_KEYS if step.get(key) not in (None, "", [])}
+                for step in result.get("agent_trace", [])
+            ],
             "has_evidence": any(src.get("evidence") for src in result.get("sources", [])),
             "refused": refused,
             "language_match": language_match,
@@ -720,6 +753,9 @@ def main(argv=None) -> int:
                 "rag_min_similarity": config.RAG_MIN_SIMILARITY,
                 "rag_min_reranker_score": config.RAG_MIN_RERANKER_SCORE,
                 "reranker_top_n": config.RERANKER_TOP_N,
+                "rag_lexical_candidates": config.RAG_LEXICAL_CANDIDATES,
+                "rag_article_gap_fill": config.RAG_ARTICLE_GAP_FILL,
+                "compliance_search_queries": config.COMPLIANCE_SEARCH_QUERIES,
                 "chunk_size": config.CHUNK_SIZE,
                 "chunk_overlap": config.CHUNK_OVERLAP,
                 "article_chunk_size": config.ARTICLE_CHUNK_SIZE,

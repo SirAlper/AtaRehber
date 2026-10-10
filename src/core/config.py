@@ -181,6 +181,18 @@ RERANKER_MODEL_NAME = LOCAL_RERANKER_PATH if os.path.exists(LOCAL_RERANKER_PATH)
 
 # Candidates the vector search hands to the cross-encoder per question
 RAG_CANDIDATE_POOL = int(os.getenv("RAG_CANDIDATE_POOL", "10"))
+# Chunks found by their words (BM25 over word stems) that join the candidates of the vector search before
+# reranking: a rule that is one item of a long list ("Özürsüz ve kesintisiz 3 - 9 gün göreve gelmemek") is often
+# not among the most similar chunks as a whole. 0 turns the word search off.
+RAG_LEXICAL_CANDIDATES = int(os.getenv("RAG_LEXICAL_CANDIDATES", "5"))
+# When two or more of the chosen chunks are pieces of the same article, up to this many pieces between them are
+# added (the penalty a listed act gets is often in the piece between two chosen ones). 0 turns it off. Longer
+# contexts need OLLAMA_NUM_CTX to fit them.
+RAG_ARTICLE_GAP_FILL = int(os.getenv("RAG_ARTICLE_GAP_FILL", "2"))
+# compliance_agent searches the rules a scenario involves one by one (up to this many search queries written by
+# the model, besides the scenario itself): "70% attendance, may they take the exam?" needs the attendance rule
+# and the exam rule. 0 searches with the scenario only.
+COMPLIANCE_SEARCH_QUERIES = int(os.getenv("COMPLIANCE_SEARCH_QUERIES", "3"))
 # Number of top candidate chunks to pass to LLM after Cross-Encoder reranking. 4 instead of 3 lets an answer
 # that needs a neighbouring piece of a long article (a list of penalties) see it; no loss on the demo set (evals)
 RERANKER_TOP_N = int(os.getenv("RERANKER_TOP_N", "4"))

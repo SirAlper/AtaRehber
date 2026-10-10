@@ -3,7 +3,7 @@
 import os
 import tempfile
 import unittest
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -170,7 +170,8 @@ class TestComplianceAgentLanguage(unittest.TestCase):
     def test_report_prompt_names_the_language_and_keeps_verdict_labels(self):
         llm = MagicMock()
         llm.invoke.return_value = MagicMock(content="### Karar\n[VIOLATION / PROHIBITED]")
-        self._agent("USB yasaktır.", llm).execute({"question": "USB belleğe kopyalamam uygun mu?"})
+        with patch("src.core.config.COMPLIANCE_SEARCH_QUERIES", 0):
+            self._agent("USB yasaktır.", llm).execute({"question": "USB belleğe kopyalamam uygun mu?"})
         prompt = system_prompt_of(llm)
         self.assertIn(language_instruction("tr"), prompt)
         self.assertIn("copy the verdict label exactly", prompt)

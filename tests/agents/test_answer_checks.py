@@ -20,6 +20,8 @@ ROWS = [{"urun": "Kablo", "stok": 2, "fiyat": 1234.567}, {"urun": "Fare", "stok"
 _grader_format = [
     patch("src.core.config.GRADER_MODE", "quotes"),
     patch("src.core.config.GRADER_RELEVANCE_CHECK", False),
+    # The scripted chat models reply with reports only; the search queries have their own test below
+    patch("src.core.config.COMPLIANCE_SEARCH_QUERIES", 0),
 ]
 
 
@@ -165,6 +167,28 @@ class TestComplianceCheck(unittest.TestCase):
         self.assertEqual(out["final_answer"], message("compliance_unsupported", "tr"))
         self.assertEqual(out["verification"], {"level": "unverified", "issues": []})
         self.assertEqual(out["agent_trace"][-1]["status"], "unverified")
+        # The trace says which verdict was dropped and why (both checks)
+        self.assertEqual(out["agent_trace"][-1]["first_verdict"], "VIOLATION / PROHIBITED")
+        self.assertEqual(len(out["agent_trace"][-1]["objections"]), 2)
+
+    def test_the_rules_a_scenario_involves_are_searched_one_by_one(self):
+        chat = Scripted('{"queries": ["devam zorunluluğu", "sınava girme şartları"]}', VIOLATION)
+        agent = compliance(chat, Scripted(SUPPORTED))
+        found = agent._rag_engine.search.return_value
+        agent._rag_engine.search_many.return_value = found
+        with patch("src.core.config.COMPLIANCE_SEARCH_QUERIES", 3):
+            out = agent.execute({"question": "Yüzde 70 devam eden öğrencinin sınava girmesi uygun mu?"})
+        queries = ["devam zorunluluğu", "sınava girme şartları"]
+        agent._rag_engine.search_many.assert_called_once_with(queries, allowed_groups=None, initial=found["sources"])
+        self.assertEqual(out["agent_trace"][-1]["search_queries"], queries)
+        self.assertEqual(out["final_answer"], VIOLATION)
+
+    def test_a_reply_without_queries_searches_with_the_scenario_only(self):
+        agent = compliance(Scripted("Bu senaryo ihlaldir.", VIOLATION), Scripted(SUPPORTED))
+        with patch("src.core.config.COMPLIANCE_SEARCH_QUERIES", 3):
+            out = agent.execute({"question": "Gönderebilir miyim?"})
+        agent._rag_engine.search_many.assert_not_called()
+        self.assertEqual(out["final_answer"], VIOLATION)
 
 
 if __name__ == "__main__":

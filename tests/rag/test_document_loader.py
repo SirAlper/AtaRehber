@@ -2,7 +2,7 @@ import os
 import tempfile
 import unittest
 import unittest.mock
-from src.rag.document_loader import DocumentLoader
+from src.rag.document_loader import DocumentLoader, join_table_rows, list_introduction
 
 
 class TestDocumentLoader(unittest.TestCase):
@@ -198,6 +198,32 @@ class TestLegislationChunking(unittest.TestCase):
         # A piece starting inside the numbered sub-items of a) gets a)'s introduction
         sub_item_piece = next(intro for start, intro in pieces.items() if start[:1].isdigit())
         self.assertEqual(sub_item_piece, "(a) Tek ders sınavı:)")
+
+    def test_footnote_markers_and_long_paragraphs_still_introduce_their_lists(self):
+        intro = "(2) Kınama cezasını gerektiren fiiller şunlardır:"
+        self.assertEqual(list_introduction(f"{intro}[51]"), intro)
+        definition = "Bu ceza, öğretim elemanının aylığından kesinti yapılmasıdır. " * 10
+        long_paragraph = f"(4) Aylıktan kesme: {definition}Aylıktan kesme cezasını gerektiren fiiller şunlardır:[54]"
+        self.assertEqual(
+            list_introduction(long_paragraph), "(4) … Aylıktan kesme cezasını gerektiren fiiller şunlardır:"
+        )
+        self.assertEqual(list_introduction("Öğrenciler derslere devam eder."), "")
+
+    def test_acts_listed_after_a_footnoted_introduction_name_their_penalty(self):
+        act = "parçaların gerçek kanunlardaki gibi bölünmesi için yazılmış uzun bir fiil açıklamasıdır"
+        acts = "\n\n".join(f"{letter}) Bu bent, {act}; {act}." for letter in "abcdefgh")
+        text = (
+            f"KANUN\n\nMadde 1 – (1) Uyarma cezasını gerektiren fiiller şunlardır:\n\n{acts}\n\n"
+            f"(2) Kınama cezasını gerektiren fiiller şunlardır:[51]\n\n{acts}\n\nMadde 2 – İki.\n\nMadde 3 – Üç.\n"
+        )
+        chunks, metas = self._chunk(text)
+        last_piece = [chunk for chunk, meta in zip(chunks, metas) if meta.get("article") == "Madde 1"][-1]
+        self.assertEqual(last_piece.split("\n")[1], "((2) Kınama cezasını gerektiren fiiller şunlardır:)")
+
+    def test_table_rows_read_as_statements(self):
+        self.assertEqual(join_table_rows("M                               Muaf\nCB          2,50"), "M: Muaf\nCB: 2,50")
+        sentence = "(1)  Yarıyıl sonu sınavı yapılır.  Bütünleme sınavı da yapılır."
+        self.assertEqual(join_table_rows(sentence), sentence)
 
     def test_upper_case_title_is_not_an_article_title(self):
         _, metas = self._chunk("BAŞLIK\n\nMadde 1- Birinci.\n\nMadde 2- İkinci.\n\nMadde 3- Üçüncü.\n")

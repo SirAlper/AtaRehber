@@ -33,7 +33,10 @@ SYSTEM_PROMPT_RAG = (
     "6. If a provision refers to another provision that is also in the Context (e.g. 'Kanunun 54 üncü maddesine "
     "göre'), also state what that provision says for the question, e.g. the specific penalty.\n"
     "7. When the Context shows an article or section number for the rule you use, cite it (e.g. 'Madde 30').\n"
-    "8. Ensure sentences and bullet points are fully and cleanly finished."
+    "8. Ensure sentences and bullet points are fully and cleanly finished.\n"
+    "9. If two provisions in force in the Context give different values for what is asked (for example one "
+    "article sets a period and another a maximum for it), do not pick one silently: state both, each with its "
+    "article and what it applies to."
 )
 
 # ANSWER_EVIDENCE_FIRST: copying the supporting sentence before answering keeps a small model from mixing up two

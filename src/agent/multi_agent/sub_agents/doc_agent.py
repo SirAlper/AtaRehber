@@ -243,6 +243,7 @@ class DocumentRagAgent(BaseSubAgent):
             "verification": verification_dict,
         }
         details = {"hallucination_grade": grade, "is_refined": is_refined, "tools_called": tools_called}
+        details["first_objection"] = verification.first_objection if verification else ""
         details["status"] = "success" if verified else (verification.level if verification else "unverified")
         trace_entry = self._trace_entry("retrieval_and_generation", search_query, retrieved, details, start_time)
         if cache_key is not None and verified:
@@ -302,4 +303,7 @@ class DocumentRagAgent(BaseSubAgent):
         for key in ("hallucination_grade", "is_refined", "tools_called"):
             if key in details and details[key] not in (None, []):
                 entry[key] = details[key]
+        if details.get("first_objection"):
+            # Why the first check sent the answer back, also when the refined answer passed
+            entry["first_objection"] = details["first_objection"]
         return entry

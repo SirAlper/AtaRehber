@@ -84,6 +84,20 @@ THANKS_TOKENS = THANKS_WORDS | frozenset(
     | {"tamam", "anladım", "anladim", "harika", "süper", "super", "bilgi", "bilgiler", "ok", "okay", "great"}
 )
 
+# Questions about the assistant itself ("Bu sistem neler yapabilir?", "What can you help me with?"): the only
+# questions, besides greetings and thanks, that the supervisor answers without an agent
+_ABOUT_THE_ASSISTANT = re.compile(
+    r"\b(?:ne(?:ler)? (?:yapabil|sorabil|bil)\w*|ne(?:ler)? yapar\w*|ne tür soru\w*|hangi soru\w*|neler sor\w*"
+    r"|nasıl yardım\w*|yardımcı ol\w*|ne işe yar\w*|kimsin\w*|nesin\w*|adın ne\w*|nasıl kullan\w*"
+    r"|bu (?:sistem|asistan|uygulama|program)\w*"
+    r"|what can (?:you|i)|what do you do|who are you|what are you|what is this|how (?:do|can) i use|help me with)\b"
+)
+
+
+def is_about_the_assistant(question: str) -> bool:
+    return bool(_ABOUT_THE_ASSISTANT.search(question.replace("İ", "i").replace("I", "ı").casefold()))
+
+
 SUPERVISOR_SYSTEM_PROMPT = """You are the supervisor of an AI assistant team at {organization}.
 Your task is to analyze the user's message and route it to the most qualified specialist sub-agent(s), or answer directly if the message is a greeting or a question about what you can do.
 
@@ -367,6 +381,13 @@ class SupervisorAgent:
             }
 
         plan = self._validate_plan(raw_steps, question)
+        if not plan and question and not is_about_the_assistant(question) and self.registry.is_available("doc_agent"):
+            # The model answered by itself a question that is no greeting and not about the assistant (a larger
+            # model told a user asking for the Wi-Fi password to call IT support): doc_agent checks the
+            # documents and says so when they do not cover it
+            logger.info("[Supervisor] Direct answer to a content question replaced by doc_agent.")
+            plan = self._validate_plan([{"agent": "doc_agent", "question": question}], question)
+            reason = f"{reason} (direct answer replaced: only greetings and questions about the assistant)".strip()
         trace_entry = {
             "agent": "supervisor",
             "display_name": "Supervisor Orchestrator",

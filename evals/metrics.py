@@ -105,10 +105,12 @@ def select_like_production(
     """Reproduce RAGEngine.search() selection from fully scored candidates.
 
     candidates: dicts with 'similarity' and 'reranker_score'. Production takes the `pool_size` most
-    similar chunks, drops those below `min_similarity`, reranks the rest, drops those below
-    `min_reranker_score` (None = no reranker threshold) and keeps `top_n`.
+    similar chunks and the chunks its word search found (marked 'lexical'), drops those below
+    `min_similarity`, reranks the rest, drops those below `min_reranker_score` (None = no reranker
+    threshold) and keeps `top_n`.
     """
-    pool = sorted(candidates, key=lambda c: c["similarity"], reverse=True)[:pool_size]
+    ranked = sorted((c for c in candidates if not c.get("lexical")), key=lambda c: c["similarity"], reverse=True)
+    pool = ranked[:pool_size] + [c for c in candidates if c.get("lexical")]
     kept = [c for c in pool if c["similarity"] >= min_similarity]
     if min_reranker_score is not None:
         kept = [c for c in kept if c["reranker_score"] >= min_reranker_score]

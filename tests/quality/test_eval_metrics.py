@@ -69,6 +69,10 @@ def test_select_like_production_applies_pool_threshold_and_rerank():
         candidates, min_similarity=0.0, pool_size=3, top_n=3, min_reranker_score=0.5
     )
     assert [c["id"] for c in selected] == ["third", "mid"]
+    # A chunk the word search found belongs to the pool however similar it is
+    candidates.append({"id": "by-words", "similarity": 0.4, "reranker_score": 0.99, "lexical": True})
+    selected = metrics.select_like_production(candidates, min_similarity=0.0, pool_size=1, top_n=3)
+    assert [c["id"] for c in selected] == ["by-words", "high-sim-low-rerank"]
 
 
 def test_threshold_sweep_keeps_recall_then_maximizes_rejection():

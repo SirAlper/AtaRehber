@@ -27,6 +27,10 @@ MIN_ARTICLES = 3
 # Longest line accepted as an article title ("Emeklilik yaş haddi:") or as a list introduction
 _MAX_TITLE_LEN = 100
 _MAX_INTRO_LEN = 400
+# Footnote marker of consolidated texts after a line: "... fiiller şunlardır:[51]"
+_TRAILING_NOTE_RE = re.compile(r"\s*\[\d+\]\s*$")
+# Two-column table rows of plain-text exports: "M                               Muaf"
+_TABLE_ROW_RE = re.compile(r"^([^\s:][^\n:]{0,30}?)[ \t]{4,}(\S[^\n]{0,60})$", re.MULTILINE)
 # List markers of legislation from the outside in: paragraph "(1)", item "a)" / "ğ)" / "A-", sub-item "1)"
 _LIST_LEVELS = (
     re.compile(r"^\(\d+\)"),
@@ -39,6 +43,27 @@ def _list_level(text: str) -> Optional[int]:
     """List level of the first non-empty line (0 paragraph, 1 item, 2 sub-item), or None for plain text."""
     first = next((line.strip() for line in text.splitlines() if line.strip()), "")
     return next((level for level, marker in enumerate(_LIST_LEVELS) if marker.match(first)), None)
+
+
+def join_table_rows(text: str) -> str:
+    """'AA                             4,00' -> 'AA: 4,00': a table row reads as one statement, like a sentence."""
+    return _TABLE_ROW_RE.sub(lambda row: f"{row.group(1).rstrip()}: {row.group(2).strip()}", text)
+
+
+def list_introduction(line: str) -> str:
+    """The line as the introduction of a list ('... cezasını gerektiren fiiller şunlardır:'), or '' if it is none.
+
+    A footnote marker after the colon is dropped. Of a paragraph longer than _MAX_INTRO_LEN (the penalty is
+    defined before its acts are listed) the list marker and the last sentence are kept.
+    """
+    text = _TRAILING_NOTE_RE.sub("", line.strip())
+    if not text.endswith(":") or len(text) < 10:
+        return ""
+    if len(text) > _MAX_INTRO_LEN:
+        last_sentence = re.split(r"(?<=[.;])\s+", text)[-1]
+        marker = text.split(maxsplit=1)[0] if _list_level(text) is not None else ""
+        text = f"{marker} … {last_sentence}" if marker and last_sentence != text else last_sentence
+    return text if len(text) <= _MAX_INTRO_LEN else ""
 
 
 class DocumentLoader:
@@ -152,11 +177,11 @@ class DocumentLoader:
             for number, text in self._read_pdf_pages(file_path):
                 page_offsets.append(len(content))
                 page_numbers.append(number)
-                content += f"{text}\n"
+                content += f"{join_table_rows(text)}\n"
         elif ext == ".docx":
-            content = self._read_docx(file_path)
+            content = join_table_rows(self._read_docx(file_path))
         elif ext == ".txt":
-            content = self._read_txt(file_path)
+            content = join_table_rows(self._read_txt(file_path))
         else:
             logger.warning(f"Skipping unsupported file format: {filename}")
             return chunks, ids, metadatas
@@ -300,8 +325,9 @@ class DocumentLoader:
         for line in text.splitlines(keepends=True):
             stripped = line.strip()
             in_body = in_body or bool(_ARTICLE_RE.match(line))
-            if in_body and stripped.endswith(":") and 10 <= len(stripped) <= _MAX_INTRO_LEN:
-                intros.append((offset, stripped, _list_level(stripped)))
+            intro = list_introduction(stripped) if in_body else ""
+            if intro:
+                intros.append((offset, intro, _list_level(stripped)))
             offset += len(line)
         return intros
 

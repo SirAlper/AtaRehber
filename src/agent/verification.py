@@ -83,6 +83,8 @@ class Verification:
     sources: List[Dict[str, Any]]
     is_refined: bool = False
     issues: List[str] = field(default_factory=list)
+    # Why the first check sent the answer back ("" if it passed); kept for the trace and the evaluation reports
+    first_objection: str = ""
 
     def as_dict(self) -> Dict[str, Any]:
         return {"level": self.level, "issues": list(self.issues)}
@@ -252,7 +254,9 @@ def verify_answer(
     report("verifying")
     check = check_answer(grader_model, context, question, answer, sources, tool_context, True, agent_name)
     is_refined = False
+    first_objection = ""
     if not check.passed:
+        first_objection = check.objection or check.grade
         logger.info(f"[{agent_name}] Answer not grounded ('{check.grade}'), refining...")
         report("refining")
         check_context = "\n\n".join(part for part in (context, tool_context) if part)
@@ -276,14 +280,25 @@ def verify_answer(
                     attach_evidence(sources, quotes),
                     True,
                     [ISSUE_PARTIAL],
+                    first_objection,
                 )
             logger.warning(f"[{agent_name}] Refined answer still unverified, using safe fallback.")
-            return Verification(message("fallback", language), UNVERIFIED, recheck.grade, sources, True)
+            return Verification(
+                message("fallback", language), UNVERIFIED, recheck.grade, sources, True, [], first_objection
+            )
     if not check.answers_question:
         # Sent back once and still about the topic instead of what was asked: the documents do not answer it
         logger.info(f"[{agent_name}] The refined answer does not give what the question asks for: not found.")
         grade = "no: the documents do not state what the question asks for"
-        return Verification(message("no_context", language), UNVERIFIED, grade, sources, True, [NOT_FOUND])
+        return Verification(
+            message("no_context", language), UNVERIFIED, grade, sources, True, [NOT_FOUND], first_objection
+        )
     return Verification(
-        answer, VERIFIED, check.grade, attach_evidence(sources, check.quotes), is_refined, list(check.warnings)
+        answer,
+        VERIFIED,
+        check.grade,
+        attach_evidence(sources, check.quotes),
+        is_refined,
+        list(check.warnings),
+        first_objection,
     )
