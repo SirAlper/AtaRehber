@@ -40,6 +40,7 @@ def test_fact_recall():
 def test_refusal_detection():
     assert metrics.is_refusal("This information is not found in company documents.")
     assert metrics.is_refusal("Bu bilgi dokümanlarda yer almıyor.")
+    assert metrics.is_refusal("Yönetmelikte mezuniyet töreninin tarihi belirtilmemiştir.")
     assert not metrics.is_refusal("Şifreler en az 14 karakter olmalıdır.")
 
 

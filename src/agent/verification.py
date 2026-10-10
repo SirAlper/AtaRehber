@@ -7,8 +7,9 @@
    about the topic is sent back once; if the refined answer still does not give what is asked, the documents do
    not answer the question ("not in the documents", issue not_found).
 2. Code checks what the grader cannot be trusted with:
-   * every number of the answer must be in the grader's quotes, the question, or a tool result (the grader may
-     quote the right sentence and still accept "30 days" where it says "15 days");
+   * every number of the answer must be in the grader's quotes, the question, or a tool result, or be a sum or
+     difference of a number of the question and one of the quotes (the grader may quote the right sentence and
+     still accept "30 days" where it says "15 days");
    * an answer that relies only on a transitional article or footnote while a provision in force was also
      retrieved is sent back once (superseded values such as "65 points" instead of the "55 points" in force).
 3. A failed check is refined once with the objection and checked again.
@@ -18,7 +19,7 @@
 
 import re
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Sequence
 
 from src.agent.grading import GRADE_UNAVAILABLE, grade_objection, is_grade_passed
 from src.agent.language import message, message_variants
@@ -101,10 +102,20 @@ def numbers(text: str) -> set:
     return found | spelled_numbers(str(text))
 
 
-def unsupported_numbers(answer: str, quotes: List[str], question: str, tool_context: str) -> List[str]:
-    """Numbers of the answer (references like 'Madde 30' left out) found in none of the quotes, the question, or
-    the tool results."""
-    allowed = numbers(" ".join(quotes)) | numbers(question) | numbers(tool_context)
+def computed_numbers(question: str, quotes: List[str]) -> set:
+    """Sums and differences of a number of the question and a number of the quotes: what an answer computes for
+    the case asked about ("2020 yılında" and "en az beş yıl" give 2025)."""
+    asked, stated = numbers(question), numbers(" ".join(quotes))
+    return {value for a in asked for s in stated for value in (a + s, a - s, s - a)}
+
+
+def unsupported_numbers(
+    answer: str, quotes: List[str], question: str, tool_context: str, chunks: Sequence[str] = ()
+) -> List[str]:
+    """Numbers of the answer (references like 'Madde 30' left out) found in none of the quotes, the chunks they
+    come from, the question, or the tool results, and not computed from the question and the quotes."""
+    allowed = numbers(" ".join([*quotes, *chunks])) | numbers(question) | numbers(tool_context)
+    allowed |= computed_numbers(question, quotes)
     facts = _DIGITS.findall(_times_as_numbers(_REFERENCES.sub(" ", str(answer))))
     return [n for n in dict.fromkeys(facts) if float(n.replace(",", ".")) not in allowed]
 
@@ -138,6 +149,7 @@ def partial_answer(answer: str, quotes: List[str], question: str, tool_context: 
     tool results; a sentence without numbers if most of its word stems are in the quotes.
     """
     allowed = numbers(" ".join(quotes)) | numbers(question) | numbers(tool_context)
+    allowed |= computed_numbers(question, quotes)
     quote_stems = set(_stems(" ".join(quotes)))
     sentences = [s.strip() for s in _SENTENCE_END.split(str(answer)) if s.strip()]
     kept = []
@@ -179,10 +191,11 @@ def check_answer(
 
     # The grader may quote nothing (a short answer); the number check needs quotes to compare with. Numbers count
     # when they are in the quotes or in the chunks the quotes come from (the grader copies the rule, not always
-    # the numbers next to it, e.g. "3,00-3,49"); a number from another article still fails.
+    # the numbers next to it, e.g. "3,00-3,49"); a number from another article still fails. A number computed
+    # from the question and the quotes counts too (a year, an age), but not one computed from the rest of a chunk.
     if quotes and config.GRADER_NUMBER_CHECK:
         quoted_chunks = [s.get("content", "") for s in attach_evidence(sources, quotes) if s.get("used")]
-        missing = unsupported_numbers(answer, quotes + quoted_chunks, question, tool_context)
+        missing = unsupported_numbers(answer, quotes, question, tool_context, quoted_chunks)
         if missing:
             objection = f"the number(s) {', '.join(missing)} are not stated in the quoted articles"
             return Check(False, f"no: {objection}", quotes, objection, first_verdict)

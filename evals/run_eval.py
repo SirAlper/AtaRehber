@@ -775,8 +775,13 @@ def main(argv=None) -> int:
             registry = build_registry(engine, work_dir, database=not args.no_database)
 
             if "routing" in args.stages:
+                from src.agent.llm import router_model_name
+
+                # As in the workflow: OLLAMA_ROUTER_MODEL routes when it is set
+                router = router_model_name()
+                router_model = chat_model if router == config.OLLAMA_MODEL else create_chat_model(router)
                 print("\n== Routing ==")
-                section = run_routing(chat_model, registry, cases)
+                section = run_routing(router_model, registry, cases)
                 report["summary"]["routing"] = section["summary"]
                 report["details"]["routing"] = section
                 print(f"  accuracy: {_fmt(section['summary']['accuracy'])}")

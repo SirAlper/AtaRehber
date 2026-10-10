@@ -75,6 +75,15 @@ class TestCodeChecks(unittest.TestCase):
             [],
         )
 
+    def test_a_number_computed_from_the_question_and_the_quotes_is_supported(self):
+        quote = "Doçentlik unvanını aldıktan sonra en az beş yıl çalışmış olmak"
+        question = "Unvanını 2020 yılında alan biri en erken hangi yıl yükseltilebilir?"
+        self.assertEqual(unsupported_numbers("En erken 2025 yılında.", [quote], question, ""), [])
+        self.assertEqual(unsupported_numbers("En erken 2027 yılında.", [quote], question, ""), ["2027"])
+        # Only from the quotes: other numbers of the quoted chunk are no basis for a computation
+        self.assertEqual(unsupported_numbers("En erken 2023 yılında.", [quote], question, "", ["üç yıl"]), ["2023"])
+        self.assertEqual(unsupported_numbers("Süre üç yıldır, yani 3 yıl.", [quote], question, "", ["üç yıl"]), [])
+
     def test_transitional_only_evidence_is_detected(self):
         in_force = {"article": "Madde 24 – Doçentlik", "content": "en az elli beş (55) puan"}
         transitional = {"article": "Geçici Madde 47", "content": "65 puan", "used": True}

@@ -91,10 +91,10 @@ REGISTERED SPECIALIST SUB-AGENTS:
 {agent_descriptions}
 
 ROUTING RULES (apply the first rule that matches; route only to agents listed above):
-1. Greeting, small talk, or a question about what you can do -> 'finish', with a short polite reply in 'direct_response' written in {response_language}.
+1. Greeting, small talk, or a question about what you can do -> 'finish', with a short polite reply in 'direct_response' written in {response_language}. Never answer any other question yourself, even when you expect the documents not to cover it (a password, a price, opening hours, a date): it goes to an agent, which checks the documents.
 2. The user asks to open, file, or report a request or ticket, asks about the status of their own requests filed with this assistant (numbered like #12), or wants to cancel or add information to one of them -> request_agent. Records stored in the database tables listed under db_agent (for example a support ticket with a code) belong to rule 3, not here.
 3. The answer is data stored in the database tables listed under db_agent: a count, total, price, quantity, status, or a specific record -> db_agent.
-4. The user describes a specific action that they (or someone else) want to take and asks for a verdict on whether that action is allowed or compliant -> compliance_agent.
+4. The user asks for a compliance verdict on an action or conduct they describe: whether doing it is compliant with the rules, permitted, or a violation ("... uygun mu?", "... kurallara aykırı mı?", "is it compliant to ...?") -> compliance_agent. A question about what the rules entitle someone to or require of them ("can a student with ... take, apply for, or attend ...?", "... -ebilir mi?", "does ... meet the condition?") asks what a rule says and belongs to rule 5, even when it describes a particular person or case.
 5. Everything else -> doc_agent. This includes every question about what a law, regulation, policy, or document says, even when it asks "how many", "how long", or "which" (how many members a board has, how many days of leave apply, which penalty applies). When unsure, choose doc_agent.
 Custom agents listed above take precedence over rules 2-5 when the question clearly falls in their domain.
 Questions may be in Turkish or English; route by meaning.
@@ -108,6 +108,7 @@ EXAMPLES:
 - "Bu yıl kaç yeni müşteri kazandık?" -> db_agent (data stored in the database)
 - "Yönetim kurulu kaç üyeden oluşur?" -> doc_agent (asks what a regulation says)
 - "Ziyaretçiler binaya hangi saatlerde girebilir?" -> doc_agent (asks what the rule is)
+- "İki dersten kalan bir öğrenci yaz okuluna kayıt olabilir mi?" -> doc_agent (asks what the rule allows for such a case, not for a compliance verdict)
 - "Ziyaretçimi mesai saatleri dışında binaya almam uygun mu?" -> compliance_agent (verdict on the user's own action)
 - "B204'teki projektör çalışmıyor, arıza kaydı açar mısın?" -> request_agent
 - "TKT-2025-77 kodlu destek kaydı ne durumda?" -> db_agent (a record stored in a database table, not one of the user's requests)
