@@ -12,6 +12,7 @@ from langchain_ollama import ChatOllama
 from ollama import ResponseError
 
 from src.agent import llm
+from src.agent.multi_agent.orchestrator_graph import _run_agent
 from src.agent.prompts import with_thinking_guide
 from src.api.main import app
 from src.api.state import QueryConcurrencyManager
@@ -144,10 +145,28 @@ class TestThinking(unittest.TestCase):
                 return ollama_reply("", done_reason="length", thinking="Madde 30'a bakalım...")
             return ollama_reply("Yaş haddi 67'dir.")
 
-        with patch.object(ChatOllama, "_generate", autospec=True, side_effect=generate):
+        with (
+            patch.object(ChatOllama, "_generate", autospec=True, side_effect=generate),
+            llm.recording_thinking_fallbacks() as fallbacks,
+        ):
             reply = self._thinking_model().invoke("Emeklilik yaş haddi kaçtır?")
         self.assertEqual(calls, [True, False])
         self.assertEqual(reply.content, "Yaş haddi 67'dir.")
+        self.assertEqual(fallbacks, ["token_limit"])
+
+    def test_fallbacks_of_an_agent_step_are_noted_in_its_trace(self):
+        class Agent:
+            name = "doc_agent"
+
+            def execute(self, state):
+                llm._note_fallback("token_limit")
+                return {"final_answer": "67", "agent_trace": [{"agent": "supervisor"}, {"agent": "doc_agent"}]}
+
+        output = _run_agent(Agent(), {})
+        self.assertEqual(output["agent_trace"][-1]["thinking_fallbacks"], ["token_limit"])
+        self.assertNotIn("thinking_fallbacks", output["agent_trace"][0])
+        # Outside an agent step nothing is collected
+        llm._note_fallback("token_limit")
 
     def test_thinking_left_in_the_reply_is_removed(self):
         reply = ollama_reply("<think>\nMadde 30 diyor ki...\n</think>\n\nYaş haddi 67'dir.")

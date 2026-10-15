@@ -136,6 +136,19 @@ class TestDocAgentSelfRag(unittest.TestCase):
         out = self._agent(chat).execute({"question": "How many leave days?"})
         self.assertEqual((out["final_answer"], out["hallucination_grade"]), ("20 days.", "yes"))
 
+    def test_text_in_another_script_written_again_is_removed(self):
+        chat = MagicMock()
+        replies = iter(["20 days规定 apply.", "20 days规定 apply."])
+
+        def invoke(messages):
+            if messages[0].content.startswith(SYSTEM_PROMPT_GRADER_QUOTES):
+                return MagicMock(content="yes")
+            return MagicMock(content=next(replies))
+
+        chat.invoke.side_effect = invoke
+        out = self._agent(chat).execute({"question": "How many leave days?"})
+        self.assertEqual(out["final_answer"], "20 days apply.")
+
     def test_an_answer_that_slips_into_another_script_is_written_again(self):
         chat = MagicMock()
         replies = iter(["20 days. 条件下不符合规则", "20 days."])
@@ -337,3 +350,13 @@ class TestSupervisorRouting(unittest.TestCase):
         human = self.chat.invoke.call_args[0][0][1].content
         self.assertIn("Top product by sales?", human)
         self.assertIn("db_agent", human)
+
+
+class TestComplianceSearchQueries(unittest.TestCase):
+    def test_letters_of_another_script_are_removed_from_the_queries(self):
+        from src.agent.multi_agent.sub_agents.compliance_agent import ComplianceAuditorAgent
+
+        chat = MagicMock()
+        chat.invoke.return_value = MagicMock(content=json.dumps({"queries": ["spor salonu设施 kullanımı", "设施"]}))
+        agent = ComplianceAuditorAgent(chat_model=chat, rag_engine=MagicMock())
+        self.assertEqual(agent._search_queries("Spor salonunu kullanması uygun mu?"), ["spor salonu kullanımı"])

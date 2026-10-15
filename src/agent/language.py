@@ -104,9 +104,25 @@ def foreign_script(text: str, allowed: str = "") -> bool:
     """Whether the text has letters of a non-Latin script (Chinese, Cyrillic, Arabic) that `allowed` (the
     documents, the question) does not have: multilingual models now and then slip into Chinese mid-answer."""
     known = set(str(allowed))
-    return any(
-        c.isalpha() and c not in known and not unicodedata.name(c, "").startswith("LATIN") for c in str(text or "")
-    )
+    return any(_is_foreign(c, known) for c in str(text or ""))
+
+
+def _is_foreign(char: str, known: set) -> bool:
+    if char in known:
+        return False
+    if char.isalpha():
+        return not unicodedata.name(char, "").startswith("LATIN")
+    # Chinese punctuation that comes with Chinese words ("，", "。")
+    return unicodedata.name(char, "").startswith(("CJK", "IDEOGRAPHIC", "FULLWIDTH"))
+
+
+def strip_foreign_script(text: str, allowed: str = "") -> str:
+    """The text without the letters foreign_script finds: the last resort when an answer written again still has
+    them. A word left half Latin ("açıkça规定 eder") keeps its Latin part."""
+    known = set(str(allowed))
+    # A foreign punctuation mark separates words: it becomes a space, a foreign letter is dropped
+    kept = "".join(("" if c.isalpha() else " ") if _is_foreign(c, known) else c for c in str(text or ""))
+    return re.sub(r"[ \t]{2,}", " ", kept)
 
 
 def _has_turkish_suffix(token: str) -> bool:

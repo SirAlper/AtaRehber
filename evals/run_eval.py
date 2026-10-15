@@ -55,6 +55,7 @@ TRACE_KEYS = (
     "first_objection",
     "first_verdict",
     "objections",
+    "thinking_fallbacks",
     "duration_ms",
 )
 # RAGEngine.search() default candidate pool (n_results)
@@ -491,6 +492,8 @@ def run_e2e(chat_model, registry, cases: List[Dict[str, Any]]) -> Dict[str, Any]
         "language_match_rate": rate(records, "language_match"),
         "out_of_scope_refusal_rate": rate(unanswerable, "refused"),
         "errors": sum(1 for r in records if r["error"]),
+        # Thinking calls answered again without thinking (they reached OLLAMA_THINK_NUM_PREDICT)
+        "thinking_fallbacks": sum(len(step.get("thinking_fallbacks", [])) for r in records for step in r["trace"]),
         "latency_p50_s": metrics.percentile(latencies, 50),
         "latency_p95_s": metrics.percentile(latencies, 95),
         "answer_accuracy_by_category": {},
@@ -521,6 +524,8 @@ def print_e2e(section: Dict[str, Any]) -> None:
         if r.get("language_match") is False:
             print(f"    wrong language: {r['id']} ({r['agent']})")
     print(f"  latency p50 / p95             : {s['latency_p50_s']}s / {s['latency_p95_s']}s")
+    if s.get("thinking_fallbacks"):
+        print(f"  thinking fell back to direct  : {s['thinking_fallbacks']} call(s)")
     if s["errors"]:
         print(f"  ERRORS                        : {s['errors']}")
 

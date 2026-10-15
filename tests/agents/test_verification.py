@@ -10,7 +10,7 @@ from langchain_core.messages import AIMessage
 from src.agent.language import message
 from src.agent.multi_agent.orchestrator_graph import _combined_verification
 from src.agent.grading import cited_sentences, grade_from_quotes, grade_from_sentences, number_sentences
-from src.agent.language import foreign_script
+from src.agent.language import foreign_script, strip_foreign_script
 from src.agent.self_rag import refine_answer
 from src.agent.verification import (
     PARTIAL,
@@ -243,6 +243,11 @@ class TestRelevanceAndScript(unittest.TestCase):
         self.assertFalse(foreign_script("İtiraz süresi 15 gündür (Madde 54/10): %50, â, ş."))
         # A script the documents use is not foreign
         self.assertFalse(foreign_script("Katsayı α ile gösterilir.", allowed="α katsayısı"))
+        # Last resort when the answer written again still has them: the letters are removed, the rest is kept
+        self.assertEqual(
+            strip_foreign_script("Bu madde açıkça规定 eder，değişim yok."), "Bu madde açıkça eder değişim yok."
+        )
+        self.assertEqual(strip_foreign_script("Katsayı α ile gösterilir.", allowed="α"), "Katsayı α ile gösterilir.")
         # The editor slipped into Chinese: the draft is kept
         editor = Grader([], ["15 gün. 不符合规则"])
         self.assertEqual(refine_answer(editor, CONTEXT, "Süre?", "30 gün.", "tr"), "30 gün.")

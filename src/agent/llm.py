@@ -5,6 +5,7 @@ OLLAMA_THINK_TASKS do (for_task), all others reply directly. The thinking is ret
 the reply holds only the answer.
 """
 
+import contextvars
 import json
 import os
 import re
@@ -12,6 +13,7 @@ import threading
 import time
 import urllib.error
 import urllib.request
+from contextlib import contextmanager
 from typing import Any, Optional
 
 from langchain_ollama import ChatOllama
@@ -75,6 +77,28 @@ def supports_thinking(model: str) -> bool:
     return _thinking_support[model]
 
 
+# Thinking calls answered again without thinking, by reason ("token_limit", "cannot_think"), while a
+# recording_thinking_fallbacks() block runs (one agent step); None outside such a block
+_thinking_fallbacks: contextvars.ContextVar = contextvars.ContextVar("thinking_fallbacks", default=None)
+
+
+@contextmanager
+def recording_thinking_fallbacks():
+    """Collects the reasons of the thinking calls made inside the block that fell back to a direct reply."""
+    fallbacks: list = []
+    token = _thinking_fallbacks.set(fallbacks)
+    try:
+        yield fallbacks
+    finally:
+        _thinking_fallbacks.reset(token)
+
+
+def _note_fallback(reason: str) -> None:
+    fallbacks = _thinking_fallbacks.get()
+    if fallbacks is not None:
+        fallbacks.append(reason)
+
+
 class OllamaChatModel(ChatOllama):
     """ChatOllama that answers a thinking call again without thinking when it cannot think or ran out of tokens.
 
@@ -95,6 +119,7 @@ class OllamaChatModel(ChatOllama):
                 raise
             logger.warning(f"[LLM] '{self.model}' cannot think ({e}); asking it without thinking.")
             _thinking_support[self.model] = False
+            _note_fallback("cannot_think")
             kwargs.pop("reasoning", None)
             return self._without_thinking()._generate(messages, stop, run_manager, **kwargs)
 
@@ -105,6 +130,7 @@ class OllamaChatModel(ChatOllama):
                 f"[LLM] '{self.model}' reached the token limit ({self.num_predict}) after {thought} characters of "
                 "thinking; answering again without thinking."
             )
+            _note_fallback("token_limit")
             kwargs.pop("reasoning", None)
             return self._without_thinking()._generate(messages, stop, run_manager, **kwargs)
         if isinstance(generation.message.content, str) and "think>" in generation.message.content:

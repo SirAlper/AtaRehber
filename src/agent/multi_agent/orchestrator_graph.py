@@ -10,7 +10,13 @@ from langgraph.graph import StateGraph, END
 from langgraph.checkpoint.memory import MemorySaver
 
 from src.agent.language import message, response_language
-from src.agent.llm import create_chat_model, for_task, grader_model_name, router_model_name
+from src.agent.llm import (
+    create_chat_model,
+    for_task,
+    grader_model_name,
+    recording_thinking_fallbacks,
+    router_model_name,
+)
 from src.agent.multi_agent.base import BaseSubAgent
 from src.agent.multi_agent.state import MultiAgentState
 from src.agent.multi_agent.registry import AgentRegistry, agent_registry
@@ -58,6 +64,21 @@ def _combined_verification(results: List[Dict[str, Any]]) -> Dict[str, Any]:
     level = min((v.get("level", "unverified") for v in checked), key=lambda lv: order.index(lv) if lv in order else 0)
     issues = list(dict.fromkeys(issue for v in checked for issue in v.get("issues", [])))
     return {"level": level, "issues": issues}
+
+
+def _run_agent(agent: BaseSubAgent, step_state: Dict[str, Any]) -> Dict[str, Any]:
+    """agent.execute(); thinking calls that fell back to a direct reply (token limit reached) are noted in the
+    agent's last trace entry as "thinking_fallbacks"."""
+    with recording_thinking_fallbacks() as fallbacks:
+        output = agent.execute(step_state) or {}
+    if not fallbacks:
+        return output
+    trace = list(output.get("agent_trace") or [])
+    for index in range(len(trace) - 1, -1, -1):
+        if trace[index].get("agent") == agent.name:
+            trace[index] = {**trace[index], "thinking_fallbacks": list(fallbacks)}
+            break
+    return {**output, "agent_trace": trace}
 
 
 def _last_status(trace: List[Dict[str, Any]], agent_name: str) -> str:
@@ -281,11 +302,11 @@ class MultiAgentOrchestrator:
         streaming client.
         """
         if AGENT_STEP_TIMEOUT_SECONDS <= 0:
-            return agent.execute(step_state) or {}
+            return _run_agent(agent, step_state)
         context = contextvars.copy_context()
-        future = _STEP_POOL.submit(context.run, agent.execute, step_state)
+        future = _STEP_POOL.submit(context.run, _run_agent, agent, step_state)
         try:
-            return future.result(timeout=AGENT_STEP_TIMEOUT_SECONDS) or {}
+            return future.result(timeout=AGENT_STEP_TIMEOUT_SECONDS)
         except StepTimeout:
             logger.error(f"[Orchestrator] '{agent.name}' took longer than {AGENT_STEP_TIMEOUT_SECONDS}s; giving up")
             language = response_language(step_state.get("question", ""), step_state.get("chat_history", []))
@@ -342,10 +363,12 @@ class MultiAgentOrchestrator:
         parts = [{"agent": r["display_name"], "question": r["question"], "answer": r["answer"]} for r in effective]
         fallback = "\n\n".join(f"**{r['display_name']}**\n\n{r['answer']}" for r in effective)
         synthesis_grade = ""
+        fallbacks: List[str] = []
         try:
             model = for_task(self.chat_model, "synthesis")
             messages = with_thinking_guide(build_synthesis_messages(question, parts, language), model, "synthesis")
-            response = model.invoke(messages)
+            with recording_thinking_fallbacks() as fallbacks:
+                response = model.invoke(messages)
             answer = response.content.strip() or fallback
             status = "success"
         except Exception as e:
@@ -386,6 +409,7 @@ class MultiAgentOrchestrator:
                 "action": "synthesize",
                 "combined_agents": [r["agent"] for r in effective],
                 "hallucination_grade": synthesis_grade,
+                **({"thinking_fallbacks": list(fallbacks)} if fallbacks else {}),
                 "duration_ms": 0,
                 "status": status,
                 "timestamp": _now(),

@@ -5,7 +5,14 @@ from datetime import datetime, timezone
 from typing import Dict, Any, List, Optional
 
 from langchain_core.messages import SystemMessage, HumanMessage
-from src.agent.language import language_instruction, message, response_language
+from src.agent.language import (
+    SUPPORTED_LANGUAGES,
+    foreign_script,
+    language_instruction,
+    message,
+    response_language,
+    strip_foreign_script,
+)
 from src.agent.llm import for_task, json_mode
 from src.agent.multi_agent.base import BaseSubAgent
 from src.agent.multi_agent.registry import register_agent
@@ -171,8 +178,10 @@ class ComplianceAuditorAgent(BaseSubAgent):
         verification = None
         # For the trace: the first verdict and why a verdict was sent back or dropped
         first_verdict, objections = "", []
+        # Text in another script is removed from the report unless the rules or the scenario use it
+        allowed = f"{context}\n{question}"
         try:
-            audit_report = self._report(prompt, scenario)
+            audit_report = self._report(prompt, scenario, allowed, language)
             label = _VERDICT_LABEL.search(audit_report)
             first_verdict = label.group(1) if label else ""
             # The verdict and the rules it cites must be in the retrieved rules: a wrong VIOLATION is costly.
@@ -185,7 +194,7 @@ class ComplianceAuditorAgent(BaseSubAgent):
                 logger.warning(f"[{self.name}] Verdict not supported by the rules: {check.objection}")
                 objections.append(check.objection or check.grade)
                 revision = f"{scenario}\n\nAn auditor rejected the previous verdict: {check.objection}"
-                audit_report = self._report(prompt, revision)
+                audit_report = self._report(prompt, revision, allowed, language)
                 check = check_answer(
                     self.grader_model, context, question, _verdict_part(audit_report), sources, "", False, self.name
                 )
@@ -236,16 +245,25 @@ class ComplianceAuditorAgent(BaseSubAgent):
                 [SystemMessage(content=SEARCH_QUERIES_PROMPT.format(count=count)), HumanMessage(content=question)]
             )
             data = json.loads(re.sub(r"^```(?:json)?\s*|\s*```$", "", reply.content.strip()))
-            queries = [str(q).strip() for q in data.get("queries") or [] if isinstance(q, str) and q.strip()]
+            # A word in another script ("设施") finds nothing in the documents
+            queries = [
+                strip_foreign_script(q, question).strip() for q in data.get("queries") or [] if isinstance(q, str)
+            ]
+            queries = [q for q in queries if q]
             return [q for q in queries if len(q) <= 200][:count]
         except Exception as e:
             logger.info(f"[{self.name}] No search queries from the model, searching with the scenario: {e}")
             return []
 
-    def _report(self, prompt: str, scenario: str) -> str:
+    def _report(self, prompt: str, scenario: str, allowed: str = "", language: str = "") -> str:
+        """The audit report; letters of another script than the rules and the scenario use are removed."""
         model = for_task(self.chat_model, "compliance")
         messages = [SystemMessage(content=prompt), HumanMessage(content=scenario)]
-        return model.invoke(with_thinking_guide(messages, model, "compliance")).content.strip()
+        report = model.invoke(with_thinking_guide(messages, model, "compliance")).content.strip()
+        if config.ANSWER_SCRIPT_CHECK and language in SUPPORTED_LANGUAGES and foreign_script(report, allowed):
+            logger.warning(f"[{self.name}] The report has text in another script; removing it.")
+            report = strip_foreign_script(report, allowed)
+        return report
 
 
 # The report's third heading ("### 🔍 3. ...") starts the risk assessment, which is analysis rather than a rule

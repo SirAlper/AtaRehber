@@ -10,6 +10,7 @@ from src.agent.language import (
     SUPPORTED_LANGUAGES,
     foreign_script,
     language_instruction,
+    strip_foreign_script,
     message,
     response_language,
 )
@@ -200,6 +201,9 @@ class DocumentRagAgent(BaseSubAgent):
             if retry_status == "success" and rewritten:
                 if not self._has_foreign_script(rewritten, language, context, question):
                     answer, tools_called = rewritten, tools_called + retry_tools
+            if self._has_foreign_script(answer, language, context, question):
+                logger.warning(f"[{self.name}] Written again with text in another script; removing it.")
+                answer = strip_foreign_script(answer, f"{context}\n{question}")
         answer_quotes = []
         if not generation_failed and config.ANSWER_EVIDENCE_FIRST:
             answer_quotes, answer = split_evidence(answer)
