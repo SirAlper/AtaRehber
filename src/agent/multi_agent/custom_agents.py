@@ -20,6 +20,7 @@ from pydantic import BaseModel, Field, field_validator
 
 
 from src.agent.language import language_instruction, message, response_language
+from src.agent.llm import for_task
 from src.agent.multi_agent.base import BaseSubAgent
 from src.agent.multi_agent.registry import AgentRegistry, agent_registry
 from src.agent.multi_agent.tools import TOOLS, ToolRun, available_tools, build_tools, run_with_tools
@@ -215,7 +216,8 @@ class CustomAgent(BaseSubAgent):
             HumanMessage(content=user_text),
         ]
 
-        answer, tools_called, status = run_with_tools(self.chat_model, messages, tools, self.name)
+        # Thinks like doc_agent ("answer" in OLLAMA_THINK_TASKS); its rules come from the admin's instructions
+        answer, tools_called, status = run_with_tools(for_task(self.chat_model, "answer"), messages, tools, self.name)
 
         grade, is_refined = "", False
         verification = None

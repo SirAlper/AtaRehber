@@ -11,7 +11,9 @@ from src.core.config import (
     MODELS_DIR,
     LOCAL_EMBEDDING_PATH,
     LOCAL_RERANKER_PATH,
+    LLM_BACKEND,
     OLLAMA_MODEL,
+    VLLM_MODEL,
 )
 
 os.makedirs(MODELS_DIR, exist_ok=True)
@@ -22,14 +24,14 @@ models = [
         "repo_id": "BAAI/bge-m3",
         "local_dir": LOCAL_EMBEDDING_PATH,
         "est_size": "~2.2 GB",
-        "key_file": "config.json"
+        "key_file": "config.json",
     },
     {
         "name": "2/2 - Cross-Encoder Reranker Model (BAAI/bge-reranker-v2-m3)",
         "repo_id": "BAAI/bge-reranker-v2-m3",
         "local_dir": LOCAL_RERANKER_PATH,
         "est_size": "~1.1 GB",
-        "key_file": "config.json"
+        "key_file": "config.json",
     },
 ]
 # The LLM is not downloaded here: it is served by Ollama (`ollama pull <model>`)
@@ -63,7 +65,7 @@ if __name__ == "__main__":
                 repo_id=item["repo_id"],
                 local_dir=item["local_dir"],
                 resume_download=True,
-                ignore_patterns=["*.onnx", "*.onnx_data", "onnx/*", "imgs/*", "*.jpg", "*.png"]
+                ignore_patterns=["*.onnx", "*.onnx_data", "onnx/*", "imgs/*", "*.jpg", "*.png"],
             )
             print(f"[SUCCESS] {item['name']} ready.")
         except KeyboardInterrupt:
@@ -82,5 +84,8 @@ if __name__ == "__main__":
         sys.exit(1)
     else:
         print("✅ Retrieval models verified and available in './models' directory!")
-        print(f"   Next, pull the LLM with Ollama: ollama pull {OLLAMA_MODEL}")
+        if LLM_BACKEND == "vllm":
+            print(f"   Next, start the LLM server: vllm serve {VLLM_MODEL} --reasoning-parser qwen3")
+        else:
+            print(f"   Next, pull the LLM with Ollama: ollama pull {OLLAMA_MODEL}")
     print("=" * 70)

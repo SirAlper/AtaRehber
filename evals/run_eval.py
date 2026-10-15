@@ -732,6 +732,7 @@ def main(argv=None) -> int:
     work_dir = tempfile.mkdtemp(prefix="olra_eval_")
     _isolate_environment(work_dir)
     try:
+        from src.agent import llm
         from src.core import config
 
         report: Dict[str, Any] = {
@@ -744,12 +745,15 @@ def main(argv=None) -> int:
             "config": {
                 "embedding_model": os.path.basename(config.EMBEDDING_MODEL_NAME),
                 "reranker_model": os.path.basename(config.RERANKER_MODEL_NAME),
-                "llm_backend": "ollama",
-                "llm_model": config.OLLAMA_MODEL,
-                "router_model": config.OLLAMA_ROUTER_MODEL or config.OLLAMA_MODEL,
-                "grader_model": config.OLLAMA_GRADER_MODEL or config.OLLAMA_MODEL,
+                "llm_backend": config.LLM_BACKEND,
+                "llm_model": llm.llm_model_name(),
+                "router_model": llm.router_model_name(),
+                "grader_model": llm.grader_model_name(),
                 "ollama_num_ctx": config.OLLAMA_NUM_CTX,
                 "ollama_num_predict": config.OLLAMA_NUM_PREDICT,
+                "ollama_think_tasks": sorted(config.OLLAMA_THINK_TASKS),
+                "ollama_think_num_predict": config.OLLAMA_THINK_NUM_PREDICT,
+                "ollama_seed": config.OLLAMA_SEED,
                 "rag_min_similarity": config.RAG_MIN_SIMILARITY,
                 "rag_min_reranker_score": config.RAG_MIN_RERANKER_SCORE,
                 "reranker_top_n": config.RERANKER_TOP_N,
@@ -777,16 +781,18 @@ def main(argv=None) -> int:
         print(f"Evaluating {len(cases)} cases, stages: {', '.join(args.stages)}")
 
         if {"routing", "e2e", "grader", "agents"} & set(args.stages):
-            from src.agent.llm import check_ollama
-
             # Fail fast instead of recording an error for every question
-            llm_problem = check_ollama()
+            llm_problem = llm.check_llm()
             if llm_problem:
                 print(f"LLM not available: {llm_problem}")
                 return 1
-            print(f"LLM: {config.OLLAMA_MODEL} via Ollama at {config.OLLAMA_BASE_URL}")
-            if config.OLLAMA_GRADER_MODEL and config.OLLAMA_GRADER_MODEL != config.OLLAMA_MODEL:
-                print(f"Answers are checked by: {config.OLLAMA_GRADER_MODEL}")
+            if config.LLM_BACKEND == "vllm":
+                print(f"LLM: {config.VLLM_MODEL} via vLLM at {config.VLLM_BASE_URL}")
+            else:
+                print(f"LLM: {config.OLLAMA_MODEL} via Ollama at {config.OLLAMA_BASE_URL}")
+            print(f"Thinking for: {', '.join(sorted(config.OLLAMA_THINK_TASKS)) or 'none'}")
+            if llm.grader_model_name() != llm.llm_model_name():
+                print(f"Answers are checked by: {llm.grader_model_name()}")
 
         # Routing only needs the agents' descriptions, not the vector store
         engine = None
@@ -815,7 +821,7 @@ def main(argv=None) -> int:
 
                 # As in the workflow: OLLAMA_ROUTER_MODEL routes when it is set
                 router = router_model_name()
-                router_model = chat_model if router == config.OLLAMA_MODEL else create_chat_model(router)
+                router_model = chat_model if router == llm.llm_model_name() else create_chat_model(router)
                 print("\n== Routing ==")
                 section = run_routing(router_model, registry, cases)
                 report["summary"]["routing"] = section["summary"]

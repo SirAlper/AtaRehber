@@ -18,7 +18,7 @@ from typing import Any, Dict, Optional
 from langchain_core.messages import HumanMessage, SystemMessage
 
 from src.agent.language import category_label, confirmation_reply, language_name, message, response_language
-from src.agent.llm import json_mode
+from src.agent.llm import for_task, json_mode
 from src.agent.multi_agent.base import BaseSubAgent
 from src.agent.multi_agent.registry import register_agent
 from src.agent.prompts import ORGANIZATION
@@ -281,7 +281,7 @@ class ServiceRequestAgent(BaseSubAgent):
         ]
         user_text = ("Recent conversation:\n" + "\n".join(history) + "\n\nMessage:\n" if history else "") + question
         try:
-            response = json_mode(self.chat_model).invoke(
+            response = json_mode(for_task(self.chat_model, "request")).invoke(
                 [SystemMessage(content=prompt), HumanMessage(content=user_text)]
             )
             text = re.sub(r"^```(?:json)?\s*|\s*```$", "", response.content.strip(), flags=re.IGNORECASE)

@@ -13,14 +13,14 @@ The LLM runs in a local [Ollama](https://ollama.com) server; the API process onl
 | **Operating System** | Ubuntu 22.04 LTS / Windows 11 / macOS | Ubuntu 22.04 LTS / Windows 11 / RHEL 9 |
 | **Python** | 3.12+ | 3.12 or 3.13 |
 | **System RAM** | 8 GB | 16 GB - 32 GB |
-| **GPU / VRAM** | Optional (Ollama also runs on CPU, slowly) | NVIDIA GPU with 6 GB+ VRAM for `qwen2.5:7b`, 12 GB+ for 14B models |
-| **Ollama** | Latest release | Latest release |
+| **GPU / VRAM** | Optional (Ollama also runs on CPU, slowly) | NVIDIA GPU with 8 GB+ VRAM for `qwen3:8b`, 12 GB+ for 14B models |
+| **Ollama** | 0.9+ (thinking models) | Latest release |
 
 > **Memory Allocation (default settings):**  
 > - `bge-m3` embedding model: ~1.1 GB RAM (CPU, in the API process)  
 > - `bge-reranker-v2-m3` reranker model: ~1.1 GB RAM (CPU, in the API process)  
-> - `qwen2.5:7b` LLM: ~4.7 GB, 4-bit quantized by Ollama, in VRAM when a GPU is available  
-> - Smaller GPUs: `qwen2.5:3b` (~1.9 GB) fits in 4 GB of VRAM. Measure the quality difference with the [evaluation harness](evaluation.md).
+> - `qwen3:8b` LLM: ~5.2 GB, 4-bit quantized by Ollama, plus ~1.2 GB for the 8192-token context, in VRAM when a GPU is available  
+> - Smaller GPUs: `qwen2.5:7b` (~4.7 GB, no thinking) fits a 6 GB card with `OLLAMA_NUM_CTX=4096`; `qwen2.5:3b` (~1.9 GB) fits in 4 GB of VRAM. Measure the quality difference with the [evaluation harness](evaluation.md).
 
 ---
 
@@ -61,10 +61,28 @@ pip install -r requirements.txt
 ### 5. Install Ollama and Pull the LLM
 Install Ollama from [ollama.com/download](https://ollama.com/download), then pull the default model:
 ```bash
-ollama pull qwen2.5:7b
+ollama pull qwen3:8b
 ollama list            # the model should be listed; this also confirms the server is running
 ```
-To use another model, pull it and set `OLLAMA_MODEL` in `.env`. The API logs a clear error at startup (and `GET /api/v1/stats` reports `llm_status`) if the server is unreachable or the model has not been pulled.
+To use another model, pull it and set `OLLAMA_MODEL` in `.env`.
+
+`qwen3:8b` thinks before it replies for the tasks in `OLLAMA_THINK_TASKS` (default: document answers, compliance verdicts, and combined answers); routing, search queries, and the answer check reply directly, because thinking makes a call several times slower. The thinking is not shown to the user. A thinking call that reaches `OLLAMA_THINK_NUM_PREDICT` tokens is answered again without thinking. `OLLAMA_THINK_TASKS=none` turns thinking off; models without thinking (`qwen2.5`) ignore the setting. The API logs a clear error at startup (and `GET /api/v1/stats` reports `llm_status`) if the server is unreachable or the model has not been pulled.
+
+#### Alternative: vLLM (TPU or GPU)
+[vLLM](https://docs.vllm.ai) serves the Hugging Face model (`Qwen/Qwen3-8B`, bf16, about 16 GB) through an OpenAI-compatible API; on a TPU it runs with the [vLLM TPU](https://docs.vllm.ai/projects/tpu/en/latest/) build (`pip install vllm-tpu`, TPU v6e: a v5e chip's 16 GB cannot hold the 8B model with its context). Start the server, then point the application at it:
+```bash
+vllm serve Qwen/Qwen3-8B --max-model-len 16384 --reasoning-parser qwen3     --enable-auto-tool-choice --tool-call-parser hermes
+```
+```ini
+LLM_BACKEND=vllm
+VLLM_BASE_URL=http://localhost:8000/v1
+VLLM_MODEL=Qwen/Qwen3-8B
+```
+* `--reasoning-parser qwen3` returns the thinking apart from the reply; thinking is switched per call by Qwen3's chat template (`enable_thinking`), following `OLLAMA_THINK_TASKS` as with Ollama.
+* The context window is the server's `--max-model-len`, not `OLLAMA_NUM_CTX`. A request that does not fit fails instead of being cut; a thinking call is then asked again without thinking.
+* JSON tasks (routing, the answer check) use vLLM's structured output (`response_format`); a server that rejects it is asked without it.
+* One server serves one model: `OLLAMA_ROUTER_MODEL` and `OLLAMA_GRADER_MODEL` are ignored.
+* `evals/colab_tpu_eval.ipynb` sets all of this up on a Colab TPU v6e-1 and runs the evaluation there.
 
 ---
 
@@ -97,10 +115,14 @@ PASSWORD_REQUIRE_SPECIAL=false
 
 # ─── LLM (Ollama) ───
 OLLAMA_BASE_URL=http://localhost:11434
-OLLAMA_MODEL=qwen2.5:7b
-OLLAMA_NUM_CTX=4096
+OLLAMA_MODEL=qwen3:8b
+OLLAMA_NUM_CTX=8192
 # Longest reply in tokens (a longer one is cut off):
 OLLAMA_NUM_PREDICT=512
+# Tasks for which qwen3 thinks before it replies ("all", "none", or a list), and their longest reply:
+OLLAMA_THINK_TASKS=answer,compliance,synthesis
+OLLAMA_THINK_NUM_PREDICT=2048
+OLLAMA_SEED=42
 # Layers on the GPU (empty = Ollama decides; 99 = all, e.g. qwen2.5:7b on a 6 GB card):
 OLLAMA_NUM_GPU=
 OLLAMA_NUM_PARALLEL=4

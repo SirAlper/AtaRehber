@@ -24,7 +24,7 @@ python -m venv .venv
 pip install torch --index-url https://download.pytorch.org/whl/cpu
 pip install -r requirements-dev.txt
 python download_model.py       # embedding + reranker models
-ollama pull qwen2.5:7b         # the LLM, served by Ollama (https://ollama.com)
+ollama pull qwen3:8b           # the LLM, served by Ollama (https://ollama.com)
 ```
 The tests stub the LLM and do not need Ollama. Running the app and the evaluation's routing and end-to-end stages do.
 

@@ -6,7 +6,7 @@ from typing import Any, Dict, List, Optional
 
 from langchain_core.messages import SystemMessage, HumanMessage
 from src.agent.language import confirmation_reply, language_name, message, response_language
-from src.agent.llm import create_chat_model, json_mode, router_model_name
+from src.agent.llm import create_chat_model, for_task, json_mode, router_model_name
 from src.agent.multi_agent.registry import AgentRegistry, agent_registry
 from src.agent.prompts import ORGANIZATION
 from src.auth.document_access import GUEST_ROLE
@@ -340,7 +340,7 @@ class SupervisorAgent:
             human_content = f"{user_note}\n\n{human_content}"
 
         try:
-            response = json_mode(self.chat_model).invoke(
+            response = json_mode(for_task(self.chat_model, "router")).invoke(
                 [SystemMessage(content=prompt), HumanMessage(content=human_content)]
             )
             json_text = re.sub(r"^```(?:json)?\s*", "", response.content.strip(), flags=re.IGNORECASE)

@@ -67,16 +67,41 @@ GUEST_SESSION_MINUTES = int(os.getenv("GUEST_SESSION_MINUTES", "120"))
 # Questions per minute of one guest session (accounts: RATE_LIMIT_PER_MINUTE)
 GUEST_RATE_LIMIT_PER_MINUTE = int(os.getenv("GUEST_RATE_LIMIT_PER_MINUTE", "10"))
 
-# ──────────────────────────── LLM (OLLAMA) ────────────────────────────
-# The LLM is served by Ollama (https://ollama.com); no LLM weights are loaded in this process.
-# Pull the model once before starting: `ollama pull qwen2.5:7b`
+# ──────────────────────────── LLM (OLLAMA OR VLLM) ────────────────────────────
+# The LLM runs in a separate server; no LLM weights are loaded in this process. "ollama" (https://ollama.com,
+# GPU or CPU) or "vllm" (an OpenAI-compatible vLLM server, e.g. on a TPU; see docs/installation.md).
+LLM_BACKEND = os.getenv("LLM_BACKEND", "ollama").strip().lower()
+# vLLM: the server's OpenAI API, the model it serves (Hugging Face name), and its --api-key if one is set. Start
+# the server with `--reasoning-parser qwen3` so qwen3's thinking comes apart from the reply. The context window is
+# the server's --max-model-len. OLLAMA_NUM_PREDICT, OLLAMA_THINK_*, OLLAMA_SEED, and OLLAMA_NUM_PARALLEL apply to
+# vLLM too; separate router and grader models do not (one server serves one model).
+VLLM_BASE_URL = os.getenv("VLLM_BASE_URL", "http://localhost:8000/v1")
+VLLM_MODEL = os.getenv("VLLM_MODEL", "Qwen/Qwen3-8B")
+VLLM_API_KEY = os.getenv("VLLM_API_KEY", "").strip() or "EMPTY"
+# Ollama: pull the model once before starting: `ollama pull qwen3:8b`
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
-OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen2.5:7b")
+OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen3:8b")
 # Context window in tokens. Set explicitly because some Ollama versions default to 2048 and silently
-# drop the start of longer prompts (system prompt and retrieved context).
-OLLAMA_NUM_CTX = int(os.getenv("OLLAMA_NUM_CTX", "4096"))
+# drop the start of longer prompts (system prompt and retrieved context). The model's thinking is part of the
+# context too: 8192 fits four article chunks, the neighbouring pieces, and OLLAMA_THINK_NUM_PREDICT.
+OLLAMA_NUM_CTX = int(os.getenv("OLLAMA_NUM_CTX", "8192"))
 # Longest reply in tokens; a longer one is cut off (a compliance report with four sections comes close to 512)
 OLLAMA_NUM_PREDICT = int(os.getenv("OLLAMA_NUM_PREDICT", "512"))
+# Thinking models (qwen3) think before they reply. Tasks that think: "answer" (doc_agent and custom agents),
+# "compliance" (verdict report), "synthesis" (combining several agents' answers), "refine", "grader", "router",
+# "rewrite", "clarify", "queries" (compliance search queries), "sql", "explain" (database results), "request";
+# "all" or "none". Thinking makes these calls several times slower; the JSON and short tasks gain little from it.
+# Models without thinking (qwen2.5) ignore the setting.
+_THINK_TASKS = os.getenv("OLLAMA_THINK_TASKS", "answer,compliance,synthesis").strip().lower()
+OLLAMA_THINK_TASKS = frozenset(
+    {"all"} if _THINK_TASKS == "all" else {t.strip() for t in _THINK_TASKS.split(",") if t.strip() not in ("", "none")}
+)
+# Longest reply of a thinking call in tokens, thinking included. A call that reaches it is answered again
+# without thinking (OLLAMA_NUM_PREDICT), so the answer is never cut off in the middle of the thinking.
+OLLAMA_THINK_NUM_PREDICT = int(os.getenv("OLLAMA_THINK_NUM_PREDICT", "2048"))
+# Seed of the sampling of thinking calls (they sample, see src/agent/llm.py), so a run can be repeated; empty
+# samples freely
+OLLAMA_SEED = int(os.getenv("OLLAMA_SEED", "42").strip() or -1)
 # Model layers Ollama puts on the GPU; empty lets Ollama decide. Ollama keeps a safety margin and moves the last
 # layers of qwen2.5:7b to the CPU on a 6 GB card; 99 forces all layers on the GPU (about 4x faster prompt
 # processing there). Too high a value for the free VRAM makes loading the model fail.

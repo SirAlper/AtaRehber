@@ -4,7 +4,7 @@ from typing import Any, Optional
 
 from src.rag.document_loader import DocumentLoader
 from src.rag.rag_engine import RAGEngine
-from src.agent.llm import check_ollama, create_chat_model
+from src.agent.llm import check_llm, create_chat_model
 from src.connectors.db_connector import DatabaseConnector
 from src.connectors.sample_db import create_sample_sqlite_db
 from src.connectors.db_loader import DatabaseTableLoader
@@ -182,12 +182,12 @@ def init_services():
 
     logger.info(f"[Agents] {sync_custom_agents()} custom agent(s) loaded.")
 
-    # The API still starts without Ollama (documents, users, audit work); queries fail until it is available
-    llm_problem = check_ollama()
+    # The API still starts without the LLM server (documents, users, audit work); queries fail until it is available
+    llm_problem = check_llm()
     if llm_problem:
         logger.error(f"[LLM] {llm_problem}")
     else:
-        logger.info("[LLM] Ollama server reachable and model available.")
+        logger.info("[LLM] LLM server reachable and model available.")
 
     auto_index_on_startup()
     index_faq_on_startup()

@@ -143,7 +143,7 @@ export function ChatPage() {
       case "handoff":
         return t("progress.handoff", { agent: agentName(t, event.to) });
       case "progress":
-        return ["searching", "writing", "verifying", "refining"].includes(event.stage) ? t(`progress.${event.stage}`) : null;
+        return ["searching", "reasoning", "writing", "verifying", "refining"].includes(event.stage) ? t(`progress.${event.stage}`) : null;
       default:
         return null;
     }

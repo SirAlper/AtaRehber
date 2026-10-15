@@ -6,10 +6,10 @@ from typing import Dict, Any, List, Optional
 
 from langchain_core.messages import SystemMessage, HumanMessage
 from src.agent.language import language_instruction, message, response_language
-from src.agent.llm import json_mode
+from src.agent.llm import for_task, json_mode
 from src.agent.multi_agent.base import BaseSubAgent
 from src.agent.multi_agent.registry import register_agent
-from src.agent.prompts import ORGANIZATION, step_context_text
+from src.agent.prompts import ORGANIZATION, step_context_text, with_thinking_guide
 from src.auth.profile import profile_note
 from src.agent.verification import UNVERIFIED, VERIFIED, check_answer
 from src.core import config
@@ -232,7 +232,7 @@ class ComplianceAuditorAgent(BaseSubAgent):
         if count <= 0:
             return []
         try:
-            reply = json_mode(self.chat_model).invoke(
+            reply = json_mode(for_task(self.chat_model, "queries")).invoke(
                 [SystemMessage(content=SEARCH_QUERIES_PROMPT.format(count=count)), HumanMessage(content=question)]
             )
             data = json.loads(re.sub(r"^```(?:json)?\s*|\s*```$", "", reply.content.strip()))
@@ -243,8 +243,9 @@ class ComplianceAuditorAgent(BaseSubAgent):
             return []
 
     def _report(self, prompt: str, scenario: str) -> str:
-        response = self.chat_model.invoke([SystemMessage(content=prompt), HumanMessage(content=scenario)])
-        return response.content.strip()
+        model = for_task(self.chat_model, "compliance")
+        messages = [SystemMessage(content=prompt), HumanMessage(content=scenario)]
+        return model.invoke(with_thinking_guide(messages, model, "compliance")).content.strip()
 
 
 # The report's third heading ("### 🔍 3. ...") starts the risk assessment, which is analysis rather than a rule

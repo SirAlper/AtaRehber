@@ -10,13 +10,13 @@ from langgraph.graph import StateGraph, END
 from langgraph.checkpoint.memory import MemorySaver
 
 from src.agent.language import message, response_language
-from src.agent.llm import create_chat_model, grader_model_name, router_model_name
+from src.agent.llm import create_chat_model, for_task, grader_model_name, llm_model_name, router_model_name
 from src.agent.multi_agent.base import BaseSubAgent
 from src.agent.multi_agent.state import MultiAgentState
 from src.agent.multi_agent.registry import AgentRegistry, agent_registry
 from src.agent.multi_agent.supervisor import SupervisorAgent
 from src.agent.grading import is_grade_passed
-from src.agent.prompts import build_synthesis_grader_messages, build_synthesis_messages
+from src.agent.prompts import build_synthesis_grader_messages, build_synthesis_messages, with_thinking_guide
 from src.auth.document_access import GUEST_ROLE
 import src.agent.multi_agent.sub_agents  # noqa: F401  Ensures built-in sub-agents are loaded & registered
 from src.core.config import (
@@ -24,7 +24,6 @@ from src.core.config import (
     CHAT_HISTORY_MAX_TURNS,
     MAX_AGENT_HANDOFFS,
     MULTI_AGENT_CONVERSATIONS_DB,
-    OLLAMA_MODEL,
 )
 from src.core.logger import get_logger
 
@@ -90,10 +89,10 @@ class MultiAgentOrchestrator:
         self.chat_model = chat_model or create_chat_model()
         # Separate models per task only when configured; otherwise the answer model does everything
         self.router_model = router_model or (
-            self.chat_model if router_model_name() == OLLAMA_MODEL else create_chat_model(router_model_name())
+            self.chat_model if router_model_name() == llm_model_name() else create_chat_model(router_model_name())
         )
         self.grader_model = grader_model or (
-            self.chat_model if grader_model_name() == OLLAMA_MODEL else create_chat_model(grader_model_name())
+            self.chat_model if grader_model_name() == llm_model_name() else create_chat_model(grader_model_name())
         )
         self.registry = registry or agent_registry
         self.supervisor = SupervisorAgent(chat_model=self.router_model, registry=self.registry)
@@ -343,7 +342,9 @@ class MultiAgentOrchestrator:
         fallback = "\n\n".join(f"**{r['display_name']}**\n\n{r['answer']}" for r in effective)
         synthesis_grade = ""
         try:
-            response = self.chat_model.invoke(build_synthesis_messages(question, parts, language))
+            model = for_task(self.chat_model, "synthesis")
+            messages = with_thinking_guide(build_synthesis_messages(question, parts, language), model, "synthesis")
+            response = model.invoke(messages)
             answer = response.content.strip() or fallback
             status = "success"
         except Exception as e:
@@ -352,9 +353,9 @@ class MultiAgentOrchestrator:
         if answer != fallback:
             partial_answers = "\n\n".join(f"[{p['agent']}] {p['answer']}" for p in parts)
             try:
-                synthesis_grade = self.grader_model.invoke(
-                    build_synthesis_grader_messages(partial_answers, question, answer)
-                ).content.strip()
+                grader = for_task(self.grader_model, "grader")
+                messages = build_synthesis_grader_messages(partial_answers, question, answer)
+                synthesis_grade = grader.invoke(messages).content.strip()
             except Exception as e:
                 logger.error(f"[Orchestrator] Could not check the combined answer: {e}")
                 synthesis_grade = "no (grader unavailable)"

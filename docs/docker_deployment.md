@@ -85,12 +85,12 @@ docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d --build
 ```
 
 #### Option C: Use an Ollama Already Running on the Host
-Set `OLLAMA_BASE_URL=http://host.docker.internal:11434` in `.env` (Docker Desktop; on Linux use the host IP), pull the model on the host (`ollama pull qwen2.5:7b`), and start only the backend and the web UI:
+Set `OLLAMA_BASE_URL=http://host.docker.internal:11434` in `.env` (Docker Desktop; on Linux use the host IP), pull the model on the host (`ollama pull qwen3:8b`), and start only the backend and the web UI:
 ```bash
 docker compose up -d --build --no-deps backend web
 ```
 
-On the first start (options A and B), `ollama-pull` downloads `OLLAMA_MODEL` (~4.7 GB for `qwen2.5:7b`). The UI and API are available right away; questions work once the download has finished (`docker compose logs -f ollama-pull`).
+On the first start (options A and B), `ollama-pull` downloads `OLLAMA_MODEL` (~5.2 GB for `qwen3:8b`). The UI and API are available right away; questions work once the download has finished (`docker compose logs -f ollama-pull`).
 
 ### Step 3: Access Applications
 * **Web UI (React):** `http://localhost:8080`
@@ -145,8 +145,8 @@ Copy `.env.example` to `.env` in the project root (next to `docker-compose.yml`)
 # ─── LLM (Ollama) ───
 # The bundled ollama service; the ollama-pull job pulls OLLAMA_MODEL on the first start
 OLLAMA_BASE_URL=http://ollama:11434
-OLLAMA_MODEL=qwen2.5:7b
-OLLAMA_NUM_CTX=4096
+OLLAMA_MODEL=qwen3:8b
+OLLAMA_NUM_CTX=8192
 OLLAMA_NUM_PARALLEL=4
 
 # ─── Authentication & RBAC ───

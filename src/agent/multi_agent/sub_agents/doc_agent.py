@@ -13,7 +13,7 @@ from src.agent.language import (
     message,
     response_language,
 )
-from src.agent.llm import json_mode
+from src.agent.llm import for_task, is_thinking, json_mode
 from src.agent.multi_agent.base import BaseSubAgent
 from src.agent.multi_agent.clarify import clarification_text, is_about_the_asker, parse_clarification
 from src.agent.multi_agent.registry import register_agent
@@ -26,6 +26,7 @@ from src.agent.prompts import (
     build_rewrite_messages,
     split_evidence,
     step_context_text,
+    with_thinking_guide,
 )
 from src.auth.profile import profile_note
 from src.agent.verification import NOT_FOUND, UNVERIFIED, VERIFIED, verify_answer
@@ -130,9 +131,11 @@ class DocumentRagAgent(BaseSubAgent):
         search_query = question
         if needs_rewrite(question, chat_history, has_profile=bool(user_note)):
             try:
-                rewritten = self.chat_model.invoke(
-                    build_rewrite_messages(question, chat_history, user_note)
-                ).content.strip()
+                rewritten = (
+                    for_task(self.chat_model, "rewrite")
+                    .invoke(build_rewrite_messages(question, chat_history, user_note))
+                    .content.strip()
+                )
                 if rewritten and len(rewritten) < 500:
                     search_query = rewritten
                     logger.info(f"[{self.name}] Query rewritten to: '{search_query}'")
@@ -173,7 +176,8 @@ class DocumentRagAgent(BaseSubAgent):
             }
 
         # 5. Generate the answer (optionally copying its evidence first, optionally with calculator and dates)
-        self.report_progress("writing")
+        answer_model = for_task(self.chat_model, "answer")
+        self.report_progress("reasoning" if is_thinking(answer_model) else "writing")
         run = ToolRun()
         messages = build_rag_messages(
             context,
@@ -184,14 +188,15 @@ class DocumentRagAgent(BaseSubAgent):
             user_note=user_note,
             earlier_steps=earlier_steps,
         )
+        messages = with_thinking_guide(messages, answer_model, "answer")
         tools = build_tools(["calculator", "dates"], run, state) if config.DOC_AGENT_TOOLS else []
-        answer, tools_called, status = run_with_tools(self.chat_model, messages, tools, self.name)
+        answer, tools_called, status = run_with_tools(answer_model, messages, tools, self.name)
         generation_failed = status != "success" or not answer
         if not generation_failed and self._has_foreign_script(answer, language, context, question):
             # Multilingual models now and then continue in Chinese mid-answer: written again once
             logger.warning(f"[{self.name}] The answer has text in another script, writing it again.")
             retry = messages + [AIMessage(content=answer), HumanMessage(content=language_instruction(language))]
-            rewritten, retry_tools, retry_status = run_with_tools(self.chat_model, retry, tools, self.name)
+            rewritten, retry_tools, retry_status = run_with_tools(answer_model, retry, tools, self.name)
             if retry_status == "success" and rewritten:
                 if not self._has_foreign_script(rewritten, language, context, question):
                     answer, tools_called = rewritten, tools_called + retry_tools
@@ -270,7 +275,9 @@ class DocumentRagAgent(BaseSubAgent):
             return None
         try:
             # The best-matching passage only: rules of neighbouring passages made the model ask the wrong thing
-            reply = json_mode(self.chat_model).invoke(build_clarify_messages(context, question, language, user_note))
+            reply = json_mode(for_task(self.chat_model, "clarify")).invoke(
+                build_clarify_messages(context, question, language, user_note)
+            )
             data = json.loads(re.sub(r"^```(?:json)?\s*|\s*```$", "", reply.content.strip()))
         except Exception as e:
             logger.warning(f"[{self.name}] Clarification check failed, answering directly: {e}")

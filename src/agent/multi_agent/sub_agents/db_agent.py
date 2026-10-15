@@ -9,6 +9,7 @@ from typing import Dict, Any, Optional
 from langchain_core.messages import SystemMessage, HumanMessage
 from src.agent.data_check import rows_table, unsupported_data_numbers
 from src.agent.language import language_instruction, message, response_language
+from src.agent.llm import for_task
 from src.agent.multi_agent.base import BaseSubAgent
 from src.agent.multi_agent.registry import register_agent
 from src.agent.prompts import step_context_text
@@ -138,7 +139,7 @@ class DatabaseAgent(BaseSubAgent):
         if earlier_steps:
             human_content = f"{earlier_steps}{human_content}"
         try:
-            sql_response = self.chat_model.invoke(
+            sql_response = for_task(self.chat_model, "sql").invoke(
                 [
                     SystemMessage(content=prompt),
                     HumanMessage(content=human_content),
@@ -255,7 +256,8 @@ class DatabaseAgent(BaseSubAgent):
         for _ in range(2):
             content = explain_prompt + (f"\n\nA reviewer found: {objection}" if objection else "")
             try:
-                answer = self.chat_model.invoke([system, HumanMessage(content=content)]).content.strip()
+                answer = for_task(self.chat_model, "explain").invoke([system, HumanMessage(content=content)])
+                answer = answer.content.strip()
             except Exception as e:
                 logger.error(f"[{self.name}] Error synthesizing SQL results: {e}")
                 return "", "error"

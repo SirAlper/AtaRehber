@@ -12,8 +12,13 @@ from src.agent.grading import (
     verified_quotes,
 )
 from src.agent.language import SUPPORTED_LANGUAGES, foreign_script
-from src.agent.llm import json_mode
-from src.agent.prompts import build_evidence_grader_messages, build_grader_messages, build_refine_messages
+from src.agent.llm import for_task, json_mode
+from src.agent.prompts import (
+    build_evidence_grader_messages,
+    build_grader_messages,
+    build_refine_messages,
+    with_thinking_guide,
+)
 from src.core import config
 from src.core.logger import get_logger
 
@@ -33,6 +38,7 @@ def grade_with_evidence(
     objection: the first objection, for a second look at a rejected answer; None for the first look.
     Raises when the model fails in JSON mode and as plain text.
     """
+    grader_model = for_task(grader_model, "grader")
     by_sentences = config.GRADER_MODE == "sentences"
     numbered, sentences = number_sentences(context) if by_sentences else (context, [])
     messages = build_evidence_grader_messages(
@@ -43,6 +49,7 @@ def grade_with_evidence(
         relevance=config.GRADER_RELEVANCE_CHECK,
         objection=objection,
     )
+    messages = with_thinking_guide(messages, grader_model, "grader")
     try:
         response = json_mode(grader_model).invoke(messages)
     except Exception as e:
@@ -66,7 +73,7 @@ def grade_answer_with_quotes(grader_model, context: str, question: str, answer: 
     try:
         if config.GRADER_MODE != "simple":
             return grade_with_evidence(grader_model, context, question, answer, agent_name)
-        response = grader_model.invoke(build_grader_messages(context, question, answer))
+        response = for_task(grader_model, "grader").invoke(build_grader_messages(context, question, answer))
         return response.content.strip(), [], True
     except Exception as e:
         logger.error(f"[{agent_name}] Grading error, treating answer as unverified: {e}")
@@ -83,8 +90,9 @@ def refine_answer(
 ) -> str:
     """Prune claims from the draft that the context does not support (the grader's objection first)."""
     try:
+        chat_model = for_task(chat_model, "refine")
         messages = build_refine_messages(context, question, draft_answer, language, objection=objection)
-        response = chat_model.invoke(messages)
+        response = chat_model.invoke(with_thinking_guide(messages, chat_model, "refine"))
         refined = response.content.strip() or draft_answer
         allowed = f"{context}\n{question}\n{draft_answer}"
         if config.ANSWER_SCRIPT_CHECK and language in SUPPORTED_LANGUAGES and foreign_script(refined, allowed):

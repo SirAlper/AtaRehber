@@ -4,6 +4,7 @@ from typing import Optional
 from langchain_core.messages import SystemMessage, HumanMessage
 
 from src.agent.language import language_instruction, message
+from src.agent.llm import is_thinking
 from src.core.config import ORGANIZATION_NAME
 
 # "Example University" or a neutral wording; the assistant serves companies, universities, and public bodies
@@ -137,6 +138,42 @@ SYSTEM_PROMPT_REWRITE = (
     "2. Keep the rewritten query concise (under 50 words).\n"
     "3. Return ONLY the rewritten query text, nothing else."
 )
+
+
+# What a thinking model (qwen3, OLLAMA_THINK_TASKS) checks while it thinks, per task: the mistakes the checks of
+# src/agent/verification.py find most often. The reply itself stays the answer alone.
+THINKING_GUIDES = {
+    "answer": (
+        "While thinking: find the sentences of the Context that answer the Question; tell the general rule from its "
+        "exceptions and the provisions in force from transitional articles; check that every number you will write "
+        "is stated in the Context for this case. In the reply, write only the answer."
+    ),
+    "compliance": (
+        "While thinking: list each condition, limit, deadline, or prohibition the rules above set for this scenario "
+        "and check whether the scenario meets it; the verdict follows from these checks, and [UNDETERMINED] if no "
+        "rule addresses it. In the reply, write only the report."
+    ),
+    "synthesis": (
+        "While thinking: work out any comparison or calculation the question needs from the partial answers. In the "
+        "reply, write only the final answer."
+    ),
+    "refine": (
+        "While thinking: check each claim of the Draft Answer against the Context, the Auditor's objection first. In "
+        "the reply, write only the corrected answer."
+    ),
+    "grader": (
+        "While thinking: find, for each key fact of the Answer, the sentence of the Context that states it, and "
+        "compare numbers and conditions word by word. In the reply, write only the JSON."
+    ),
+}
+
+
+def with_thinking_guide(messages: list, chat_model, task: str) -> list:
+    """messages with the THINKING_GUIDES entry of the task added to the system prompt, when chat_model thinks."""
+    guide = THINKING_GUIDES.get(task)
+    if not guide or not is_thinking(chat_model) or not messages or not isinstance(messages[0], SystemMessage):
+        return messages
+    return [SystemMessage(content=f"{messages[0].content}\n{guide}"), *messages[1:]]
 
 
 # ──────────────────────────── MESSAGE BUILDERS ────────────────────────────

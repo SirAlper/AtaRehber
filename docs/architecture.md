@@ -57,7 +57,7 @@
 │                                        │  │                                      │
 │  ┌──────────────────────────────────┐  │  │  Separate Ollama server process      │
 │  │ ChromaDB Vector Store            │  │  │  - LangChain ChatOllama client       │
-│  │ - BAAI/bge-m3 Dense Vectors      │  │  │  - Default model: qwen2.5:7b         │
+│  │ - BAAI/bge-m3 Dense Vectors      │  │  │  - Default model: qwen3:8b           │
 │  │ - Contextual Chunking Headers    │  │  │                                      │
 │  └──────────────────────────────────┘  │  │  - Explicit context window (num_ctx) │
 │  ┌──────────────────────────────────┐  │  │  - Startup check: server reachable,  │
@@ -255,8 +255,9 @@ A stronger grader than the answer model catches more of what the 7B model shares
 * **Zero Cloud Leakage:** Audit logs reside strictly on local storage.
 
 ### 3. LLM Serving (Ollama) & Concurrency Protection
-* **Separate server:** The LLM runs in an [Ollama](https://ollama.com) server (`OLLAMA_BASE_URL`, default model `qwen2.5:7b`). The API process loads no LLM weights, so it starts quickly, and switching models is a matter of `ollama pull <model>` plus `OLLAMA_MODEL`.
-* **Explicit context window:** Requests set `num_ctx` (`OLLAMA_NUM_CTX`, default 4096) because some Ollama versions default to 2048 tokens and silently drop the beginning of longer prompts, i.e. the system prompt and retrieved context.
+* **Separate server:** The LLM runs in an [Ollama](https://ollama.com) server (`OLLAMA_BASE_URL`, default model `qwen3:8b`). The API process loads no LLM weights, so it starts quickly, and switching models is a matter of `ollama pull <model>` plus `OLLAMA_MODEL`.
+* **Explicit context window:** Requests set `num_ctx` (`OLLAMA_NUM_CTX`, default 8192) because some Ollama versions default to 2048 tokens and silently drop the beginning of longer prompts, i.e. the system prompt and retrieved context.
+* **Thinking per task:** every call says whether the model thinks (`for_task()` in `src/agent/llm.py`, `OLLAMA_THINK_TASKS`). By default document answers, compliance verdicts, and combined answers think; routing, rewriting, search queries, and the answer check reply directly. Thinking calls sample (temperature 0.6, fixed `OLLAMA_SEED`) and may use `OLLAMA_THINK_NUM_PREDICT` tokens; one that reaches the limit is answered again without thinking. The thinking is kept out of the reply, the conversation history, and the API response.
 * **Availability check:** At startup the API checks that the server is reachable and the model is pulled, and logs an actionable error (`ollama pull …`) otherwise. The API still starts, so documents, users, and the audit log remain usable; `GET /api/v1/stats` reports the state as `llm_status`.
 * **Concurrency:** Queries are capped by `asyncio.Semaphore(OLLAMA_NUM_PARALLEL)`. Match it to the server's own `OLLAMA_NUM_PARALLEL` setting. At most `MAX_QUEUED_QUERIES` (default 10) further questions wait for a slot; beyond that the API answers HTTP 503 at once and the web UI says the assistant is busy, instead of a timeout after 180 s. A question that arrives while Ollama is down or lacks a model gets HTTP 503 with `X-Error-Code: llm_unavailable` (`LLM_STATUS_CHECK`), and the web UI says the language model is not running. A good value is about 180 s divided by the seconds a question takes, minus `OLLAMA_NUM_PARALLEL`.
 * **Model choice is measured:** on the evaluation set, `qwen2.5:7b` answers 95% of the questions correctly versus 73% for the previous in-process 1.5B model (see [Evaluation](evaluation.md#-current-results)).

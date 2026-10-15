@@ -25,7 +25,7 @@
 * 🔐 **Enterprise Authentication & RBAC:** JWT access/refresh tokens with revocation on password change, bcrypt password hashing, mandatory replacement of the default password, per-account login lockout, and three access tiers (`admin`, `editor`, `viewer`).
 * 📜 **Tamper-Evident Compliance Audit Trail:** SQLite-backed audit logging (`data/audit.db`) recording all queries, document uploads/deletions, SQL queries, user logins, and errors with IP tracking and execution latency (ms). Entries form a SHA-256 hash chain verifiable via `GET /api/v1/admin/audit-verify`; export the returned `head_hash` periodically to also detect truncation.
 * 🧠 **Multi-Turn Conversational Memory:** Persistent LangGraph SQLite checkpointer (`data/multi_agent_conversations.db`) with user-isolated session threads (`{username}_{session_id}`). The supervisor, document search, and SQL generation all use recent turns, so follow-up questions work.
-* 🚀 **LLM Served by Ollama:** The LLM runs in a local [Ollama](https://ollama.com) server (default `qwen2.5:7b`), so the API process loads no LLM weights and switching models is one setting (`OLLAMA_MODEL`). Routing and answer checking can use their own models (`OLLAMA_ROUTER_MODEL`, `OLLAMA_GRADER_MODEL`). Parallel requests are capped by `OLLAMA_NUM_PARALLEL`.
+* 🚀 **LLM Served by Ollama:** The LLM runs in a local [Ollama](https://ollama.com) server (default `qwen3:8b`, which thinks before it answers, compliance verdicts, and combined answers: `OLLAMA_THINK_TASKS`), so the API process loads no LLM weights and switching models is one setting (`OLLAMA_MODEL`). Routing and answer checking can use their own models (`OLLAMA_ROUTER_MODEL`, `OLLAMA_GRADER_MODEL`). Parallel requests are capped by `OLLAMA_NUM_PARALLEL`.
 * 🗄️ **Universal Database Connector:** Connects to **PostgreSQL, MSSQL, MySQL, Oracle, and SQLite** via an SQLAlchemy abstraction layer with token-level SQL validation, database-enforced read-only sessions (SQLite/PostgreSQL/MySQL), and automated table vectorization. For production, connect with a SELECT-only database account.
 * 🤝 **Agents That Work Together:** composite questions get one step per agent and a combined answer that draws the conclusion; a step can use what an earlier one found; an ambiguous question about the asker's own case ("Kaç gün izin hakkım var?") gets one question back with options; answers follow the user's unit, program, and level; slow steps are given up without losing the others. Database answers state only values of the query result, and compliance verdicts must rest on the retrieved rules.
 * 🔁 **Learns From Its Gaps:** questions the documents do not answer are listed for staff; their answers become searchable at once and reach everyone who asked (a bell in the web UI). Admins see each agent's speed, unverified answers, errors, and ratings.
@@ -41,7 +41,7 @@
 
 Answer quality is measured, not assumed. The [evaluation harness](docs/evaluation.md) runs 51 labeled questions through the real models: document questions, compliance scenarios, database questions, greetings, and questions the documents do not answer.
 
-Default configuration, `qwen2.5:7b` via Ollama on an RTX 3060 Laptop GPU (6 GB):
+Measured with `qwen2.5:7b` via Ollama on an RTX 3060 Laptop GPU (6 GB), the default before `qwen3:8b`:
 
 | Metric | Result |
 | :--- | :---: |
@@ -97,7 +97,7 @@ pip install -r requirements.txt
 ### 2. Download Models (One-time Setup)
 Install [Ollama](https://ollama.com/download) and pull the LLM, then download the embedding and reranker models to `./models`:
 ```bash
-ollama pull qwen2.5:7b
+ollama pull qwen3:8b
 python download_model.py
 ```
 
