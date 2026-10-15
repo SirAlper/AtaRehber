@@ -89,9 +89,9 @@ python -m evals.run_eval --stages all
 Remove-Item Env:OLLAMA_MODEL
 ```
 
-The routing and end-to-end stages need a running Ollama server with `OLLAMA_MODEL` pulled (or, with `LLM_BACKEND=vllm`, a vLLM server serving `VLLM_MODEL`); the harness checks this first and stops with the fix if not. Each report records the model under `config.llm_model` and the server under `config.llm_backend`.
+The routing and end-to-end stages need a running Ollama server with `OLLAMA_MODEL` pulled; the harness checks this first and stops with the fix if not. Each report records the model under `config.llm_model`.
 
-Two notebooks run the evaluation in the cloud: `evals/kaggle_eval.ipynb` (Ollama on a Kaggle GPU, several models and settings) and `evals/colab_tpu_eval.ipynb` (`Qwen/Qwen3-8B` served by vLLM on a Colab TPU v6e-1, several settings; reports saved to Google Drive). Their numbers are not directly comparable: Ollama runs a 4-bit quantized model, vLLM the bf16 weights.
+Two notebooks run the evaluation on a cloud GPU with Ollama, once per model and per setting to compare: `evals/kaggle_eval.ipynb` (Kaggle, reports downloaded from the session) and `evals/colab_eval.ipynb` (Google Colab, reports saved to Google Drive).
 
 LLM output varies slightly between runs, so treat differences of one or two questions as noise.
 

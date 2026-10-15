@@ -5,13 +5,10 @@ import unittest
 import urllib.error
 from unittest.mock import MagicMock, patch
 
-import httpx
-import openai
 from fastapi.testclient import TestClient
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langchain_core.outputs import ChatGeneration, ChatResult
 from langchain_ollama import ChatOllama
-from langchain_openai import ChatOpenAI
 from ollama import ResponseError
 
 from src.agent import llm
@@ -180,122 +177,6 @@ class TestThinking(unittest.TestCase):
         self.assertIs(with_thinking_guide(messages, self._model(), "answer"), messages)
 
 
-def json_response(data):
-    """Fake urlopen response with a JSON body."""
-    response = io.BytesIO(json.dumps(data).encode())
-    response.__enter__ = lambda self=response: self
-    response.__exit__ = lambda *args: False
-    return response
-
-
-def bad_request(text):
-    request = httpx.Request("POST", "http://localhost:8000/v1/chat/completions")
-    return openai.BadRequestError(text, response=httpx.Response(400, request=request), body=None)
-
-
-def openai_reply(content, finish_reason="stop"):
-    """Fake ChatOpenAI._generate result."""
-    return ChatResult(
-        generations=[
-            ChatGeneration(message=AIMessage(content=content), generation_info={"finish_reason": finish_reason})
-        ]
-    )
-
-
-class TestVllmBackend(unittest.TestCase):
-    def setUp(self):
-        patches = [
-            patch.object(llm, "LLM_BACKEND", "vllm"),
-            patch.object(llm, "VLLM_MODEL", "Qwen/Qwen3-8B"),
-            patch.object(llm, "VLLM_BASE_URL", "http://localhost:8000/v1"),
-            patch.object(llm, "OLLAMA_THINK_TASKS", frozenset({"answer"})),
-            patch.object(llm, "OLLAMA_THINK_NUM_PREDICT", 2048),
-            patch.object(llm, "OLLAMA_SEED", 42),
-        ]
-        for item in patches:
-            item.start()
-            self.addCleanup(item.stop)
-        llm._no_json_mode.clear()
-        self.addCleanup(llm._no_json_mode.clear)
-
-    def test_vllm_model_replies_without_thinking_by_default(self):
-        model = llm.create_chat_model()
-        self.assertIsInstance(model, llm.VllmChatModel)
-        self.assertEqual((model.model_name, model.openai_api_base), ("Qwen/Qwen3-8B", "http://localhost:8000/v1"))
-        self.assertFalse(llm.is_thinking(model))
-        self.assertEqual(model.temperature, 0.0)
-        self.assertEqual(model.max_tokens, llm.OLLAMA_NUM_PREDICT)
-        self.assertEqual(model.extra_body, {"chat_template_kwargs": {"enable_thinking": False}})
-        self.assertEqual(llm.configured_models(), ["Qwen/Qwen3-8B"])
-
-    def test_thinking_task_switches_qwen3_thinking_on_in_the_request(self):
-        model = llm.for_task(llm.create_chat_model(), "answer")
-        self.assertTrue(llm.is_thinking(model))
-        self.assertEqual((model.temperature, model.top_p, model.max_tokens, model.seed), (0.6, 0.95, 2048, 42))
-        payload = model._get_request_payload([HumanMessage(content="Soru")])
-        self.assertEqual(payload["extra_body"], {"chat_template_kwargs": {"enable_thinking": True}, "top_k": 20})
-        self.assertFalse(llm.is_thinking(llm.for_task(model, "router")))
-
-    def test_json_mode_asks_for_a_json_object(self):
-        bound = llm.json_mode(llm.create_chat_model())
-        self.assertEqual(bound.kwargs, {"response_format": {"type": "json_object"}})
-
-    def test_reply_cut_off_while_thinking_is_answered_again_without_thinking(self):
-        calls = []
-
-        def generate(model, messages, stop=None, run_manager=None, **kwargs):
-            calls.append(model.enable_thinking)
-            return openai_reply("", "length") if model.enable_thinking else openai_reply("Yaş haddi 67'dir.")
-
-        with patch.object(ChatOpenAI, "_generate", autospec=True, side_effect=generate):
-            reply = llm.for_task(llm.create_chat_model(), "answer").invoke("Emeklilik yaş haddi kaçtır?")
-        self.assertEqual(calls, [True, False])
-        self.assertEqual(reply.content, "Yaş haddi 67'dir.")
-
-    def test_prompt_too_long_for_thinking_is_answered_without_thinking(self):
-        calls = []
-
-        def generate(model, messages, stop=None, run_manager=None, **kwargs):
-            calls.append(model.enable_thinking)
-            if model.enable_thinking:
-                raise bad_request("This model's maximum context length is 8192 tokens.")
-            return openai_reply("Cevap")
-
-        with patch.object(ChatOpenAI, "_generate", autospec=True, side_effect=generate):
-            self.assertEqual(llm.for_task(llm.create_chat_model(), "answer").invoke("Soru").content, "Cevap")
-        self.assertEqual(calls, [True, False])
-
-    def test_thinking_without_the_reasoning_parser_is_removed_from_the_reply(self):
-        reply = openai_reply("Madde 30 diyor ki...\n</think>\n\nYaş haddi 67'dir.")
-        with patch.object(ChatOpenAI, "_generate", autospec=True, return_value=reply):
-            self.assertEqual(llm.create_chat_model().invoke("Soru").content, "Yaş haddi 67'dir.")
-
-    def test_server_without_json_mode_is_asked_without_it(self):
-        formats = []
-
-        def generate(model, messages, stop=None, run_manager=None, **kwargs):
-            formats.append(kwargs.get("response_format"))
-            if "response_format" in kwargs:
-                raise bad_request("guided decoding is not supported on this platform")
-            return openai_reply('{"steps": []}')
-
-        model = llm.json_mode(llm.create_chat_model())
-        with patch.object(ChatOpenAI, "_generate", autospec=True, side_effect=generate):
-            self.assertEqual(model.invoke("Soru").content, '{"steps": []}')
-            model.invoke("Soru")
-        self.assertEqual(formats, [{"type": "json_object"}, None, None])
-
-    def test_check_reports_the_served_models(self):
-        served = json_response({"data": [{"id": "Qwen/Qwen3-8B"}]})
-        with patch("urllib.request.urlopen", return_value=served):
-            self.assertIsNone(llm.check_llm())
-        other = json_response({"data": [{"id": "Qwen/Qwen3-4B"}]})
-        with patch("urllib.request.urlopen", return_value=other):
-            self.assertIn("vllm serve Qwen/Qwen3-8B", llm.check_llm())
-        with patch("urllib.request.urlopen", side_effect=urllib.error.URLError("connection refused")):
-            self.assertIn("vLLM server is not reachable", llm.check_llm())
-
-
 class TestCheckOllama(unittest.TestCase):
     def test_ok_when_model_is_pulled(self):
         with (
@@ -340,7 +221,7 @@ class TestStatsAndConcurrency(unittest.TestCase):
         with (
             patch("src.services.document_service.get_rag_engine", return_value=mock_engine),
             patch("src.services.document_service.get_db_connector", return_value=mock_connector),
-            patch("src.services.document_service.check_llm", return_value=llm_problem),
+            patch("src.services.document_service.check_ollama", return_value=llm_problem),
         ):
             resp = self.client.get("/api/v1/stats", headers=self.auth_headers)
         self.assertEqual(resp.status_code, 200)

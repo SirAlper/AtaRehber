@@ -129,7 +129,7 @@ class TestLlmStatusCache(unittest.TestCase):
         self.addCleanup(llm._status.update, checked_at=None, problem=None)
 
     def test_the_check_is_reused_for_a_while_then_repeated(self):
-        with patch("src.agent.llm.check_llm", MagicMock(side_effect=["down", None])) as check:
+        with patch("src.agent.llm.check_ollama", MagicMock(side_effect=["down", None])) as check:
             self.assertEqual(llm.llm_problem(max_age=60), "down")
             self.assertEqual(llm.llm_problem(max_age=60), "down")
             self.assertEqual(check.call_count, 1)

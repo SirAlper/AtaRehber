@@ -10,14 +10,14 @@ import asyncio
 from typing import Any, Dict, Iterable, Optional
 from fastapi import HTTPException, UploadFile
 
-from src.agent.llm import check_llm, grader_model_name, llm_model_name, router_model_name
+from src.agent.llm import check_ollama, grader_model_name, router_model_name
 from src.api.state import get_rag_engine, get_db_connector, get_document_loader
 from src.core.audit import audit_logger
 from src.auth.document_access import access_metadata, document_access_store, normalize_groups
 from src.core.config import (
     DOCS_PATH,
     EMBEDDING_MODEL_NAME,
-    LLM_BACKEND,
+    OLLAMA_MODEL,
     OLLAMA_BASE_URL,
     MAX_UPLOAD_SIZE_MB,
     ALLOWED_UPLOAD_EXTENSIONS,
@@ -45,15 +45,15 @@ class DocumentService:
         connector = get_db_connector()
         db_stats = _visible_stats(engine.get_stats(), role, groups)
         db_conn_info = connector.test_connection()
-        llm_problem = check_llm(timeout=2.0)
+        llm_problem = check_ollama(timeout=2.0)
 
         return {
             "status": "success",
-            # Device of the embedding and reranker models; the LLM runs wherever its server runs
+            # Device of the embedding and reranker models; the LLM runs wherever Ollama runs
             "device": "CUDA (NVIDIA GPU)" if RAG_DEVICE.startswith("cuda") else "CPU",
-            "llm_backend": LLM_BACKEND,
+            "llm_backend": "ollama",
             "embedding_model": EMBEDDING_MODEL_NAME,
-            "llm_model": llm_model_name(),
+            "llm_model": OLLAMA_MODEL,
             "router_model": router_model_name(),
             "grader_model": grader_model_name(),
             "ollama_base_url": OLLAMA_BASE_URL,

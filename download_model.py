@@ -11,9 +11,7 @@ from src.core.config import (
     MODELS_DIR,
     LOCAL_EMBEDDING_PATH,
     LOCAL_RERANKER_PATH,
-    LLM_BACKEND,
     OLLAMA_MODEL,
-    VLLM_MODEL,
 )
 
 os.makedirs(MODELS_DIR, exist_ok=True)
@@ -84,8 +82,5 @@ if __name__ == "__main__":
         sys.exit(1)
     else:
         print("✅ Retrieval models verified and available in './models' directory!")
-        if LLM_BACKEND == "vllm":
-            print(f"   Next, start the LLM server: vllm serve {VLLM_MODEL} --reasoning-parser qwen3")
-        else:
-            print(f"   Next, pull the LLM with Ollama: ollama pull {OLLAMA_MODEL}")
+        print(f"   Next, pull the LLM with Ollama: ollama pull {OLLAMA_MODEL}")
     print("=" * 70)

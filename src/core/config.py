@@ -67,18 +67,9 @@ GUEST_SESSION_MINUTES = int(os.getenv("GUEST_SESSION_MINUTES", "120"))
 # Questions per minute of one guest session (accounts: RATE_LIMIT_PER_MINUTE)
 GUEST_RATE_LIMIT_PER_MINUTE = int(os.getenv("GUEST_RATE_LIMIT_PER_MINUTE", "10"))
 
-# ──────────────────────────── LLM (OLLAMA OR VLLM) ────────────────────────────
-# The LLM runs in a separate server; no LLM weights are loaded in this process. "ollama" (https://ollama.com,
-# GPU or CPU) or "vllm" (an OpenAI-compatible vLLM server, e.g. on a TPU; see docs/installation.md).
-LLM_BACKEND = os.getenv("LLM_BACKEND", "ollama").strip().lower()
-# vLLM: the server's OpenAI API, the model it serves (Hugging Face name), and its --api-key if one is set. Start
-# the server with `--reasoning-parser qwen3` so qwen3's thinking comes apart from the reply. The context window is
-# the server's --max-model-len. OLLAMA_NUM_PREDICT, OLLAMA_THINK_*, OLLAMA_SEED, and OLLAMA_NUM_PARALLEL apply to
-# vLLM too; separate router and grader models do not (one server serves one model).
-VLLM_BASE_URL = os.getenv("VLLM_BASE_URL", "http://localhost:8000/v1")
-VLLM_MODEL = os.getenv("VLLM_MODEL", "Qwen/Qwen3-8B")
-VLLM_API_KEY = os.getenv("VLLM_API_KEY", "").strip() or "EMPTY"
-# Ollama: pull the model once before starting: `ollama pull qwen3:8b`
+# ──────────────────────────── LLM (OLLAMA) ────────────────────────────
+# The LLM is served by Ollama (https://ollama.com); no LLM weights are loaded in this process.
+# Pull the model once before starting: `ollama pull qwen3:8b`
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen3:8b")
 # Context window in tokens. Set explicitly because some Ollama versions default to 2048 and silently

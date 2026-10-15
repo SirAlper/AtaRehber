@@ -10,7 +10,7 @@ from langgraph.graph import StateGraph, END
 from langgraph.checkpoint.memory import MemorySaver
 
 from src.agent.language import message, response_language
-from src.agent.llm import create_chat_model, for_task, grader_model_name, llm_model_name, router_model_name
+from src.agent.llm import create_chat_model, for_task, grader_model_name, router_model_name
 from src.agent.multi_agent.base import BaseSubAgent
 from src.agent.multi_agent.state import MultiAgentState
 from src.agent.multi_agent.registry import AgentRegistry, agent_registry
@@ -24,6 +24,7 @@ from src.core.config import (
     CHAT_HISTORY_MAX_TURNS,
     MAX_AGENT_HANDOFFS,
     MULTI_AGENT_CONVERSATIONS_DB,
+    OLLAMA_MODEL,
 )
 from src.core.logger import get_logger
 
@@ -89,10 +90,10 @@ class MultiAgentOrchestrator:
         self.chat_model = chat_model or create_chat_model()
         # Separate models per task only when configured; otherwise the answer model does everything
         self.router_model = router_model or (
-            self.chat_model if router_model_name() == llm_model_name() else create_chat_model(router_model_name())
+            self.chat_model if router_model_name() == OLLAMA_MODEL else create_chat_model(router_model_name())
         )
         self.grader_model = grader_model or (
-            self.chat_model if grader_model_name() == llm_model_name() else create_chat_model(grader_model_name())
+            self.chat_model if grader_model_name() == OLLAMA_MODEL else create_chat_model(grader_model_name())
         )
         self.registry = registry or agent_registry
         self.supervisor = SupervisorAgent(chat_model=self.router_model, registry=self.registry)
